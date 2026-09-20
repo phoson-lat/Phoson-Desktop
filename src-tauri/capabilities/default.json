@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Capacidades de la ventana principal (el sidecar se lanza desde Rust, sin permisos de shell en JS)",
   "windows": ["main"],
-  "permissions": ["core:default", "notification:default"]
+  "permissions": ["core:default", "notification:default", "updater:default", "process:default", "dialog:allow-save"]
 }
