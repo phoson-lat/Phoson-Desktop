@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Composer } from "@/features/composer";
+import { CodeViewer } from "@/features/code-viewer";
 import { ContextMeter } from "@/features/context-meter";
 import { FileExplorer } from "@/features/file-explorer";
 import { MessageRow } from "@/features/message";
@@ -43,6 +44,7 @@ export default function App() {  const {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [explorerOpen, setExplorerOpen] = useState(false);
+  const [openFile, setOpenFile] = useState<string | null>(null);
   const [cwd, setCwd] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
@@ -240,12 +242,14 @@ export default function App() {  const {
               cwd={cwd}
               onClose={() => setExplorerOpen(false)}
               onSetCwd={(p) => void setWorkspace(p)}
+              onOpenFile={setOpenFile}
             />
           )}
         </div>
       </div>
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} sessionId={activeKey} />
+      <CodeViewer path={openFile} onClose={() => setOpenFile(null)} />
       {ready && onboardingNeeded && (
         <Onboarding sessionId={activeKey} onDone={finishOnboarding} />
       )}

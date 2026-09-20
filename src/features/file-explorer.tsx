@@ -44,6 +44,8 @@ interface FileExplorerProps {
   /** Workspace actual del agente (cwd del sidecar). */
   cwd: string;
   onSetCwd: (path: string) => void;
+  /** Abre un archivo en el visor de código. */
+  onOpenFile: (path: string) => void;
 }
 
 /**
@@ -51,7 +53,7 @@ interface FileExplorerProps {
  * del agente (el cwd del proceso del sidecar, contra el que los tools resuelven
  * las rutas relativas).
  */
-export function FileExplorer({ onClose, cwd, onSetCwd }: FileExplorerProps) {
+export function FileExplorer({ onClose, cwd, onSetCwd, onOpenFile }: FileExplorerProps) {
   const [path, setPath] = useState(cwd);
   const [data, setData] = useState<FsListResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -154,12 +156,14 @@ export function FileExplorer({ onClose, cwd, onSetCwd }: FileExplorerProps) {
             return (
               <button
                 key={e.name}
-                onClick={() => (e.dir ? void load(joinPath(data!.path, e.name)) : undefined)}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+                onClick={() =>
                   e.dir
-                    ? "text-foreground/85 dashboard-hover"
-                    : "cursor-default text-muted-foreground",
+                    ? void load(joinPath(data!.path, e.name))
+                    : onOpenFile(joinPath(data!.path, e.name))
+                }
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors dashboard-hover",
+                  e.dir ? "text-foreground/85" : "text-muted-foreground hover:text-foreground",
                   e.hidden && "opacity-60",
                 )}
                 title={e.name}

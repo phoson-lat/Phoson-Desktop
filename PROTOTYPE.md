@@ -385,6 +385,62 @@ Composer → useSession.send(text)
 - [x] Verificado: chip `proyecto`, navegación a `src`, `Usar esta carpeta` →
       chip `src` + toast. 0 errores.
 
+### M0.20 — Visor/editor de código + sección MCP
+- [x] RPC `fs.read` (texto, detecta binarios por NUL/UTF-8, límite 512 KB) y
+      `fs.write` (escritura en hilo aparte). Validado contra el engine: lee
+      `pyproject.toml`, marca `assets/tui.png` como binario.
+- [x] **`CodeViewer`**: diálogo con resaltado **shiki** (temas claro/oscuro y
+      lenguaje por extensión, ~35 extensiones), modo **Editar** (textarea mono) +
+      Guardar, indicador de cambios sin guardar y aviso de archivo binario/truncado.
+      El explorador abre el archivo al hacer clic.
+- [x] **Sección MCP** en Ajustes: interruptor global (`enable_mcp`, persistido vía
+      `config.set` — añadido a `_SAFE_FIELDS`), aviso si falta el paquete `mcp`,
+      lista de servidores (transporte, comando/url, **nombres** de env — nunca
+      valores) con toggle y borrado, y formulario para añadir (stdio/sse/http +
+      env por líneas `CLAVE=valor`).
+- [x] RPC `mcp.get` / `mcp.save` / `mcp.remove` sobre `~/.phoson/mcps.json`
+      (formato `{"mcpServers": {...}}`); tras guardar se **recarga el engine**
+      (`set_provider`) para que el plugin MCP relea el archivo.
+- [x] Validado contra el engine: `mcp.get` leyó los **5 servidores reales**
+      (`canva`, `chrome-devtools`, `dokploy-mcp` con `DOKPLOY_API_KEY/URL`, `github`
+      por http…) sin exponer valores.
+- [x] Verificado en UI: visor con shiki + guardado (`Archivo guardado`), sección MCP
+      con 2 servidores + añadir `brave-search`. 0 errores.
+
+### M0.21 — Corrección del modal + formulario MCP más claro
+- [x] **Desbordamiento corregido**: el contenido del `ScrollArea` de Radix
+      sobresalía **49px** del modal (los interruptores y el botón Guardar quedaban
+      cortados por el `overflow-hidden`). Sustituido por un `div` nativo con
+      `overflow-y-auto` + `min-w-0` (misma solución que en el thread).
+      Verificado a 1440/1000/860 px: `scrollWidth == clientWidth`, **0 elementos
+      sobresaliendo**.
+- [x] **Formulario MCP rediseñado** (antes: 5 campos sueltos sin etiquetas):
+      - Botón primario **"Añadir"** en la cabecera que despliega el panel.
+      - **Plantillas** en chips (filesystem, github, brave-search, memory,
+        postgres) que rellenan el formulario.
+      - Campos con **etiqueta + ayuda**: Nombre, Transporte, Comando y argumentos
+        (o URL), Variables de entorno (una por línea `CLAVE=valor`).
+      - Cancelar / Añadir; el panel se cierra al guardar.
+- [x] Verificado: etiquetas y plantillas presentes; elegir `github` rellena
+      `npx -y @modelcontextprotocol/server-github` + `GITHUB_PERSONAL_ACCESS_TOKEN=`.
+      0 errores.
+
+### M0.22 — Logos de los servidores MCP
+- [x] Fuentes: LobeHub Icons tiene `github` y `brave`; **svgl.app** aporta
+      **PostgreSQL** (line-art) que normalicé a `currentColor` y guardé en
+      `scripts/assets/mcp/postgres.svg` para generar sin red.
+- [x] El generador (`pnpm gen:icons`) ahora emite también
+      `src/components/mcp-logos.ts` (4 logos) con una heurística
+      `mcpLogoFor(name)` (coincidencia por nombre y familia sql/database).
+- [x] **`McpLogo`**: usa el SVG de marca cuando existe y, si no, un icono de
+      lucide acorde a la familia → `filesystem`→FolderTree · `memory`→Brain ·
+      `chrome|devtools`→Chrome · `canva|design`→Palette ·
+      `dokploy|docker|k8s`→Rocket · resto→Plug.
+- [x] Aplicado en la lista de servidores y en los chips de plantillas
+      (filesystem, **github**, **brave-search**, memory, **postgres**).
+- [x] Verificado: las 5 plantillas y las filas tienen icono; `postgres` usa el
+      elefante real. 0 errores.
+
 ### M1 — Puente
 - [x] Framing NDJSON, spawn/relay en Rust, `rpc()`.
 - [x] Aislar stdout del engine (logs a stderr).

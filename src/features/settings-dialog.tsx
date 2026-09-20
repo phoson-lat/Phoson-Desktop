@@ -7,17 +7,21 @@ import {
   Monitor,
   Moon,
   Palette,
+  Plug,
+  Plus,
   Server,
   ShieldCheck,
   Sun,
+  Trash2,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState, type ComponentType } from "react";
 import { toast } from "sonner";
 
 import { phoson } from "@/bridge/client";
-import type { ConfigView } from "@/bridge/protocol";
+import type { ConfigView, McpState } from "@/bridge/protocol";
 import { ProviderLogo } from "@/components/provider-logo";
+import { McpLogo } from "@/components/mcp-logo";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -28,7 +32,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -42,18 +45,62 @@ const SOURCE_LABEL: Record<string, string> = {
   default: "sin configurar",
 };
 
-type SectionId = "models" | "providers" | "local" | "agent" | "appearance";
+type SectionId = "models" | "providers" | "local" | "mcp" | "agent" | "appearance";
 
 const SECTIONS: { id: SectionId; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { id: "models", label: "Modelos", icon: Cpu },
   { id: "providers", label: "Proveedores", icon: KeyRound },
   { id: "local", label: "Servidores locales", icon: Server },
+  { id: "mcp", label: "MCP", icon: Plug },
   { id: "agent", label: "Agente y sesiones", icon: ShieldCheck },
   { id: "appearance", label: "Apariencia", icon: Palette },
 ];
 
-interface SettingsDialogProps {
-  open: boolean;
+/** Plantillas de servidores MCP comunes (rellenan el formulario). */
+const MCP_PRESETS = [
+  {
+    label: "filesystem",
+    name: "filesystem",
+    transport: "stdio",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-filesystem /tmp",
+    env: "",
+  },
+  {
+    label: "github",
+    name: "github",
+    transport: "stdio",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-github",
+    env: "GITHUB_PERSONAL_ACCESS_TOKEN=",
+  },
+  {
+    label: "brave-search",
+    name: "brave-search",
+    transport: "stdio",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-brave-search",
+    env: "BRAVE_API_KEY=",
+  },
+  {
+    label: "memory",
+    name: "memory",
+    transport: "stdio",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-memory",
+    env: "",
+  },
+  {
+    label: "postgres",
+    name: "postgres",
+    transport: "stdio",
+    command: "npx",
+    args: "-y @modelcontextprotocol/server-postgres postgresql://user:pass@localhost/db",
+    env: "",
+  },
+];
+
+interface SettingsDialogProps {  open: boolean;
   onOpenChange: (open: boolean) => void;
   sessionId: string | null;
 }
@@ -66,6 +113,7 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
   const [saving, setSaving] = useState(false);
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [urlDrafts, setUrlDrafts] = useState<Record<string, string>>({});
+  const [mcp, setMcp] = useState<McpState | null>(null);
 
   useEffect(() => {
     if (!open || !sessionId) return;
@@ -77,9 +125,72 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
       .then(setConfig)
       .catch((e) => toast.error("No se pudo cargar la configuración", { description: String(e) }))
       .finally(() => setLoading(false));
+    phoson
+      .mcpGet(sessionId)
+      .then(setMcp)
+      .catch(() => setMcp(null));
   }, [open, sessionId]);
 
   const patch = (p: Partial<ConfigView>) => setConfig((c) => (c ? { ...c, ...p } : c));
+
+  // ── MCP ───────────────────────────────────────────────────────────────
+  const [form, setForm] = useState({
+    name: "",
+    transport: "stdio",
+    command: "",
+    args: "",
+    url: "",
+    env: "",
+  });
+  const [formOpen, setFormOpen] = useState(false);
+
+  const saveServer = async (name: string, server: Record<string, unknown>) => {
+    if (!sessionId) return;
+    try {
+      const res = await phoson.mcpSave(sessionId, name, server);
+      setMcp(res.mcp);
+    } catch (e) {
+      toast.error("No se pudo guardar el servidor MCP", { description: String(e) });
+    }
+  };
+
+  const removeServer = async (name: string) => {
+    if (!sessionId) return;
+    try {
+      const res = await phoson.mcpRemove(sessionId, name);
+      setMcp(res.mcp);
+      toast.success(`Servidor ${name} eliminado`);
+    } catch (e) {
+      toast.error("No se pudo eliminar el servidor", { description: String(e) });
+    }
+  };
+
+  const addServer = async () => {
+    const name = form.name.trim();
+    if (!name) {
+      toast.error("Ponle un nombre al servidor");
+      return;
+    }
+    // env: una entrada `CLAVE=valor` por línea.
+    const env = Object.fromEntries(
+      form.env
+        .split("\n")
+        .map((line) => line.split("="))
+        .filter((parts) => parts.length >= 2 && parts[0].trim())
+        .map((parts) => [parts[0].trim(), parts.slice(1).join("=").trim()]),
+    );
+    await saveServer(name, {
+      transport: form.transport,
+      command: form.command.trim(),
+      args: form.args.split(/\s+/).filter(Boolean),
+      url: form.url.trim(),
+      enabled: true,
+      env,
+    });
+    setForm({ name: "", transport: "stdio", command: "", args: "", url: "", env: "" });
+    setFormOpen(false);
+    toast.success("Servidor MCP añadido", { description: name });
+  };
 
   const save = async () => {
     if (!config || !sessionId) return;
@@ -100,6 +211,7 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
           reasoning_effort: config.reasoningEffort,
           safe_mode: config.safeMode,
           notify_on_completion: config.notifyOnCompletion,
+          enable_mcp: config.enableMcp,
         },
         secrets,
         baseUrls,
@@ -128,7 +240,7 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
         </DialogHeader>
         <Separator />
 
-        <div className="flex h-[min(68vh,540px)] min-h-0">
+        <div className="flex h-[min(68vh,540px)] min-h-0 min-w-0">
           {/* ── Navegación de secciones ─────────────────────────────── */}
           <nav className="w-52 shrink-0 space-y-0.5 border-r border-[var(--dashboard-border)] p-2">
             {SECTIONS.map(({ id, label, icon: Icon }) => {
@@ -152,7 +264,7 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
           </nav>
 
           {/* ── Contenido de la sección ─────────────────────────────── */}
-          <ScrollArea className="min-h-0 flex-1">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             <div className="p-5">
               {loading || !config ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -310,6 +422,216 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
                     </div>
                   )}
 
+                  {/* MCP */}
+                  {section === "mcp" && (
+                    <div className="space-y-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <SectionTitle
+                          title="MCP — Model Context Protocol"
+                          hint="Servidores de herramientas externas; el engine los recarga al guardar."
+                        />
+                        <Button
+                          size="sm"
+                          className="h-8 shrink-0 gap-1.5 bg-violet text-xs text-white hover:bg-violet/90"
+                          onClick={() => setFormOpen((o) => !o)}
+                        >
+                          <Plus className="size-3.5" /> Añadir
+                        </Button>
+                      </div>
+
+                      <Row
+                        label="Habilitar MCP"
+                        hint={mcp?.configPath ?? "~/.phoson/mcps.json"}
+                      >
+                        <Switch
+                          checked={!!config.enableMcp}
+                          onCheckedChange={(v) => patch({ enableMcp: v })}
+                        />
+                      </Row>
+
+                      {mcp && !mcp.sdkAvailable && (
+                        <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-[0.68rem] text-amber-600 dark:text-amber-400">
+                          El paquete <span className="font-mono">mcp</span> no está instalado en el
+                          entorno del engine. Instálalo con{" "}
+                          <span className="font-mono">
+                            pip install &quot;phoson-engine-minimal[mcp]&quot;
+                          </span>
+                          .
+                        </p>
+                      )}
+
+                      <div className="space-y-2">
+                        {(mcp?.servers ?? []).length === 0 && (
+                          <p className="text-[0.7rem] text-muted-foreground">
+                            Sin servidores configurados.
+                          </p>
+                        )}
+                        {(mcp?.servers ?? []).map((s) => (
+                          <div
+                            key={s.name}
+                            className="flex items-center gap-2 rounded-lg bg-[var(--phoson-surface-2)] px-3 py-2"
+                          >
+                            <McpLogo name={s.name} size={16} className="text-violet" />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-xs">{s.name}</span>
+                                <span className="shrink-0 rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[0.6rem] uppercase text-muted-foreground">
+                                  {s.transport}
+                                </span>
+                              </div>
+                              <div className="truncate font-mono text-[0.65rem] text-muted-foreground">
+                                {s.url ||
+                                  [s.command, ...(s.args ?? [])].filter(Boolean).join(" ") ||
+                                  "—"}
+                                {s.envKeys.length > 0 && ` · env: ${s.envKeys.join(", ")}`}
+                              </div>
+                            </div>
+                            <Switch
+                              checked={s.enabled}
+                              onCheckedChange={(v) => void saveServer(s.name, { enabled: v })}
+                            />
+                            <button
+                              onClick={() => void removeServer(s.name)}
+                              title="Eliminar"
+                              className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-destructive"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {formOpen && (
+                        <div className="space-y-4 rounded-xl border border-[var(--dashboard-border)] p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium">Nuevo servidor</span>
+                            <button
+                              onClick={() => setFormOpen(false)}
+                              className="text-[0.7rem] text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+
+                          <div>
+                            <Label className="text-[0.7rem] text-muted-foreground">
+                              Empezar desde una plantilla
+                            </Label>
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {MCP_PRESETS.map((preset) => (
+                                <button
+                                  key={preset.label}
+                                  onClick={() =>
+                                    setForm({
+                                      name: preset.name,
+                                      transport: preset.transport,
+                                      command: preset.command,
+                                      args: preset.args,
+                                      url: "",
+                                      env: preset.env,
+                                    })
+                                  }
+                                  className="flex items-center gap-1.5 rounded-full border border-[var(--dashboard-border)] px-2.5 py-1 text-[0.68rem] text-muted-foreground transition-colors dashboard-hover hover:text-violet"
+                                >
+                                  <McpLogo name={preset.name} size={13} />
+                                  {preset.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <Field label="Nombre" hint="Identificador único del servidor">
+                            <Input
+                              className="h-8 text-xs"
+                              placeholder="p. ej. filesystem"
+                              value={form.name}
+                              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                            />
+                          </Field>
+
+                          <Field
+                            label="Transporte"
+                            hint="stdio para procesos locales; sse/http para servidores remotos"
+                          >
+                            <Select
+                              value={form.transport}
+                              onValueChange={(v) => setForm((f) => ({ ...f, transport: v }))}
+                            >
+                              <SelectTrigger className="h-8 w-full text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {["stdio", "sse", "http"].map((t) => (
+                                  <SelectItem key={t} value={t} className="text-xs">
+                                    {t}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </Field>
+
+                          {form.transport === "stdio" ? (
+                            <Field
+                              label="Comando y argumentos"
+                              hint="Se ejecutan tal cual, como en la terminal"
+                            >
+                              <div className="flex gap-2">
+                                <Input
+                                  className="h-8 w-28 shrink-0 font-mono text-xs"
+                                  placeholder="npx"
+                                  value={form.command}
+                                  onChange={(e) =>
+                                    setForm((f) => ({ ...f, command: e.target.value }))
+                                  }
+                                />
+                                <Input
+                                  className="h-8 min-w-0 flex-1 font-mono text-xs"
+                                  placeholder="-y @modelcontextprotocol/server-filesystem /tmp"
+                                  value={form.args}
+                                  onChange={(e) => setForm((f) => ({ ...f, args: e.target.value }))}
+                                />
+                              </div>
+                            </Field>
+                          ) : (
+                            <Field label="URL" hint="Endpoint del servidor remoto">
+                              <Input
+                                className="h-8 font-mono text-xs"
+                                placeholder="https://host/mcp"
+                                value={form.url}
+                                onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+                              />
+                            </Field>
+                          )}
+
+                          <Field
+                            label="Variables de entorno"
+                            hint="Una por línea: CLAVE=valor. Se guardan en mcps.json y no se muestran de vuelta."
+                          >
+                            <textarea
+                              className="h-16 w-full resize-none rounded-md border border-[var(--dashboard-border)] bg-transparent p-2 font-mono text-[0.7rem] outline-none focus:border-violet"
+                              placeholder="GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…"
+                              value={form.env}
+                              onChange={(e) => setForm((f) => ({ ...f, env: e.target.value }))}
+                            />
+                          </Field>
+
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="sm" onClick={() => setFormOpen(false)}>
+                              Cancelar
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="gap-1.5 bg-violet text-xs text-white hover:bg-violet/90"
+                              onClick={() => void addServer()}
+                            >
+                              <Plus className="size-3.5" /> Añadir servidor
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Agente y sesiones */}
                   {section === "agent" && (
                     <div className="space-y-5">
@@ -387,7 +709,7 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
                 </>
               )}
             </div>
-          </ScrollArea>
+          </div>
         </div>
 
         <Separator />
@@ -412,8 +734,26 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
   );
 }
 
-function SectionTitle({ title, hint }: { title: string; hint?: string }) {
+/** Campo con etiqueta y ayuda — usado por el formulario MCP. */
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">{label}</Label>
+      {children}
+      {hint && <p className="text-[0.65rem] leading-snug text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function SectionTitle({ title, hint }: { title: string; hint?: string }) {  return (
     <div>
       <h3 className="text-sm font-medium">{title}</h3>
       {hint && <p className="mt-0.5 text-[0.7rem] text-muted-foreground">{hint}</p>}

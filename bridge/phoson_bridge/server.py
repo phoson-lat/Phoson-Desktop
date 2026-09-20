@@ -142,6 +142,11 @@ class Bridge:
             "fs.cwd": self._fs_cwd,
             "fs.list": self._fs_list,
             "fs.setCwd": self._fs_set_cwd,
+            "fs.read": self._fs_read,
+            "fs.write": self._fs_write,
+            "mcp.get": self._mcp_get,
+            "mcp.save": self._mcp_save,
+            "mcp.remove": self._mcp_remove,
             "attachment.add": self._attachment_add,
             "attachment.clear": self._attachment_clear,
             "confirm.respond": self._confirm_respond,
@@ -368,6 +373,7 @@ class Bridge:
         "safe_mode",
         "theme",
         "notify_on_completion",
+        "enable_mcp",
     )
     #: provider id -> campos del config (clave y/o base_url), en el orden de
     #: presentación en la UI. `bedrock` no tiene campo propio: usa la cadena de
@@ -440,6 +446,8 @@ class Bridge:
             "enabledProviders": enabled_providers_from_config(cfg, for_persistence=True),
             "providers": self._provider_status(cfg),
             "hasProvider": has_configured_provider(cfg),
+            "enableMcp": bool(getattr(cfg, "enable_mcp", False)),
+            "mcpConfigFile": str(getattr(cfg, "mcp_config_file", "")),
         }
 
     async def _config_set(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -561,6 +569,173 @@ class Bridge:
         repl = self.sessions.get(self._default_session)
         repl._controller.tree.cwd = str(target)
         return {"cwd": str(target)}
+
+    #: Límite de lectura para el visor de código (512 KB).
+    _MAX_READ = 512 * 1024
+
+    async def _fs_read(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Lee un archivo de texto para el visor. Detecta binarios por NUL o
+        por fallo de decodificación UTF-8."""
+        from pathlib import Path
+
+        target = Path(params["path"]).expanduser().resolve()
+        if not target.is_file():
+            raise ValueError(f"no es un archivo: {target}")
+        size = target.stat().st_size
+        raw = target.read_bytes()[: self._MAX_READ]
+        if b"\x00" in raw[:8192]:
+            return {"path": str(target), "binary": True, "text": "", "size": size, "truncated": False}
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return {"path": str(target), "binary": True, "text": "", "size": size, "truncated": False}
+        return {
+            "path": str(target),
+            "binary": False,
+            "text": text,
+            "size": size,
+            "truncated": size > self._MAX_READ,
+        }
+
+    async def _fs_write(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Escribe un archivo de texto (editor ligero)."""
+        from pathlib import Path
+
+        target = Path(params["path"]).expanduser().resolve()
+        text = params.get("text", "")
+        await asyncio.to_thread(target.write_text, text, encoding="utf-8")
+        return {"ok": True, "path": str(target), "size": target.stat().st_size}
+
+    # ── MCP ───────────────────────────────────────────────────────────────
+    #: Formato en disco: ~/.phoson/mcps.json → {"mcpServers": {nombre: {...}}}
+    def _mcp_load(self, cfg: Any) -> dict[str, Any]:
+        from pathlib import Path
+
+        path = Path(getattr(cfg, "mcp_config_file"))
+        if not path.exists():
+            return {"mcpServers": {}}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:  # noqa: BLE001 — un JSON roto no debe tumbar la UI
+            log.warning("mcps.json ilegible: %s", exc)
+            return {"mcpServers": {}}
+        return data if isinstance(data, dict) else {"mcpServers": {}}
+
+    @staticmethod
+    def _mcp_servers(data: dict[str, Any]) -> dict[str, Any]:
+        servers = data.get("mcpServers")
+        if not isinstance(servers, dict):
+            servers = data.get("servers")
+        return servers if isinstance(servers, dict) else {}
+
+    def _mcp_store(self, cfg: Any, data: dict[str, Any]) -> str:
+        from pathlib import Path
+
+        path = Path(getattr(cfg, "mcp_config_file"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        out = dict(data)
+        out["mcpServers"] = self._mcp_servers(data)
+        out.pop("servers", None)  # normaliza a la forma canónica
+        path.write_text(
+            json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        return str(path)
+
+    def _mcp_summary(self, cfg: Any) -> dict[str, Any]:
+        from pathlib import Path
+
+        try:
+            from phoson_plugin_mcp._plugin import MCP_AVAILABLE
+        except Exception:  # noqa: BLE001 — plugin no instalado
+            MCP_AVAILABLE = False
+
+        servers = []
+        for name, spec in sorted(self._mcp_servers(self._mcp_load(cfg)).items()):
+            spec = spec if isinstance(spec, dict) else {}
+            env = spec.get("env") or {}
+            servers.append(
+                {
+                    "name": name,
+                    "transport": spec.get("transport") or ("sse" if spec.get("url") else "stdio"),
+                    "command": spec.get("command", "") or "",
+                    "args": [str(a) for a in (spec.get("args") or [])],
+                    "url": spec.get("url", "") or "",
+                    "enabled": bool(spec.get("enabled", True)),
+                    # Solo los NOMBRES: los valores suelen ser tokens.
+                    "envKeys": sorted(env.keys()) if isinstance(env, dict) else [],
+                }
+            )
+        return {
+            "enabled": bool(getattr(cfg, "enable_mcp", False)),
+            "configPath": str(Path(getattr(cfg, "mcp_config_file"))),
+            "sdkAvailable": bool(MCP_AVAILABLE),
+            "servers": servers,
+        }
+
+    async def _mcp_get(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._mcp_summary(self.sessions.get(params["sessionId"]).config)
+
+    async def _mcp_save(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Crea o actualiza un servidor MCP, y recarga los plugins."""
+        repl = self.sessions.get(params["sessionId"])
+        cfg = repl.config
+        name = str(params["name"]).strip()
+        if not name:
+            raise ValueError("el nombre del servidor no puede estar vacío")
+        incoming = params.get("server") or {}
+
+        data = self._mcp_load(cfg)
+        servers = dict(self._mcp_servers(data))
+        spec = dict(servers.get(name) or {})
+
+        for key in ("transport", "command", "url"):
+            if key in incoming:
+                spec[key] = incoming[key]
+        if "args" in incoming:
+            spec["args"] = [a for a in incoming["args"] if str(a) != ""]
+        if "enabled" in incoming:
+            spec["enabled"] = bool(incoming["enabled"])
+
+        env = dict(spec.get("env") or {})
+        for key, value in (incoming.get("env") or {}).items():
+            if value:
+                env[key] = value
+            else:
+                env.pop(key, None)  # vaciar un valor lo elimina
+        if env:
+            spec["env"] = env
+        else:
+            spec.pop("env", None)
+
+        for key in ("command", "url", "args"):
+            if not spec.get(key):
+                spec.pop(key, None)
+
+        servers[name] = spec
+        data["mcpServers"] = servers
+        path = self._mcp_store(cfg, data)
+        await self._reload_plugins(repl)
+        return {"ok": True, "path": path, "mcp": self._mcp_summary(cfg)}
+
+    async def _mcp_remove(self, params: dict[str, Any]) -> dict[str, Any]:
+        repl = self.sessions.get(params["sessionId"])
+        cfg = repl.config
+        data = self._mcp_load(cfg)
+        servers = dict(self._mcp_servers(data))
+        servers.pop(str(params["name"]), None)
+        data["mcpServers"] = servers
+        path = self._mcp_store(cfg, data)
+        await self._reload_plugins(repl)
+        return {"ok": True, "path": path, "mcp": self._mcp_summary(cfg)}
+
+    @staticmethod
+    async def _reload_plugins(repl: Any) -> None:
+        """Reconstruye el engine para que los plugins (MCP) reaccionen a los
+        cambios del archivo de configuración."""
+        try:
+            await repl.set_provider(repl.config.provider)
+        except Exception as exc:  # noqa: BLE001 — guardar no debe fallar por esto
+            log.warning("recarga de plugins falló: %s", exc)
 
     async def _attachment_add(self, params: dict[str, Any]) -> dict[str, Any]:
         repl = self.sessions.get(params["sessionId"])

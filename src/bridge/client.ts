@@ -17,7 +17,10 @@ import type {
   ConfigView,
   Envelope,
   FsListResult,
+  FsReadResult,
   InitResult,
+  McpServer,
+  McpState,
   SessionMeta,
   ModelsListResult,
   Json,
@@ -133,6 +136,51 @@ class MockBridge implements Bridge {
       case "fs.setCwd":
         MOCK_CWD = String(p.path);
         return { cwd: MOCK_CWD } as unknown as T;
+      case "fs.read": {
+        const path = String(p.path);
+        const text = MOCK_FILES[path];
+        if (text === undefined) throw new Error(`no es un archivo: ${path}`);
+        return {
+          path,
+          binary: false,
+          text,
+          size: text.length,
+          truncated: false,
+        } as unknown as T;
+      }
+      case "fs.write":
+        MOCK_FILES[String(p.path)] = String(p.text ?? "");
+        return { ok: true, path: p.path } as unknown as T;
+      case "mcp.get":
+        return MOCK_MCP as unknown as T;
+      case "mcp.save": {
+        const name = String(p.name);
+        const incoming = (p.server ?? {}) as Record<string, unknown>;
+        const prev = MOCK_MCP.servers.find((s) => s.name === name);
+        const env = (incoming.env ?? {}) as Record<string, string>;
+        const next: McpServer = {
+          name,
+          transport: String(incoming.transport ?? prev?.transport ?? "stdio"),
+          command: String(incoming.command ?? prev?.command ?? ""),
+          args: (incoming.args as string[]) ?? prev?.args ?? [],
+          url: String(incoming.url ?? prev?.url ?? ""),
+          enabled: Boolean(incoming.enabled ?? prev?.enabled ?? true),
+          envKeys: Object.keys(env).length
+            ? [...new Set([...(prev?.envKeys ?? []), ...Object.keys(env)])]
+            : (prev?.envKeys ?? []),
+        };
+        MOCK_MCP = {
+          ...MOCK_MCP,
+          servers: [...MOCK_MCP.servers.filter((s) => s.name !== name), next],
+        };
+        return { ok: true, mcp: MOCK_MCP } as unknown as T;
+      }
+      case "mcp.remove":
+        MOCK_MCP = {
+          ...MOCK_MCP,
+          servers: MOCK_MCP.servers.filter((s) => s.name !== String(p.name)),
+        };
+        return { ok: true, mcp: MOCK_MCP } as unknown as T;
       case "config.set": {
         const patch = (p.patch ?? {}) as Record<string, unknown>;
         // El backend usa snake_case en el patch; el mock normaliza a su vista.
@@ -252,6 +300,46 @@ const MOCK_FS: Record<string, Array<{ name: string; dir: boolean; size?: number;
 };
 let MOCK_CWD = "/home/me/proyecto";
 
+/** Contenido de archivos para el visor en modo demo. */
+const MOCK_FILES: Record<string, string> = {
+  "/home/me/proyecto/package.json":
+    '{\n  "name": "proyecto",\n  "version": "1.0.0",\n  "private": true\n}\n',
+  "/home/me/proyecto/README.md":
+    "# Proyecto\n\nDemo del **visor** de código.\n\n- resaltado con shiki\n- modo edición\n",
+  "/home/me/proyecto/vite.config.ts":
+    'import { defineConfig } from "vite";\n\nexport default defineConfig({\n  server: { port: 1420 },\n});\n',
+  "/home/me/proyecto/src/App.tsx":
+    "export default function App() {\n  return <div className=\"app\">hola</div>;\n}\n",
+  "/home/me/proyecto/src/main.tsx":
+    'import { createRoot } from "react-dom/client";\n\ncreateRoot(document.getElementById("root")!).render(<App />);\n',
+  "/home/me/proyecto/public/icon.svg": '<svg xmlns="http://www.w3.org/2000/svg" />\n',
+  "/home/me/.phoson/config.toml": '[defaults]\nmodel = "deepseek/deepseek-v4.1-flash"\n',
+};
+
+let MOCK_MCP: McpState = {
+  enabled: true,
+  configPath: "~/.phoson/mcps.json",
+  sdkAvailable: true,
+  servers: [
+    {
+      name: "filesystem",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      enabled: true,
+      envKeys: [],
+    },
+    {
+      name: "github",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-github"],
+      enabled: true,
+      envKeys: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+    },
+  ],
+};
+
 const MOCK_CONFIG: ConfigView = {  provider: "openrouter",
   model: "deepseek/deepseek-v4.1-flash",
   subagentModel: "deepseek/deepseek-v4.1-flash",
@@ -322,6 +410,14 @@ export const phoson = {
   fsList: (path?: string) =>
     bridge.rpc<FsListResult>("fs.list", path ? { path } : {}),
   fsSetCwd: (path: string) => bridge.rpc<{ cwd: string }>("fs.setCwd", { path }),
+  fsRead: (path: string) => bridge.rpc<FsReadResult>("fs.read", { path }),
+  fsWrite: (path: string, text: string) =>
+    bridge.rpc<{ ok: boolean; path: string }>("fs.write", { path, text }),
+  mcpGet: (sessionId: string) => bridge.rpc<McpState>("mcp.get", { sessionId }),
+  mcpSave: (sessionId: string, name: string, server: Json) =>
+    bridge.rpc<{ ok: boolean; mcp: McpState }>("mcp.save", { sessionId, name, server }),
+  mcpRemove: (sessionId: string, name: string) =>
+    bridge.rpc<{ ok: boolean; mcp: McpState }>("mcp.remove", { sessionId, name }),
   runTurn: (sessionId: string, text: string) =>
     bridge.rpc("turn.run", { sessionId, text }),
   cancelTurn: (sessionId: string) =>

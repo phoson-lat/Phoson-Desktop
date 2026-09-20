@@ -131,6 +131,9 @@ export interface ConfigView {
   enabledProviders: string[];
   providers: ProviderStatus[];
   hasProvider: boolean;
+  /** MCP habilitado en el engine (plugin `phoson_plugin_mcp`). */
+  enableMcp?: boolean;
+  mcpConfigFile?: string;
 }
 
 /** Entrada del explorador de archivos. */
@@ -148,6 +151,33 @@ export interface FsListResult {
   parent: string | null;
   entries: FsEntry[];
   truncated?: boolean;
+}
+
+export interface FsReadResult {
+  path: string;
+  binary: boolean;
+  text: string;
+  size: number;
+  truncated?: boolean;
+}
+
+/** Servidor MCP (los valores de `env` nunca salen del sidecar). */
+export interface McpServer {
+  name: string;
+  transport: "stdio" | "sse" | "http" | string;
+  command?: string;
+  args?: string[];
+  url?: string;
+  enabled: boolean;
+  envKeys: string[];
+}
+
+export interface McpState {
+  enabled: boolean;
+  configPath: string;
+  /** El paquete `mcp` está instalado en el entorno del engine. */
+  sdkAvailable: boolean;
+  servers: McpServer[];
 }
 
 /** Patch de campos seguros que `config.set` persiste. */export interface ConfigPatch {
