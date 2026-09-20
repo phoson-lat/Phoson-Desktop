@@ -100,12 +100,20 @@ const MCP_PRESETS = [
   },
 ];
 
-interface SettingsDialogProps {  open: boolean;
+interface SettingsDialogProps {
+  open: boolean;
   onOpenChange: (open: boolean) => void;
   sessionId: string | null;
+  /** Vuelve a lanzar el asistente de primera configuración. */
+  onRestartOnboarding?: () => void;
 }
 
-export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialogProps) {
+export function SettingsDialog({
+  open,
+  onOpenChange,
+  sessionId,
+  onRestartOnboarding,
+}: SettingsDialogProps) {
   const { theme, setTheme } = useTheme();
   const [section, setSection] = useState<SectionId>("models");
   const [config, setConfig] = useState<ConfigView | null>(null);
@@ -704,6 +712,20 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
                           </button>
                         ))}
                       </div>
+
+                      {onRestartOnboarding && (
+                        <>
+                          <Separator />
+                          <Row
+                            label="Asistente inicial"
+                            hint="Vuelve a mostrar el onboarding de primera configuración."
+                          >
+                            <Button size="sm" variant="ghost" onClick={onRestartOnboarding}>
+                              Ver de nuevo
+                            </Button>
+                          </Row>
+                        </>
+                      )}
                     </div>
                   )}
                 </>

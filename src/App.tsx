@@ -37,6 +37,7 @@ export default function App() {  const {
     respondConfirm,
     onboardingNeeded,
     bootError,
+    startOnboarding,
     cwd,
     loadCwd,
     setWorkspace,
@@ -290,7 +291,15 @@ export default function App() {  const {
         </div>
       </div>
 
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} sessionId={activeKey} />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        sessionId={activeKey}
+        onRestartOnboarding={() => {
+          setSettingsOpen(false);
+          startOnboarding();
+        }}
+      />
       <CodeViewer path={openFile} onClose={() => setOpenFile(null)} />
       {ready && onboardingNeeded && (
         <Onboarding sessionId={activeKey} onDone={finishOnboarding} />

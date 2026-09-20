@@ -81,6 +81,8 @@ interface SessionState {
   removeAttachment: (path: string) => Promise<void>;
   /** Primer arranque sin proveedor configurado. */
   onboardingNeeded: boolean;
+  /** Vuelve a abrir el onboarding (limpia el flag de "ya visto"). */
+  startOnboarding: () => void;
   /** Error de arranque (si `initialize` falló tras los reintentos). */
   bootError: string | null;
   /** Workspace del agente (cwd del proceso del sidecar), global a la app. */
@@ -537,6 +539,15 @@ export const useSession = create<SessionState>((set, get) => {
       const res = await phoson.fsSetCwd(path);
       set({ cwd: res.cwd });
       return res.cwd;
+    },
+
+    startOnboarding: () => {
+      try {
+        localStorage.removeItem("phoson.onboarded");
+      } catch {
+        /* almacenamiento no disponible */
+      }
+      set({ onboardingNeeded: true });
     },
 
     finishOnboarding: () => {
