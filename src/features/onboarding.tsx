@@ -18,60 +18,10 @@ import { PhosonLogo } from "@/components/phoson-logo";
 import { ProviderLogo } from "@/components/provider-logo";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { BASE_URL_DEFAULTS, PROVIDER_META as PROVIDERS } from "@/lib/providers";
 import { cn } from "@/lib/utils";
 
 /** Etiquetas y enlaces de claves por proveedor (los ids coinciden con el engine). */
-interface ProviderMeta {
-  label: string;
-  keysUrl?: string;
-  hint?: string;
-  /** Nota para proveedores que no usan credencial en el config. */
-  note?: string;
-}
-
-/**
- * Los 20 proveedores del engine, en orden de presentación.
- * Los ids coinciden con `phoson_cli`; la disponibilidad de clave/base_url la
- * confirma el backend (`config.get → providers[].supports*`).
- */
-const PROVIDERS: Record<string, ProviderMeta> = {
-  openrouter: {
-    label: "OpenRouter",
-    keysUrl: "https://openrouter.ai/keys",
-    hint: "Recomendado: cientos de modelos con una sola clave",
-  },
-  openai: { label: "OpenAI", keysUrl: "https://platform.openai.com/api-keys" },
-  anthropic: { label: "Anthropic", keysUrl: "https://console.anthropic.com/settings/keys" },
-  ollama: { label: "Ollama", hint: "Local: no necesita clave", },
-  github: {
-    label: "GitHub Models",
-    keysUrl: "https://github.com/settings/tokens",
-    hint: "Usa un token personal de GitHub",
-  },
-  nvidia: { label: "NVIDIA", keysUrl: "https://build.nvidia.com" },
-  xai: { label: "Grok (X.AI)", keysUrl: "https://console.x.ai" },
-  groq: { label: "Groq", keysUrl: "https://console.groq.com/keys" },
-  deepseek: { label: "DeepSeek", keysUrl: "https://platform.deepseek.com/api_keys" },
-  together: { label: "Together AI", keysUrl: "https://api.together.ai/settings/api-keys" },
-  perplexity: { label: "Perplexity", keysUrl: "https://www.perplexity.ai/settings/api" },
-  lmstudio: { label: "LM Studio", hint: "Local: no necesita clave" },
-  vllm: { label: "vLLM", hint: "Clave opcional si tu servidor no la exige" },
-  azure: { label: "Azure OpenAI", keysUrl: "https://portal.azure.com" },
-  gemini: { label: "Google Gemini", keysUrl: "https://aistudio.google.com/app/apikey" },
-  mistral: { label: "Mistral AI", keysUrl: "https://console.mistral.ai/api-keys" },
-  bedrock: { label: "AWS Bedrock", note: "Usa tus credenciales de AWS (perfil o variables de entorno)" },
-  fireworks: { label: "Fireworks AI", keysUrl: "https://fireworks.ai/account/api-keys" },
-  cohere: { label: "Cohere", keysUrl: "https://dashboard.cohere.com/api-keys" },
-  omniroute: { label: "OmniRoute", hint: "Clave opcional según tu despliegue" },
-};
-
-/** base_url por defecto al elegir un proveedor local. */
-const BASE_URL_DEFAULTS: Record<string, string> = {
-  ollama: "http://localhost:11434",
-  lmstudio: "http://localhost:1234/v1",
-  vllm: "http://localhost:8000/v1",
-  omniroute: "http://localhost:3000/v1",
-};
 
 const STEPS = ["Bienvenida", "Proveedor", "Modelo", "Preferencias", "Listo"];
 

@@ -133,8 +133,24 @@ export interface ConfigView {
   hasProvider: boolean;
 }
 
-/** Patch de campos seguros que `config.set` persiste. */
-export interface ConfigPatch {
+/** Entrada del explorador de archivos. */
+export interface FsEntry {
+  name: string;
+  dir: boolean;
+  hidden?: boolean;
+  size?: number | null;
+  mtime?: number | null;
+}
+
+export interface FsListResult {
+  path: string;
+  /** Directorio padre, o null si es la raíz. */
+  parent: string | null;
+  entries: FsEntry[];
+  truncated?: boolean;
+}
+
+/** Patch de campos seguros que `config.set` persiste. */export interface ConfigPatch {
   provider?: string;
   model?: string;
   subagentModel?: string;

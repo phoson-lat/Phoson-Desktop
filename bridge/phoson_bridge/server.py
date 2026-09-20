@@ -26,6 +26,7 @@ el core.
 
 from __future__ import annotations
 
+import os
 import sys
 import copy
 import json
@@ -138,6 +139,9 @@ class Bridge:
             "models.list": self._models_list,
             "config.get": self._config_get,
             "config.set": self._config_set,
+            "fs.cwd": self._fs_cwd,
+            "fs.list": self._fs_list,
+            "fs.setCwd": self._fs_set_cwd,
             "attachment.add": self._attachment_add,
             "attachment.clear": self._attachment_clear,
             "confirm.respond": self._confirm_respond,
@@ -476,6 +480,87 @@ class Bridge:
 
         self._emit("session.metrics", self._metrics(params["sessionId"]))
         return {"ok": True, "path": str(path), "config": await self._config_get(params)}
+
+    # ── Explorador de archivos (workspace) ────────────────────────────────
+    #: Directorios ruidosos que el explorador omite.
+    _NOISE_DIRS = {
+        ".git",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+    }
+
+    async def _fs_cwd(self, _params: dict[str, Any]) -> dict[str, Any]:
+        """Directorio de trabajo del sidecar (el que ven los tools)."""
+        return {"cwd": os.getcwd()}
+
+    async def _fs_list(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Lista un directorio para el explorador.
+
+        No expone nada que el engine no tenga ya: los tools del agente operan
+        sobre el sistema de archivos completo.
+        """
+        from pathlib import Path
+
+        target = Path(params.get("path") or os.getcwd()).expanduser()
+        try:
+            target = target.resolve()
+        except OSError:
+            pass
+        if not target.is_dir():
+            raise ValueError(f"no es un directorio: {target}")
+
+        entries: list[dict[str, Any]] = []
+        with os.scandir(target) as it:
+            for entry in it:
+                try:
+                    is_dir = entry.is_dir()
+                except OSError:
+                    continue
+                if is_dir and entry.name in self._NOISE_DIRS:
+                    continue
+                stat = None
+                try:
+                    stat = entry.stat()
+                except OSError:
+                    pass
+                entries.append(
+                    {
+                        "name": entry.name,
+                        "dir": is_dir,
+                        "hidden": entry.name.startswith("."),
+                        "size": None if (is_dir or stat is None) else stat.st_size,
+                        "mtime": None if stat is None else int(stat.st_mtime),
+                    }
+                )
+        entries.sort(key=lambda e: (not e["dir"], e["name"].lower()))
+        return {
+            "path": str(target),
+            "parent": str(target.parent) if target.parent != target else None,
+            "entries": entries[:400],
+            "truncated": len(entries) > 400,
+        }
+
+    async def _fs_set_cwd(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Fija el directorio de trabajo del proceso del sidecar.
+
+        Los tools del engine resuelven las rutas relativas contra el cwd del
+        proceso, así que este es el *workspace* real del agente. Las sesiones
+        nuevas registran este cwd en su metadata (`tree.cwd`).
+        """
+        from pathlib import Path
+
+        target = Path(params["path"]).expanduser().resolve()
+        if not target.is_dir():
+            raise ValueError(f"no es un directorio: {target}")
+        os.chdir(target)
+        # La sesión por defecto aún puede adoptar el nuevo workspace.
+        repl = self.sessions.get(self._default_session)
+        repl._controller.tree.cwd = str(target)
+        return {"cwd": str(target)}
 
     async def _attachment_add(self, params: dict[str, Any]) -> dict[str, Any]:
         repl = self.sessions.get(params["sessionId"])

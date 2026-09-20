@@ -1,12 +1,14 @@
-import { Menu, Sparkles } from "lucide-react";
+import { Folder, Menu, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
-import { isTauri } from "@/bridge/client";
+import { isTauri, phoson } from "@/bridge/client";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Composer } from "@/features/composer";
 import { ContextMeter } from "@/features/context-meter";
+import { FileExplorer } from "@/features/file-explorer";
 import { MessageRow } from "@/features/message";
 import { Onboarding } from "@/features/onboarding";
 import { SettingsDialog } from "@/features/settings-dialog";
@@ -16,8 +18,9 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { DEMO_USER } from "@/lib/demo-content";
 import { useSession } from "@/stores/session";
 
-export default function App() {
-  const {
+const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
+
+export default function App() {  const {
     ready,
     activeKey,
     order,
@@ -39,6 +42,8 @@ export default function App() {
     () => typeof localStorage !== "undefined" && localStorage.getItem("phoson.nav") === "collapsed",
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [explorerOpen, setExplorerOpen] = useState(false);
+  const [cwd, setCwd] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
@@ -49,6 +54,25 @@ export default function App() {
   useEffect(() => {
     void init();
   }, [init]);
+
+  // Workspace del agente (cwd del sidecar): el que usan los tools.
+  useEffect(() => {
+    if (!ready) return;
+    phoson
+      .fsCwd()
+      .then((r) => setCwd(r.cwd))
+      .catch(() => {});
+  }, [ready]);
+
+  const setWorkspace = async (path: string) => {
+    try {
+      const r = await phoson.fsSetCwd(path);
+      setCwd(r.cwd);
+      toast.success("Espacio de trabajo actualizado", { description: r.cwd });
+    } catch (e) {
+      toast.error("No se pudo cambiar el espacio de trabajo", { description: String(e) });
+    }
+  };
 
   // Deep-link de demo: `?demo=1` envía el prompt de demo (se streamea igual que
   // un turno normal, para ejercitar el render incremental).
@@ -117,7 +141,8 @@ export default function App() {
           onOpenSettings={() => setSettingsOpen(true)}
         />
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1">
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="flex items-center gap-2 border-b border-dashboard-border-soft px-3 py-2.5 sm:gap-3 sm:px-4">
             {isMobile && (
               <Button
@@ -133,10 +158,17 @@ export default function App() {
 
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{title}</div>
-              <div className="truncate text-[0.68rem] text-muted-foreground">
-                {ready ? "listo" : "conectando…"}
-                {!isTauri() && " · demo"}
-              </div>
+              <button
+                onClick={() => setExplorerOpen((o) => !o)}
+                title="Ver archivos del espacio de trabajo"
+                className="flex max-w-full items-center gap-1.5 truncate text-[0.68rem] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Folder className="size-3 shrink-0" />
+                <span className="truncate">{cwd ? basename(cwd) : "workspace"}</span>
+                <span className="shrink-0 opacity-40">·</span>
+                <span className="shrink-0">{ready ? "listo" : "conectando…"}</span>
+                {!isTauri() && <span className="shrink-0 opacity-60">· demo</span>}
+              </button>
             </div>
 
             <ContextMeter metrics={metrics ?? undefined} />
@@ -202,6 +234,15 @@ export default function App() {
             provider={metrics?.provider}
           />
         </main>
+
+          {explorerOpen && (
+            <FileExplorer
+              cwd={cwd}
+              onClose={() => setExplorerOpen(false)}
+              onSetCwd={(p) => void setWorkspace(p)}
+            />
+          )}
+        </div>
       </div>
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} sessionId={activeKey} />

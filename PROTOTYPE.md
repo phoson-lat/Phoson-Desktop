@@ -351,6 +351,40 @@ Composer → useSession.send(text)
       `themeInHeader:false`, `settingsInSidebar:true`, `themeInSidebar:true`;
       el hover despliega el detalle y Ajustes abre desde la barra. 0 errores.
 
+### M0.18 — Modal de configuración por secciones
+- [x] **Dos paneles**: nav lateral con 5 secciones + contenido con scroll propio
+      (modal a 768px; el `sm:max-w-lg` de shadcn requería `sm:max-w-3xl`).
+- [x] Secciones: **Modelos** (proveedor activo, modelo principal, sub-agentes,
+      esfuerzo) · **Proveedores** (claves) · **Servidores locales** (base_url) ·
+      **Agente y sesiones** (modo seguro, notificación, carpeta) · **Apariencia**
+      (tema claro/oscuro/sistema).
+- [x] Metadatos de proveedor extraídos a `src/lib/providers.ts`
+      (`PROVIDER_META`, `BASE_URL_DEFAULTS`, `providerLabel`) y compartidos con el
+      onboarding (antes duplicados).
+- [x] En Proveedores: logo + etiqueta + procedencia + **enlace "obtener"** +
+      input write-only. Nota de AWS Bedrock al pie.
+- [x] Verificado: 5 secciones con sus controles (Modelos: 2 inputs/2 selects;
+      Proveedores: 16 claves; Locales: 4 URLs; Agente: switch+select+input;
+      Apariencia: 3 botones). 0 errores.
+
+### M0.19 — Mini explorador de archivos (workspace)
+- [x] Hallazgo del engine: `tree.cwd` se fija al crear la sesión desde
+      `Path.cwd()` y **los tools resuelven rutas relativas contra el cwd del
+      proceso** → en escritorio el cwd del sidecar es el *workspace* real.
+- [x] RPC nuevos: `fs.cwd`, `fs.list {path}` (dirs primero, omite
+      `.git`/`node_modules`/`__pycache__`/`.venv`/caches, cap 400 entradas) y
+      `fs.setCwd {path}` (hace `os.chdir` y actualiza `tree.cwd` de la sesión
+      por defecto). Validado contra el engine: 38 entradas, error claro en
+      carpeta inválida.
+- [x] `FileExplorer`: panel lateral con **espacio de trabajo**, **migas de pan**
+      clicables, navegación (carpetas) y tamaños de archivo. Botón "Usar esta
+      carpeta" cuando el directorio navegado no es el workspace.
+- [x] El **header** muestra el workspace (chip `📁 proyecto · listo`) que abre el
+      explorador; al fijar otro workspace se actualiza y avisa con un toast.
+- [x] FS virtual en el mock para que funcione en el navegador sin sidecar.
+- [x] Verificado: chip `proyecto`, navegación a `src`, `Usar esta carpeta` →
+      chip `src` + toast. 0 errores.
+
 ### M1 — Puente
 - [x] Framing NDJSON, spawn/relay en Rust, `rpc()`.
 - [x] Aislar stdout del engine (logs a stderr).

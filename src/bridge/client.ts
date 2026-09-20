@@ -16,6 +16,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ConfigView,
   Envelope,
+  FsListResult,
   InitResult,
   SessionMeta,
   ModelsListResult,
@@ -112,6 +113,26 @@ class MockBridge implements Bridge {
       }
       case "config.get":
         return MOCK_CONFIG as unknown as T;
+      case "fs.cwd":
+        return { cwd: MOCK_CWD } as unknown as T;
+      case "fs.list": {
+        const path = String(p.path ?? MOCK_CWD);
+        const raw = MOCK_FS[path] ?? [];
+        const entries = raw
+          .map((e) => ({
+            ...e,
+            hidden: e.hidden ?? e.name.startsWith("."),
+            mtime: Math.floor(Date.now() / 1000),
+          }))
+          .sort(
+            (a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name),
+          );
+        const parent = path.split("/").slice(0, -1).join("/") || null;
+        return { path, parent, entries, truncated: false } as unknown as T;
+      }
+      case "fs.setCwd":
+        MOCK_CWD = String(p.path);
+        return { cwd: MOCK_CWD } as unknown as T;
       case "config.set": {
         const patch = (p.patch ?? {}) as Record<string, unknown>;
         // El backend usa snake_case en el patch; el mock normaliza a su vista.
@@ -203,8 +224,35 @@ class MockBridge implements Bridge {
   }
 }
 
-const MOCK_CONFIG: ConfigView = {
-  provider: "openrouter",
+/** FS virtual para el explorador en modo demo (navegador, sin sidecar). */
+const MOCK_FS: Record<string, Array<{ name: string; dir: boolean; size?: number; hidden?: boolean }>> = {
+  "/home/me": [
+    { name: "proyecto", dir: true },
+    { name: ".phoson", dir: true, hidden: true },
+    { name: "notas.md", dir: false, size: 1204 },
+  ],
+  "/home/me/proyecto": [
+    { name: "src", dir: true },
+    { name: "public", dir: true },
+    { name: "README.md", dir: false, size: 8421 },
+    { name: "package.json", dir: false, size: 932 },
+    { name: "vite.config.ts", dir: false, size: 665 },
+  ],
+  "/home/me/proyecto/src": [
+    { name: "features", dir: true },
+    { name: "components", dir: true },
+    { name: "App.tsx", dir: false, size: 7820 },
+    { name: "main.tsx", dir: false, size: 274 },
+  ],
+  "/home/me/proyecto/public": [{ name: "icon.svg", dir: false, size: 2379 }],
+  "/home/me/.phoson": [
+    { name: "sessions", dir: true },
+    { name: "config.toml", dir: false, size: 410 },
+  ],
+};
+let MOCK_CWD = "/home/me/proyecto";
+
+const MOCK_CONFIG: ConfigView = {  provider: "openrouter",
   model: "deepseek/deepseek-v4.1-flash",
   subagentModel: "deepseek/deepseek-v4.1-flash",
   reasoningEffort: "medium",
@@ -270,6 +318,10 @@ export const phoson = {
   getConfig: (sessionId: string) => bridge.rpc<ConfigView>("config.get", { sessionId }),
   setConfig: (sessionId: string, patch: Json, secrets?: Json, baseUrls?: Json) =>
     bridge.rpc("config.set", { sessionId, patch, secrets, base_urls: baseUrls }),
+  fsCwd: () => bridge.rpc<{ cwd: string }>("fs.cwd"),
+  fsList: (path?: string) =>
+    bridge.rpc<FsListResult>("fs.list", path ? { path } : {}),
+  fsSetCwd: (path: string) => bridge.rpc<{ cwd: string }>("fs.setCwd", { path }),
   runTurn: (sessionId: string, text: string) =>
     bridge.rpc("turn.run", { sessionId, text }),
   cancelTurn: (sessionId: string) =>
