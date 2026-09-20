@@ -127,6 +127,77 @@ Composer → useSession.send(text)
 - [x] Barra lateral **sin logo/título** (solo el botón *Nueva sesión*); el logo
       Phoson aparece en el botón de colapsar de la cabecera.
 
+### M0.5 — Render enriquecido en el thread
+- [x] Portados `markdown-renderer.tsx` + `artifact-block.tsx` de Phoson-Web.
+- [x] **Markdown completo**: `react-markdown` + `remark-gfm` (tablas, listas,
+      tachado) + `remark-math`/`rehype-katex` (**LaTeX**).
+- [x] **Código con resaltado** (`shiki`, temas github-dark/light según tema,
+      detección de lenguaje, botón copiar).
+- [x] **Mermaid**: fences ```mermaid → diagrama renderizado (import dinámico,
+      tema claro/oscuro, toggle Diagrama/Código).
+- [x] **Artifacts HTML**: fences ```html → tarjeta con vista aislada en diálogo.
+- [x] Seguridad: `rehype-sanitize` con esquema extendido (MathML de KaTeX);
+      sin scripts, iframes ni `javascript:`.
+- [x] CSP de Tauri ampliado (`font-src 'self' data:`, `img-src … blob:`).
+- [x] Mock actualizado para demostrar las 4 capacidades al enviar un mensaje.
+- [ ] Optimizar bundle: shiki trae el bundle completo (1.2 MB en el chunk
+      principal). Migrar a `shiki/bundle/web` o lenguajes explícitos.
+
+### M0.6 — Demo de renderizado con streaming
+- [x] `src/lib/demo-content.ts`: `DEMO_USER` (prompt detonante) + `DEMO_ASSISTANT`
+      que ejercita GFM, KaTeX, shiki, mermaid y artifact HTML.
+- [x] Enviar `Muéstrame una demo de todo lo que sabes renderizar.` (chip del
+      welcome) → el mock **streamea** la demo token a token por el camino normal
+      (`send` → `turn.run` → `agent.event`), no aparece de golpe.
+- [x] Deep-link `?demo=1` para lanzar la demo automáticamente (útil para capturas
+      y verificación).
+- [x] **Bug corregido en `vite.config.ts`**: `ignored: ["**/bridge/**"]` también
+      ignoraba `src/bridge/**`, así que los cambios en `client.ts`/`protocol.ts`
+      **no recargaban** (HMR roto silenciosamente). Ahora es `"bridge/**"`
+      (root-relative).
+- [x] Verificado con Chromium headless (Playwright sobre los binarios cacheados):
+      - Crecimiento del texto del agente: `0→55→112→183→314→…→813` (15 incrementos).
+      - KaTeX aparece a mitad del stream; shiki y mermaid se finalizan al cerrar el
+        turno (durante el stream se saltan por diseño).
+      - Conteos finales: `h1` 1, shiki 1, mermaid SVG 1, katex 2, table 1,
+        checkboxes 4, blockquote 1, link 1, artifact HTML presente. 0 errores de red.
+
+### M0.7 — Correcciones de layout, scroll y animación
+- [x] **El composer desaparecía y no se podía scrollear**: `<main>` y el
+      contenedor de scroll necesitaban `min-h-0` (un flex item no puede encogerse
+      por debajo de su contenido → el thread empujaba el composer fuera de la
+      pantalla, recortado por el `overflow-hidden` del shell).
+- [x] **`ScrollArea` de Radix sustituido** por un `div` con `overflow-y-auto`
+      (`min-h-0 flex-1 overscroll-contain`). El Viewport de Radix reportaba
+      `scrollHeight == clientHeight` y recortaba el contenido (`display: table`).
+      Verificado: `scrollHeight 1406 > clientHeight 704`, auto-scroll al fondo.
+- [x] **Animación al construir mermaid**: el hueco entre "termina el stream" y
+      "mermaid listo" mostraba un `Rendering…` estático. Ahora reutiliza
+      `MermaidBuilding` (skeleton animado + barrido `phoson-shimmer` + puntos
+      `phoson-dots`), tanto durante el stream como mientras carga el chunk.
+- [x] **Artifact HTML en tema oscuro**: el lienzo de un iframe usa el color por
+      defecto del documento (`Canvas`, blanco), no el fondo del elemento → la
+      preview salía blanca. Se inyecta el fondo del tema en el `srcDoc`. Verificado
+      por píxel: `(17,17,18)`.
+- [x] Alto de la preview 220 → 170 px.
+- [x] `favicon.ico` 404 → `public/icon.svg` (isotipo de Phoson) declarado en
+      `index.html`.
+
+### M0.8 — Barra lateral estilo ChatGPT
+- [x] **Rail al colapsar** (56 px, `w-14`) en vez de ocultarse: isotipo arriba
+      (clic = expandir), iconos centrados (nueva sesión, buscar), y "cuenta"
+      abajo. Replica el patrón de ChatGPT colapsado.
+- [x] **Cabecera de la barra**: título "Phoson Desktop" + buscar + colapsar
+      (`PanelLeft`). Se movió el control de colapso desde la cabecera principal
+      (el logo sigue siendo el botón de expandir en el rail).
+- [x] **Fila primaria** "Nueva sesión" (icono `SquarePen`), como "Nuevo chat".
+- [x] **Secciones** en minúscula y tono muted: "Abiertas" / "Guardadas"
+      (antes ABIERTAS/GUARDADAS en mayúsculas con tracking).
+- [x] **Búsqueda** integrada: icono en cabecera → input que filtra sesiones
+      abiertas y guardadas.
+- [x] **Pie de cuenta** (modelo/proveedor + isotipo) **clicable → Ajustes**.
+- [x] Verificado: rail `56px`, sin errores de consola.
+
 ### M1 — Puente
 - [x] Framing NDJSON, spawn/relay en Rust, `rpc()`.
 - [x] Aislar stdout del engine (logs a stderr).

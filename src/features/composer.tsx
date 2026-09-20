@@ -25,7 +25,7 @@ export function Composer({ value, onChange, onSend, onStop, sending, disabled }:
   }, [value]);
 
   return (
-    <div className="px-4 pb-4">
+    <div className="shrink-0 px-4 pb-4">
       <div className="dashboard-panel mx-auto max-w-3xl rounded-2xl border p-2">
         <Textarea
           ref={ref}

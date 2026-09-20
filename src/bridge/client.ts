@@ -21,6 +21,12 @@ import type {
   ModelsListResult,
   Json,
 } from "./protocol";
+import { DEMO_ASSISTANT, DEMO_USER } from "../lib/demo-content";
+
+const GENERIC_REPLY =
+  "Estás en **modo demo** (sin backend).\n\n" +
+  "Envía `Muéstrame una demo de todo lo que sabes renderizar.` para ver " +
+  "markdown, código, LaTeX, mermaid y artifacts HTML.";
 
 export interface Bridge {
   rpc<T = Json>(method: string, params?: Json): Promise<T>;
@@ -141,43 +147,38 @@ class MockBridge implements Bridge {
     };
   }
 
-  /** Emula un turno: composing tool -> tokens -> done. */
+  /**
+   * Emula un turno streamando token a token. Si el prompt es el detonante de la
+   * demo (o menciona "demo"), streamea `DEMO_ASSISTANT` completo.
+   */
   private simulateTurn(sessionId: string, text: string) {
-    const reply =
-      "Claro. He revisado el repositorio y encontré la arquitectura del engine.\n\n" +
-      "El `SessionController` mantiene el runtime desacoplado de la UI: todo lo " +
-      "visible pasa por el protocolo `AgentEventSink`, así que esta app de " +
-      "escritorio es **un sink, no un fork**.\n\n" +
-      "```ts\nconst sink = new GuiSink(sessionKey, emit)\n```\n\n" +
-      "¿Quieres que siga con el panel de sesiones?";
+    const normalized = text.trim().toLowerCase();
+    const isDemo =
+      normalized === DEMO_USER.toLowerCase() || normalized.includes("demo");
+    const reply = isDemo ? DEMO_ASSISTANT : GENERIC_REPLY;
+
     const ev = (event: Record<string, unknown>) =>
       this.emit("agent.event", { sessionId, event });
     const now = () => Date.now();
 
     this.emit("session.turn.started", { sessionId, task: text });
     setTimeout(() => ev({ type: "AgentStartEvent", timestamp: now(), tool_count: 10 }), 120);
-    setTimeout(
-      () => ev({ type: "AgentToolComposingEvent", timestamp: now(), tool_name: "list_dir" }),
-      380,
-    );
-    setTimeout(() => {
-      ev({ type: "AgentToolStartEvent", timestamp: now(), tool_call_id: "call_1", tool_name: "list_dir", args: { path: "." } });
-    }, 620);
-    setTimeout(() => {
-      ev({ type: "AgentToolDoneEvent", timestamp: now(), tool_call_id: "call_1", tool_name: "list_dir", result: "phoson_agent/\nphoson_cli/\nphoson_llm/", error: null });
-    }, 980);
 
     const words = reply.split(/(\s+)/);
-    let t = 1200;
+    let t = 220;
     for (const w of words) {
-      t += 28 + Math.random() * 40;
-      const token = w;
-      setTimeout(() => ev({ type: "AgentTokenEvent", timestamp: now(), content: token }), t);
+      t += 14 + Math.random() * 26;
+      setTimeout(() => ev({ type: "AgentTokenEvent", timestamp: now(), content: w }), t);
     }
     setTimeout(() => {
       ev({ type: "AgentDoneEvent", timestamp: now() });
       this.emit("session.metrics", { ...this.metrics(sessionId), isRunning: false });
-      this.emit("session.assistant.done", { sessionId, status: "done", errorCode: null, finalContent: reply });
+      this.emit("session.assistant.done", {
+        sessionId,
+        status: "done",
+        errorCode: null,
+        finalContent: reply,
+      });
     }, t + 200);
   }
 }

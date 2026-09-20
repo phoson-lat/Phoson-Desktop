@@ -1,9 +1,10 @@
 import { PhosonLogo } from "@/components/phoson-logo";
+import { DEMO_USER } from "@/lib/demo-content";
 
 const SUGGESTIONS = [
+  DEMO_USER,
   "Resume la arquitectura de phoson-engine-minimal",
   "¿Cómo desacopla la UI el SessionController?",
-  "Muéstrame el protocolo del bridge JSON-RPC",
   "Lista las sesiones guardadas",
 ];
 

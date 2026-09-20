@@ -15,7 +15,9 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     host: "127.0.0.1",
-    watch: { ignored: ["**/src-tauri/**", "**/bridge/**"] },
+    // OJO: `**/bridge/**` también ignoraría `src/bridge/` (el cliente TS del
+    // frontend). Solo excluimos el sidecar raíz y el shell de Tauri.
+    watch: { ignored: ["**/src-tauri/**", "bridge/**", "**/node_modules/**"] },
   },
   build: {
     target: "es2021",
