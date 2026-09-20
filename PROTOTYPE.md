@@ -515,12 +515,28 @@ Composer → useSession.send(text)
 
 ## 🖥️ Estado para ejecutarla como app de escritorio (auditoría 2026-09-20)
 
-### Bloqueadores
-1. **Binario del sidecar**: `src-tauri/binaries/phoson-bridge-<triple>` **no existe**.
-   `tauri.conf.json` declara `externalBin`, así que `tauri build` falla sin él.
-   Ruta más corta para dev: que `main.rs` arranque `python -m phoson_bridge`
-   (venv del engine) y quitaremos `externalBin`; la de distribución es PyInstaller
-   (decisión #2: binarios publicados en GitHub).
+### ✅ Camino A implementado — la app YA CORRE en dev
+Instaladas las libs de sistema, esto es lo que faltaba y se resolvió:
+1. ~~Binario del sidecar~~ → `main.rs` intenta el **sidecar empaquetado** y, si no
+   está (desarrollo), arranca **`python -m phoson_bridge`** con el venv del engine
+   (`PHOSON_ENGINE_DIR`, por defecto `../../phoson-engine-minimal`). Se quitó
+   `externalBin` de `tauri.conf.json`; la ruta de distribución sigue siendo
+   PyInstaller (decisión #2).
+2. **`build.rs`** — faltaba por completo: sin él `tauri::generate_context!()`
+   falla con *"OUT_DIR env var is not set"*.
+3. **Iconos** — `pnpm tauri icon public/icon.svg` genera `src-tauri/icons/`
+   (icon.png/icns/ico…) desde el isotipo de Phoson.
+4. `capabilities/default.json` simplificado: `core:default` +
+   `notification:default` (el sidecar se lanza desde Rust; el scope de shell solo
+   aplica a la API JS).
+5. **`dragDropEnabled: false`** en la ventana: por defecto Tauri intercepta el
+   drop y los eventos HTML5 de archivos no disparan.
+
+Resultado: `cargo check` limpio y `pnpm tauri dev` **abre la ventana** con el
+sidecar real (los logs muestran MCP de GitHub y el catálogo de modelos de
+OpenRouter servido a la UI).
+
+### Pendiente para distribución (camino B)
 2. **Librerías de sistema (Linux)**: faltan `webkit2gtk-4.1`, `gtk+-3.0`,
    `gdk-pixbuf-2.0` y `libsoup-3.0`. `cargo check` falla en pkg-config.
    Requiere sudo:
