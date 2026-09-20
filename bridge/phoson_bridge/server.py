@@ -34,7 +34,7 @@ import asyncio
 import logging
 from typing import Any, TextIO
 
-from phoson_cli.config import load_config, PhosonConfig
+from phoson_cli.config import load_config, PhosonConfig, has_configured_provider
 from phoson_cli.repl import PhosonRepl
 from phoson_cli.session_utils import engine_masked_count, engine_visible_tools
 
@@ -251,6 +251,11 @@ class Bridge:
                 {"names": list(spec.names), "help": getattr(spec, "help", "")}
                 for spec in repl._controller.command_catalog.specs
             ],
+            # El front-end decide si lanzar el onboarding de primera ejecución.
+            "onboarding": {
+                "needed": not has_configured_provider(repl.config),
+                "providers": self._provider_status(repl.config),
+            },
             "defaultSessionId": self._default_session,
             "metrics": self._metrics(self._default_session),
         }
@@ -360,25 +365,54 @@ class Bridge:
         "theme",
         "notify_on_completion",
     )
-    #: provider id -> campo del config que guarda su clave.
-    _PROVIDER_KEY = {
-        "openrouter": "openrouter_api_key",
-        "openai": "openai_api_key",
-        "anthropic": "anthropic_api_key",
-        "nvidia": "nvidia_api_key",
-        "xai": "xai_api_key",
-        "groq": "groq_api_key",
-        "deepseek": "deepseek_api_key",
-        "together": "together_api_key",
-        "perplexity": "perplexity_api_key",
-        "gemini": "gemini_api_key",
-        "mistral": "mistral_api_key",
-        "fireworks": "fireworks_api_key",
-        "cohere": "cohere_api_key",
-        "azure": "azure_openai_api_key",
-        "omniroute": "omniroute_api_key",
-        "vllm": "vllm_api_key",
+    #: provider id -> campos del config (clave y/o base_url), en el orden de
+    #: presentación en la UI. `bedrock` no tiene campo propio: usa la cadena de
+    #: credenciales de AWS. `ollama`/`lmstudio` solo necesitan base_url.
+    _PROVIDERS: dict[str, dict[str, str]] = {
+        "openrouter": {"key": "openrouter_api_key"},
+        "openai": {"key": "openai_api_key"},
+        "anthropic": {"key": "anthropic_api_key"},
+        "ollama": {"base_url": "ollama_base_url"},
+        "github": {"key": "github_token"},
+        "nvidia": {"key": "nvidia_api_key"},
+        "xai": {"key": "xai_api_key"},
+        "groq": {"key": "groq_api_key"},
+        "deepseek": {"key": "deepseek_api_key"},
+        "together": {"key": "together_api_key"},
+        "perplexity": {"key": "perplexity_api_key"},
+        "lmstudio": {"base_url": "lmstudio_base_url"},
+        "vllm": {"key": "vllm_api_key", "base_url": "vllm_base_url"},
+        "azure": {"key": "azure_openai_api_key"},
+        "gemini": {"key": "gemini_api_key"},
+        "mistral": {"key": "mistral_api_key"},
+        "bedrock": {},
+        "fireworks": {"key": "fireworks_api_key"},
+        "cohere": {"key": "cohere_api_key"},
+        "omniroute": {"key": "omniroute_api_key", "base_url": "omniroute_base_url"},
     }
+
+    def _provider_status(self, cfg: Any) -> list[dict[str, Any]]:
+        """Estado de cada proveedor.
+
+        Indica si tiene clave (y su procedencia, **nunca el valor**), y la
+        `base_url` configurada cuando el proveedor la admite (no es secreta).
+        """
+        sources = dict(getattr(cfg, "_secret_sources", {}) or {})
+        out: list[dict[str, Any]] = []
+        for pid, fields in self._PROVIDERS.items():
+            key_field = fields.get("key")
+            url_field = fields.get("base_url")
+            out.append(
+                {
+                    "id": pid,
+                    "hasKey": bool(getattr(cfg, key_field, None)) if key_field else False,
+                    "source": (sources.get(key_field, "default") if key_field else "default"),
+                    "supportsKey": bool(key_field),
+                    "supportsBaseUrl": bool(url_field),
+                    "baseUrl": (getattr(cfg, url_field, None) or "") if url_field else "",
+                }
+            )
+        return out
 
     async def _config_get(self, params: dict[str, Any]) -> dict[str, Any]:
         """Config efectiva para el panel. Los secretos NUNCA se envían: solo
@@ -390,15 +424,6 @@ class Bridge:
 
         repl = self.sessions.get(params["sessionId"])
         cfg = repl.config
-        sources = dict(getattr(cfg, "_secret_sources", {}) or {})
-        providers = [
-            {
-                "id": pid,
-                "hasKey": bool(getattr(cfg, field, None)),
-                "source": sources.get(field, "default"),
-            }
-            for pid, field in self._PROVIDER_KEY.items()
-        ]
         return {
             "provider": cfg.provider,
             "model": cfg.model,
@@ -409,7 +434,7 @@ class Bridge:
             "notifyOnCompletion": cfg.notify_on_completion,
             "sessionsDir": str(cfg.sessions_dir),
             "enabledProviders": enabled_providers_from_config(cfg, for_persistence=True),
-            "providers": providers,
+            "providers": self._provider_status(cfg),
             "hasProvider": has_configured_provider(cfg),
         }
 
@@ -429,16 +454,21 @@ class Bridge:
                 setattr(cfg, field, patch[field])
                 touched.add(field)
         for pid, value in secrets.items():
-            field = self._PROVIDER_KEY.get(str(pid))
+            field = self._PROVIDERS.get(str(pid), {}).get("key")
             if field and value:
                 setattr(cfg, field, value)
+                touched.add(field)
+        for pid, value in (params.get("base_urls") or {}).items():
+            field = self._PROVIDERS.get(str(pid), {}).get("base_url")
+            if field is not None:
+                setattr(cfg, field, value or None)
                 touched.add(field)
 
         only = set(self._SAFE_FIELDS) | touched | {"enabled_providers"}
         path = save_config(cfg, only_fields=only, explicit_secret_fields=touched)
 
-        # Aplicar en vivo lo que el engine necesita (cliente/modelo).
-        if "provider" in patch or touched & set(self._PROVIDER_KEY.values()):
+        # Aplicar en vivo lo que el engine necesita (cliente/modelo/base_url).
+        if "provider" in patch or touched:
             try:
                 await repl.set_provider(cfg.provider)
             except Exception as exc:  # noqa: BLE001 — guardar no debe fallar por el rebuild

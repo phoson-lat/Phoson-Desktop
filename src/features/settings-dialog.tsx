@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { phoson } from "@/bridge/client";
 import type { ConfigView } from "@/bridge/protocol";
+import { ProviderLogo } from "@/components/provider-logo";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,9 +19,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { REASONING_EFFORTS, effortLabel } from "@/lib/reasoning";
 import { cn } from "@/lib/utils";
-
-const EFFORTS = ["off", "low", "medium", "high", "xhigh", "max"];
 
 const SOURCE_LABEL: Record<string, string> = {
   file: "archivo",
@@ -39,11 +39,13 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
+  const [urlDrafts, setUrlDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!open || !sessionId) return;
     setLoading(true);
     setKeyDrafts({});
+    setUrlDrafts({});
     phoson
       .getConfig(sessionId)
       .then(setConfig)
@@ -60,6 +62,9 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
       const secrets = Object.fromEntries(
         Object.entries(keyDrafts).filter(([, v]) => v.trim().length > 0),
       );
+      const baseUrls = Object.fromEntries(
+        Object.entries(urlDrafts).filter(([, v]) => v.trim().length > 0),
+      );
       await phoson.setConfig(
         sessionId,
         {
@@ -71,6 +76,7 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
           notify_on_completion: config.notifyOnCompletion,
         },
         secrets,
+        baseUrls,
       );
       toast.success("Configuración guardada", { description: "~/.phoson/config.toml" });
       onOpenChange(false);
@@ -116,16 +122,18 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
                   <div className="space-y-1.5">
                     <Label className="text-xs">Esfuerzo de razonamiento</Label>
                     <Select
-                      value={config.reasoningEffort ?? "off"}
-                      onValueChange={(v) => patch({ reasoningEffort: v })}
+                      value={config.reasoningEffort ?? "auto"}
+                      onValueChange={(v) =>
+                        patch({ reasoningEffort: v === "auto" ? null : v })
+                      }
                     >
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {EFFORTS.map((e) => (
+                        {["auto", ...REASONING_EFFORTS].map((e) => (
                           <SelectItem key={e} value={e} className="text-xs">
-                            {e}
+                            {effortLabel(e === "auto" ? null : e)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -203,31 +211,67 @@ export function SettingsDialog({ open, onOpenChange, sessionId }: SettingsDialog
                   Solo escritura: nunca se muestran las claves guardadas.
                 </p>
                 <div className="space-y-2">
-                  {config.providers.map((p) => (
-                    <div key={p.id} className="flex items-center gap-2">
-                      <span className="w-24 shrink-0 truncate text-xs">{p.id}</span>
-                      <span
-                        className={cn(
-                          "flex w-24 shrink-0 items-center gap-1 text-[0.65rem]",
-                          p.hasKey ? "text-emerald-500" : "text-muted-foreground",
-                        )}
-                      >
-                        {p.hasKey ? <Check className="size-3" /> : <KeyRound className="size-3" />}
-                        {SOURCE_LABEL[p.source] ?? p.source}
-                      </span>
-                      <Input
-                        type="password"
-                        className="h-7 font-mono text-xs"
-                        placeholder={p.hasKey ? "•••••••• (definida)" : "nueva clave…"}
-                        value={keyDrafts[p.id] ?? ""}
-                        onChange={(e) =>
-                          setKeyDrafts((d) => ({ ...d, [p.id]: e.target.value }))
-                        }
-                      />
-                    </div>
-                  ))}
+                  {config.providers
+                    .filter((p) => p.supportsKey !== false)
+                    .map((p) => (
+                      <div key={p.id} className="flex items-center gap-2">
+                        <ProviderLogo id={p.id} size={15} className="text-muted-foreground" />
+                        <span className="w-24 shrink-0 truncate text-xs">{p.id}</span>
+                        <span
+                          className={cn(
+                            "flex w-24 shrink-0 items-center gap-1 text-[0.65rem]",
+                            p.hasKey ? "text-emerald-500" : "text-muted-foreground",
+                          )}
+                        >
+                          {p.hasKey ? <Check className="size-3" /> : <KeyRound className="size-3" />}
+                          {SOURCE_LABEL[p.source] ?? p.source}
+                        </span>
+                        <Input
+                          type="password"
+                          className="h-7 font-mono text-xs"
+                          placeholder={p.hasKey ? "•••••••• (definida)" : "nueva clave…"}
+                          value={keyDrafts[p.id] ?? ""}
+                          onChange={(e) =>
+                            setKeyDrafts((d) => ({ ...d, [p.id]: e.target.value }))
+                          }
+                        />
+                      </div>
+                    ))}
                 </div>
               </section>
+
+              {/* Servidores locales: solo base_url */}
+              {config.providers.some((p) => p.supportsBaseUrl) && (
+                <>
+                  <Separator />
+                  <section className="space-y-3">
+                    <h3 className="text-[0.7rem] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      Servidores locales
+                    </h3>
+                    <p className="text-[0.68rem] text-muted-foreground">
+                      vLLM, Ollama, LM Studio y OmniRoute se direccionan por URL.
+                    </p>
+                    <div className="space-y-2">
+                      {config.providers
+                        .filter((p) => p.supportsBaseUrl)
+                        .map((p) => (
+                          <div key={p.id} className="flex items-center gap-2">
+                            <ProviderLogo id={p.id} size={15} className="text-muted-foreground" />
+                            <span className="w-24 shrink-0 truncate text-xs">{p.id}</span>
+                            <Input
+                              className="h-7 font-mono text-xs"
+                              placeholder="http://localhost:…"
+                              value={urlDrafts[p.id] ?? p.baseUrl ?? ""}
+                              onChange={(e) =>
+                                setUrlDrafts((d) => ({ ...d, [p.id]: e.target.value }))
+                              }
+                            />
+                          </div>
+                        ))}
+                    </div>
+                  </section>
+                </>
+              )}
             </div>
           )}
         </ScrollArea>

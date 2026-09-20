@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "frontend-animation": {
+      "source": "aayushostwal/frontend-animation",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "ab8becd0a0cf5e0bc1c80ee6ebdd748d7ce683b03078b6e7a88d456c3729641e"
+    },
     "tauri-development": {
       "source": "mindrally/skills",
       "sourceType": "github",

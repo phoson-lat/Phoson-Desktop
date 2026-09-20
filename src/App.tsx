@@ -9,7 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Composer } from "@/features/composer";
 import { MessageRow } from "@/features/message";
 import { MetricsBar } from "@/features/metrics";
-import { ModelPicker } from "@/features/model-picker";
+import { Onboarding } from "@/features/onboarding";
 import { SettingsDialog } from "@/features/settings-dialog";
 import { Sidebar } from "@/features/sidebar";
 import { Welcome } from "@/features/welcome";
@@ -31,6 +31,8 @@ export default function App() {
     closeSession,
     setActive,
     respondConfirm,
+    onboardingNeeded,
+    finishOnboarding,
   } = useSession();
   const [draft, setDraft] = useState("");
   const [navOpen, setNavOpen] = useState(false);
@@ -138,12 +140,6 @@ export default function App() {
               </div>
             </div>
 
-            <ModelPicker
-              sessionId={activeKey}
-              current={metrics?.model}
-              provider={metrics?.provider}
-              compact={isMobile}
-            />
             {!isMobile && <MetricsBar metrics={metrics ?? undefined} />}
 
             <Button
@@ -213,11 +209,17 @@ export default function App() {
             onStop={() => void cancel()}
             sending={!!view?.sending}
             disabled={!ready}
+            sessionId={activeKey}
+            model={metrics?.model}
+            provider={metrics?.provider}
           />
         </main>
       </div>
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} sessionId={activeKey} />
+      {ready && onboardingNeeded && (
+        <Onboarding sessionId={activeKey} onDone={finishOnboarding} />
+      )}
       <Toaster position="bottom-right" />
     </TooltipProvider>
   );

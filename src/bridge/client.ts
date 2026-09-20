@@ -76,6 +76,12 @@ class MockBridge implements Bridge {
             { names: ["/compact"], help: "Compactar contexto" },
           ],
           defaultSessionId: "demo",
+          onboarding: {
+            needed:
+              typeof location !== "undefined" &&
+              new URLSearchParams(location.search).has("onboarding"),
+            providers: MOCK_CONFIG.providers,
+          },
           metrics: this.metrics("demo"),
         } as unknown as T;
       case "session.new": {
@@ -108,8 +114,22 @@ class MockBridge implements Bridge {
         return MOCK_CONFIG as unknown as T;
       case "config.set": {
         const patch = (p.patch ?? {}) as Record<string, unknown>;
-        Object.assign(MOCK_CONFIG, patch);
-        if (p.provider) MOCK_CONFIG.provider = String(p.provider);
+        // El backend usa snake_case en el patch; el mock normaliza a su vista.
+        if ("provider" in patch) MOCK_CONFIG.provider = String(patch.provider);
+        if ("model" in patch) MOCK_CONFIG.model = String(patch.model);
+        if ("subagent_model" in patch) MOCK_CONFIG.subagentModel = String(patch.subagent_model);
+        if ("safe_mode" in patch) MOCK_CONFIG.safeMode = Boolean(patch.safe_mode);
+        if ("reasoning_effort" in patch)
+          MOCK_CONFIG.reasoningEffort = patch.reasoning_effort as string | null;
+        const secrets = (p.secrets ?? {}) as Record<string, string>;
+        const urls = (p.base_urls ?? {}) as Record<string, string>;
+        if (Object.keys(secrets).length || Object.keys(urls).length) {
+          MOCK_CONFIG.providers = MOCK_CONFIG.providers.map((pr) => {
+            if (secrets[pr.id]) return { ...pr, hasKey: true, source: "file" as const };
+            if (urls[pr.id] !== undefined) return { ...pr, baseUrl: urls[pr.id] };
+            return pr;
+          });
+        }
         return { ok: true, path: "~/.phoson/config.toml", config: MOCK_CONFIG } as unknown as T;
       }
       case "turn.run":
@@ -194,11 +214,26 @@ const MOCK_CONFIG: ConfigView = {
   sessionsDir: "~/.phoson/sessions",
   enabledProviders: ["openrouter", "anthropic", "openai"],
   providers: [
-    { id: "openrouter", hasKey: true, source: "file" },
-    { id: "anthropic", hasKey: false, source: "default" },
-    { id: "openai", hasKey: true, source: "env" },
-    { id: "gemini", hasKey: false, source: "default" },
-    { id: "groq", hasKey: false, source: "default" },
+    { id: "openrouter", hasKey: true, source: "file", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "openai", hasKey: true, source: "env", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "anthropic", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "ollama", hasKey: false, source: "default", supportsKey: false, supportsBaseUrl: true, baseUrl: "http://localhost:11434" },
+    { id: "github", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "nvidia", hasKey: true, source: "file", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "xai", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "groq", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "deepseek", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "together", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "perplexity", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "lmstudio", hasKey: false, source: "default", supportsKey: false, supportsBaseUrl: true, baseUrl: "" },
+    { id: "vllm", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: true, baseUrl: "" },
+    { id: "azure", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "gemini", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "mistral", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "bedrock", hasKey: false, source: "default", supportsKey: false, supportsBaseUrl: false, baseUrl: "" },
+    { id: "fireworks", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "cohere", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: false, baseUrl: "" },
+    { id: "omniroute", hasKey: false, source: "default", supportsKey: true, supportsBaseUrl: true, baseUrl: "" },
   ],
   hasProvider: true,
 };
@@ -233,8 +268,8 @@ export const phoson = {
   setModel: (sessionId: string, model: string, provider?: string) =>
     bridge.rpc("model.set", { sessionId, model, provider }),
   getConfig: (sessionId: string) => bridge.rpc<ConfigView>("config.get", { sessionId }),
-  setConfig: (sessionId: string, patch: Json, secrets?: Json) =>
-    bridge.rpc("config.set", { sessionId, patch, secrets }),
+  setConfig: (sessionId: string, patch: Json, secrets?: Json, baseUrls?: Json) =>
+    bridge.rpc("config.set", { sessionId, patch, secrets, base_urls: baseUrls }),
   runTurn: (sessionId: string, text: string) =>
     bridge.rpc("turn.run", { sessionId, text }),
   cancelTurn: (sessionId: string) =>

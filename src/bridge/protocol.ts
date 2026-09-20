@@ -82,6 +82,8 @@ export interface InitResult {
   };
   tools: { visible: string[]; maskedCount: number };
   commands: Array<{ names: string[]; help: string }>;
+  /** Presente cuando el sidecar sabe si hay proveedor configurado. */
+  onboarding?: { needed: boolean; providers: ProviderStatus[] };
   defaultSessionId: string;
   metrics: RunMetrics;
 }
@@ -108,6 +110,12 @@ export interface ProviderStatus {
   id: string;
   hasKey: boolean;
   source: "file" | "env" | "default";
+  /** El proveedor admite API key (p.ej. Ollama no). */
+  supportsKey?: boolean;
+  /** El proveedor admite `base_url` (vLLM, Ollama, LM Studio, OmniRoute…). */
+  supportsBaseUrl?: boolean;
+  /** Valor actual de la base_url (no es secreta). */
+  baseUrl?: string;
 }
 
 export interface ConfigView {

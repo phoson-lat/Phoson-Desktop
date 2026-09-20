@@ -58,6 +58,9 @@ interface SessionState {
   closeSession: (key: string) => Promise<void>;
   setActive: (key: string) => void;
   respondConfirm: (requestId: string, decision: "yes" | "always" | "no") => Promise<void>;
+  /** Primer arranque sin proveedor configurado. */
+  onboardingNeeded: boolean;
+  finishOnboarding: () => void;
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -209,16 +212,21 @@ export const useSession = create<SessionState>((set, get) => {
     activeKey: null,
     order: [],
     sessions: {},
+    onboardingNeeded: false,
 
     init: () => {
       bootPromise ??= (async () => {
         await attach();
         const info = await phoson.initialize();
         const key = info.defaultSessionId;
+        const dismissed =
+          typeof localStorage !== "undefined" &&
+          localStorage.getItem("phoson.onboarded") === "1";
         set((s) => ({
           ready: true,
           activeKey: key,
           order: [key],
+          onboardingNeeded: Boolean(info.onboarding?.needed) && !dismissed,
           sessions: { ...s.sessions, [key]: { ...emptyView(key), metrics: info.metrics } },
         }));
       })();
@@ -287,6 +295,15 @@ export const useSession = create<SessionState>((set, get) => {
         confirmations: v.confirmations.filter((c) => c.requestId !== requestId),
       }));
       await phoson.respondConfirm(key, requestId, decision);
+    },
+
+    finishOnboarding: () => {
+      try {
+        localStorage.setItem("phoson.onboarded", "1");
+      } catch {
+        /* almacenamiento no disponible */
+      }
+      set({ onboardingNeeded: false });
     },
   };
 });

@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 
 import { phoson } from "@/bridge/client";
 import type { ModelOption } from "@/bridge/protocol";
+import { ProviderLogo } from "@/components/provider-logo";
+import { HAS_PROVIDER_LOGO } from "@/components/provider-logos";
 import {
   Command,
   CommandEmpty,
@@ -60,8 +62,12 @@ export function ModelPicker({ sessionId, current, provider, compact }: ModelPick
           className="flex max-w-[16rem] items-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-xs transition-colors hover:border-[var(--dashboard-border)]"
           title="Cambiar modelo"
         >
-          <span className="size-1.5 shrink-0 rounded-full bg-violet" />
-          <span className={cn("truncate text-foreground", compact && "max-w-[6rem]")}>
+          {provider && HAS_PROVIDER_LOGO(provider) ? (
+            <ProviderLogo id={provider} size={14} className="text-muted-foreground" />
+          ) : (
+            <span className="size-1.5 shrink-0 rounded-full bg-violet" />
+          )}
+          <span className={cn("truncate text-foreground", compact && "max-w-[11rem]")}>
             {label}
           </span>
           <ChevronDown className="size-3 shrink-0 opacity-50" />
