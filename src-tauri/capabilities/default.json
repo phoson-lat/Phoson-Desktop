@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capacidades de la ventana principal",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-execute",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [{ "name": "binaries/phoson-bridge", "sidecar": true }]
+    },
+    "notification:default"
+  ]
+}

@@ -1,0 +1,695 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Light mode (default) ─────────────────────────────────────────── */
+:root {
+  --background: #ffffff;
+  --foreground: #0d0d0d;
+
+  --card: #f5f5f5;
+  --card-foreground: #0d0d0d;
+
+  --popover: #ffffff;
+  --popover-foreground: #0d0d0d;
+
+  --primary: #5b2eff;
+  --primary-foreground: #ffffff;
+
+  --secondary: #f0f0f0;
+  --secondary-foreground: #1a1a1a;
+
+  --muted: #f0f0f0;
+  --muted-foreground: #737373;
+
+  --accent: #5b2eff;
+  --accent-foreground: #ffffff;
+
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: #ffffff;
+
+  --border: #e5e5e5;
+  --input: #ebebeb;
+  --ring: #5b2eff;
+  --radius: 0.75rem;
+
+  /* Brand tokens */
+  --violet: #5b2eff;
+  --violet-deep: #2b0a57;
+  --violet-soft: #6d3ff7;
+  --surface: #f5f5f5;
+  --surface-raised: #ebebeb;
+  --glow: rgba(91, 46, 255, 0.12);
+  --grid-line: rgba(0, 0, 0, 0.045);
+  --dashboard-shell: linear-gradient(180deg, #fafafa 0%, #f5f5f5 100%);
+  --dashboard-radial-primary: rgba(91, 46, 255, 0.06);
+  --dashboard-radial-secondary: rgba(91, 46, 255, 0.03);
+  --dashboard-panel: rgba(255, 255, 255, 0.80);
+  --dashboard-panel-strong: rgba(255, 255, 255, 0.95);
+  --dashboard-panel-soft: rgba(0, 0, 0, 0.03);
+  --dashboard-hover: rgba(0, 0, 0, 0.05);
+  --dashboard-active: rgba(91, 46, 255, 0.08);
+  --dashboard-border: rgba(0, 0, 0, 0.09);
+  --dashboard-shadow: 0 8px 32px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --dashboard-shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(0, 0, 0, 0.05);
+  --dashboard-accent-border: rgba(91, 46, 255, 0.15);
+  --dashboard-accent-glow: 0 0 24px rgba(91, 46, 255, 0.06), 0 8px 32px rgba(91, 46, 255, 0.08);
+}
+
+/* ── Dark mode ────────────────────────────────────────────────────── */
+.dark {
+  --background: #0a0a0a;
+  --foreground: #f2f2f2;
+
+  --card: #141414;
+  --card-foreground: #f2f2f2;
+
+  --popover: #141414;
+  --popover-foreground: #f2f2f2;
+
+  --primary: #5b2eff;
+  --primary-foreground: #ffffff;
+
+  --secondary: #1f1f1f;
+  --secondary-foreground: #a3a3a3;
+
+  --muted: #1a1a1a;
+  --muted-foreground: #737373;
+
+  --accent: #5b2eff;
+  --accent-foreground: #ffffff;
+
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: #ffffff;
+
+  --border: #262626;
+  --input: #262626;
+  --ring: #5b2eff;
+
+  /* Brand tokens */
+  --violet: #5b2eff;
+  --violet-deep: #2b0a57;
+  --violet-soft: #a78bfa;
+  --surface: #141414;
+  --surface-raised: #1f1f1f;
+  --glow: rgba(91, 46, 255, 0.20);
+  --grid-line: rgba(255, 255, 255, 0.04);
+  --dashboard-shell: linear-gradient(180deg, #0a0a0a 0%, #0a0a0a 100%);
+  --dashboard-radial-primary: rgba(91, 46, 255, 0.08);
+  --dashboard-radial-secondary: rgba(91, 46, 255, 0.04);
+  --dashboard-panel: rgba(20, 20, 20, 0.80);
+  --dashboard-panel-strong: rgba(20, 20, 20, 0.95);
+  --dashboard-panel-soft: rgba(255, 255, 255, 0.04);
+  --dashboard-hover: rgba(255, 255, 255, 0.06);
+  --dashboard-active: rgba(91, 46, 255, 0.10);
+  --dashboard-border: rgba(255, 255, 255, 0.09);
+  --dashboard-shadow: 0 8px 32px rgba(0, 0, 0, 0.40), 0 2px 8px rgba(0, 0, 0, 0.25);
+  --dashboard-shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.50), 0 4px 16px rgba(0, 0, 0, 0.30);
+  --dashboard-accent-border: rgba(91, 46, 255, 0.20);
+  --dashboard-accent-glow: 0 0 32px rgba(91, 46, 255, 0.10), 0 8px 40px rgba(91, 46, 255, 0.12);
+}
+
+/* ── Theme inline map ─────────────────────────────────────────────── */
+@theme inline {
+  --font-sans: var(--font-dm-sans), 'DM Sans', sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --animate-orbit: orbit calc(var(--duration)*1s) linear infinite;
+  @keyframes orbit {
+  0% {
+    transform: rotate(calc(var(--angle) * 1deg)) translateY(calc(var(--radius) * 1px)) rotate(calc(var(--angle) * -1deg));
+    }
+  100% {
+    transform: rotate(calc(var(--angle) * 1deg + 360deg)) translateY(calc(var(--radius) * 1px)) rotate(calc((var(--angle) * -1deg) - 360deg));
+    }
+  }
+}
+
+/* ── Base ─────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans transition-colors duration-300;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.02em;
+  }
+}
+
+/* ── Utilities ────────────────────────────────────────────────────── */
+@layer utilities {
+  .text-violet { color: var(--violet); }
+  .text-violet-soft { color: var(--violet-soft); }
+  .bg-violet { background-color: var(--violet); }
+  .bg-surface { background-color: var(--surface); }
+  .bg-surface-raised { background-color: var(--surface-raised); }
+  .border-violet { border-color: var(--violet); }
+
+  .glow-violet {
+    box-shadow: 0 0 40px var(--glow), 0 0 80px rgba(91, 46, 255, 0.08);
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  .hex-clip {
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  }
+
+  .dashboard-shell-overlay {
+    background:
+      radial-gradient(circle at 18% 12%, var(--dashboard-radial-primary), transparent 28%),
+      radial-gradient(circle at 84% 20%, var(--dashboard-radial-secondary), transparent 24%),
+      var(--dashboard-shell);
+  }
+
+  .dashboard-panel {
+    background: var(--dashboard-panel);
+    border-color: var(--dashboard-border);
+    box-shadow: var(--dashboard-shadow);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+  }
+
+  .dashboard-panel-strong {
+    background: var(--dashboard-panel-strong);
+    border-color: var(--dashboard-border);
+    box-shadow: var(--dashboard-shadow);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+  }
+
+  .dashboard-panel-soft {
+    background: var(--dashboard-panel-soft);
+  }
+
+  .dashboard-border-soft {
+    border-color: var(--dashboard-border);
+  }
+
+  .dashboard-hover:hover {
+    background: var(--dashboard-hover);
+  }
+
+  .dashboard-active {
+    background: var(--dashboard-active);
+  }
+
+  .dashboard-accent-border {
+    border-color: var(--dashboard-accent-border);
+  }
+
+  .dashboard-glow {
+    box-shadow: var(--dashboard-accent-glow);
+  }
+
+  /* ── Prose Chat (Markdown Renderer) ─────────────────────────────────── */
+  .prose-chat {
+    /* Base text styling */
+    color: inherit;
+  }
+
+  .prose-chat > *:first-child {
+    margin-top: 0;
+  }
+
+  .prose-chat > *:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Ensure nested prose elements have proper spacing */
+  .prose-chat p,
+  .prose-chat ul,
+  .prose-chat ol,
+  .prose-chat blockquote,
+  .prose-chat pre,
+  .prose-chat table {
+    max-width: 100%;
+  }
+
+  /* Ensure images don't overflow */
+  .prose-chat img {
+    height: auto;
+  }
+
+  /* Smooth scrolling for anchor links */
+  .prose-chat [id] {
+    scroll-margin-top: 1rem;
+  }
+
+  .chat-markdown {
+    color: inherit;
+  }
+
+  .chat-markdown h1,
+  .chat-markdown h2,
+  .chat-markdown h3 {
+    letter-spacing: -0.03em;
+  }
+
+  .chat-markdown a {
+    text-underline-offset: 0.2em;
+  }
+
+  .chat-markdown pre {
+    margin-block: 0.75rem;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--background); }
+::-webkit-scrollbar-thumb { background: var(--violet-deep); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--violet); }
+
+/* Animations */
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-marquee { animation: marquee 35s linear infinite; }
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1; }
+}
+.animate-pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
+
+@keyframes rotateSlow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.animate-rotate-slow { animation: rotateSlow 20s linear infinite; }
+
+/* Phoson mark — loading spinner */
+@keyframes logo-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes logo-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.08); }
+}
+@keyframes logo-spark {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+@keyframes logo-star-breathe {
+  0%, 100% { opacity: 0.75; transform: scale(0.92); }
+  50%      { opacity: 1;    transform: scale(1.08); }
+}
+
+.phoson-logo-mark {
+  overflow: visible;
+}
+.phoson-logo-mark .logo-ring,
+.phoson-logo-mark .logo-hex,
+.phoson-logo-mark .logo-glow,
+.phoson-logo-mark .logo-sparks,
+.phoson-logo-mark .logo-star {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.phoson-logo-mark .logo-ring {
+  animation: logo-spin 8s linear infinite;
+  stroke: #5b2eff;
+  stroke-dasharray: 90 287;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+.phoson-logo-mark .logo-hex {
+  animation: logo-spin 12s linear infinite reverse;
+}
+.phoson-logo-mark .logo-glow {
+  animation: logo-pulse 2.4s ease-in-out infinite;
+}
+.phoson-logo-mark .logo-sparks {
+  animation: logo-spark 1.6s ease-in-out infinite;
+}
+.phoson-logo-mark .logo-star {
+  animation: logo-star-breathe 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phoson-logo-mark .logo-ring,
+  .phoson-logo-mark .logo-hex,
+  .phoson-logo-mark .logo-glow,
+  .phoson-logo-mark .logo-sparks,
+  .phoson-logo-mark .logo-star {
+    animation: none;
+  }
+}
+
+/* Chat typing indicator dots */
+@keyframes chat-dot-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+.animate-chat-dot {
+  animation: chat-dot-bounce 0.8s ease-in-out infinite;
+}
+
+/* ── Chat bubbles ────────────────────────────────────────────────── */
+.chat-bubble-user {
+  background: linear-gradient(150deg, #7c5cf6 0%, #6433f0 50%, #5b1ef5 100%);
+  color: #fff;
+  border-radius: 18px 4px 18px 18px;
+  padding: 10px 14px;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  width: fit-content;
+  max-width: 85%;
+  word-break: break-word;
+  box-shadow:
+    0 4px 20px rgba(91, 46, 255, 0.38),
+    0 1px 4px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
+/* Ensure the prose wrapper expands to text's natural width */
+.chat-bubble-user .prose-chat {
+  width: max-content;
+  max-width: 100%;
+}
+
+/* ── Markdown overrides inside user bubbles (white-on-violet) ──── */
+.chat-bubble-user .chat-markdown-user p,
+.chat-bubble-user .chat-markdown-user li,
+.chat-bubble-user .chat-markdown-user td,
+.chat-bubble-user .chat-markdown-user th {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.chat-bubble-user .chat-markdown-user h1,
+.chat-bubble-user .chat-markdown-user h2,
+.chat-bubble-user .chat-markdown-user h3 {
+  color: #fff;
+}
+
+.chat-bubble-user .chat-markdown-user strong {
+  color: #fff;
+  font-weight: 600;
+}
+
+.chat-bubble-user .chat-markdown-user em {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.chat-bubble-user .chat-markdown-user a {
+  color: rgba(255, 255, 255, 0.9);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.chat-bubble-user .chat-markdown-user a:hover {
+  color: #fff;
+}
+
+.chat-bubble-user .chat-markdown-user code {
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.92);
+  border-radius: 5px;
+  padding: 0.1em 0.4em;
+  font-size: 0.82em;
+}
+
+.chat-bubble-user .chat-markdown-user blockquote {
+  background: rgba(0, 0, 0, 0.12);
+  border-left-color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.chat-bubble-user .chat-markdown-user hr {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.chat-bubble-user .chat-markdown-user ul,
+.chat-bubble-user .chat-markdown-user ol {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.chat-bubble-user .chat-markdown-user del {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.chat-bubble-user .chat-markdown-user table {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.chat-bubble-user .chat-markdown-user thead {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.chat-bubble-user .chat-markdown-user th,
+.chat-bubble-user .chat-markdown-user td {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Code blocks inside user bubbles get a dark inset treatment */
+.chat-bubble-user .chat-markdown-user .my-3 {
+  background: rgba(0, 0, 0, 0.28) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.chat-bubble-user .chat-markdown-user .my-3 > div:first-child {
+  background: rgba(0, 0, 0, 0.2) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.chat-bubble-agent {
+  background: var(--dashboard-panel);
+  border: 1px solid var(--dashboard-border);
+  border-radius: 4px 20px 20px 20px;
+  padding: 12px 16px;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  max-width: 100%;
+  word-break: break-word;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow:
+    0 2px 12px rgba(91, 46, 255, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.dark .chat-bubble-agent {
+  box-shadow:
+    0 2px 16px rgba(91, 46, 255, 0.16),
+    0 1px 4px rgba(0, 0, 0, 0.28);
+}
+
+/* ── Flow-to-token streaming animation ───────────────────────────── */
+@keyframes flow-token-blur-in {
+  from {
+    filter: blur(8px);
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    filter: blur(0px);
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Applied to new block-level elements as they appear during streaming.
+   No display override — element keeps its natural block/inline-block. */
+.animate-flow-token {
+  animation: flow-token-blur-in 0.5s ease-out forwards;
+}
+
+/* ── Welcome screen entrance animations ──────────────────────────── */
+@keyframes welcome-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes welcome-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes welcome-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes welcome-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+
+.animate-welcome-icon {
+  animation: welcome-scale-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s both;
+}
+
+.animate-welcome-greeting {
+  animation: welcome-fade-up 0.6s ease-out 0.15s both;
+}
+
+.animate-welcome-subtitle {
+  animation: welcome-fade-up 0.6s ease-out 0.25s both;
+}
+
+.animate-welcome-recent {
+  animation: welcome-slide-up 0.5s ease-out both;
+}
+
+.animate-welcome-float {
+  animation: welcome-float 4s ease-in-out infinite;
+}
+
+/* ── Composer entrance in welcome mode ──────────────────────────── */
+@keyframes composer-rise {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-composer-rise {
+  animation: composer-rise 0.5s ease-out 0.35s both;
+}
+
+/* ── Staggered list items for recent conversations ──────────────── */
+.welcome-recent-item:nth-child(1) { animation-delay: 0.3s; }
+.welcome-recent-item:nth-child(2) { animation-delay: 0.35s; }
+.welcome-recent-item:nth-child(3) { animation-delay: 0.4s; }
+.welcome-recent-item:nth-child(4) { animation-delay: 0.45s; }
+.welcome-recent-item:nth-child(5) { animation-delay: 0.5s; }
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── CSS replacements for former framer-motion micro-animations ─────── */
+
+@keyframes menu-pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-menu-pop {
+  animation: menu-pop-in 150ms ease-out;
+}
+
+@keyframes nav-drawer-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-nav-drawer {
+  animation: nav-drawer-in 200ms ease-out;
+}
+/* ── SSR-safe scroll reveal (components/reveal.tsx) ────────────────
+   Server HTML stays fully visible (SEO/LCP). JS arms the hidden state
+   only for below-the-fold sections, then reveals them on scroll.
+   (prefers-reduced-motion is covered by the global override above,
+   and the hook also skips arming entirely.) */
+.reveal-armed [data-reveal] {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reveal-armed [data-reveal="left"] {
+  transform: translateX(-24px);
+}
+.reveal-armed [data-reveal="right"] {
+  transform: translateX(24px);
+}
+.reveal-armed.is-revealed [data-reveal] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Above-the-fold hero entrance (applied to non-LCP elements only) */
+@keyframes hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.hero-in {
+  animation: hero-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--rd, 0s);
+}
+
+/* Mermaid diagrams (research posts): keep rendered SVGs inside their
+   card, scaled down on small screens. */
+.mermaid-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}

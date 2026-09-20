@@ -1,0 +1,26 @@
+[project]
+name = "phoson-bridge"
+version = "0.1.0"
+description = "Sidecar JSON-RPC (stdio) que expone phoson-engine-minimal a Phoson Desktop"
+requires-python = ">=3.12"
+dependencies = [
+    # TODO: pinear la versión exacta del engine usada por la app.
+    "phoson-engine-minimal>=0.42.0",
+]
+
+[project.optional-dependencies]
+# Extras instalados en el venv del sidecar (empaquetado con PyInstaller).
+# Habilitar según los plugins que queramos en la app.
+mcp = ["phoson-engine-minimal[mcp]"]
+ssh = ["phoson-engine-minimal[ssh]"]
+stt = ["phoson-engine-minimal[stt]"]
+
+[project.scripts]
+phoson-bridge = "phoson_bridge.__main__:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["phoson_bridge"]

@@ -1,0 +1,28 @@
+/*
+ * Shim de adaptación Next → Vite (decidido en M0).
+ *
+ * `globals.css` (portado tal cual de Phoson-Web) usa `var(--font-dm-sans)`, que
+ * en Next lo inyecta `next/font/google`. Aquí la fuente se carga por <link> en
+ * index.html, así que definimos la variable y algunos ajustes de shell.
+ */
+
+:root {
+  --font-dm-sans: "DM Sans";
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  overflow: hidden;
+}
+
+/* La app es una sola ventana: nada de scroll del documento. */
+#root {
+  display: flex;
+  flex-direction: column;
+}

@@ -1,0 +1,122 @@
+/*
+ * Phoson theme — base visual definitiva (M0.2).
+ *
+ * Inspirado en Codex (OpenAI) y Claude (Anthropic): superficies PLANAS +
+ * hairlines de 1px, sin glassmorphism/sombras/glow, UN accent (violeta) usado
+ * con avaricia. Sustituye al antiguo tema "quiet" conmutable: ahora es
+ * incondicional.
+ *
+ * `globals.css` sigue siendo la fuente de tokens; aquí se sobrescriben los
+ * pesados para las dos variantes (claro/oscuro) que controla `next-themes`.
+ */
+
+:root {
+  --phoson-surface: #ffffff;
+  --phoson-surface-2: #f7f7f8;
+  --phoson-hairline: #e6e6e8;
+
+  /* Sin profundidad decorativa: el borde expresa la jerarquía. */
+  --dashboard-shell: none;
+  --dashboard-radial-primary: transparent;
+  --dashboard-radial-secondary: transparent;
+  --dashboard-panel: var(--phoson-surface);
+  --dashboard-panel-strong: var(--phoson-surface-2);
+  --dashboard-panel-soft: transparent;
+  --dashboard-border: var(--phoson-hairline);
+  --dashboard-hover: rgba(0, 0, 0, 0.04);
+  --dashboard-active: rgba(91, 46, 255, 0.10);
+  --dashboard-accent-border: rgba(91, 46, 255, 0.30);
+  --dashboard-accent-glow: none;
+  --dashboard-shadow: none;
+  --dashboard-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.14);
+  --glow: transparent;
+  --grid-line: transparent;
+  --radius: 0.625rem; /* 10px */
+}
+
+.dark {
+  --phoson-surface: #111112;
+  --phoson-surface-2: #17171a;
+  --phoson-hairline: #242428;
+  --muted-foreground: #8b8b93;
+  --dashboard-hover: rgba(255, 255, 255, 0.045);
+  --dashboard-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+/* ── Shell: fuera radial gradient y grid ─────────────────────────────────── */
+.dashboard-shell-overlay {
+  background: var(--background);
+}
+.grid-bg {
+  background-image: none;
+}
+.glow-violet {
+  box-shadow: none;
+}
+
+/* ── Paneles: planos + hairline ──────────────────────────────────────────── */
+.dashboard-panel,
+.dashboard-panel-strong {
+  background: var(--phoson-surface);
+  border-color: var(--phoson-hairline);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.dashboard-panel-strong {
+  background: var(--phoson-surface-2);
+}
+.dashboard-glow {
+  box-shadow: none;
+}
+
+/* ── Burbujas: usuario con hairline; agente SIN tarjeta (texto plano) ────── */
+.chat-bubble-user {
+  background: var(--phoson-surface-2);
+  color: var(--foreground);
+  border: 1px solid var(--phoson-hairline);
+  border-radius: 1.125rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  box-shadow: none;
+}
+.chat-bubble-agent {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* ── Badges: chip pill con hairline, sin relleno ─────────────────────────── */
+[data-slot="badge"] {
+  background: transparent;
+  border: 1px solid var(--phoson-hairline);
+  border-radius: 9999px;
+  padding-inline: 0.55rem;
+  color: var(--muted-foreground);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+[data-slot="badge"] svg {
+  opacity: 0.7;
+}
+
+/* Menos movimiento. */
+.animate-welcome-float {
+  animation: none;
+}
+
+/* ── Barra lateral: única superficie con elevación ───────────────────────── */
+:root {
+  --phoson-sidebar-shadow: 4px 0 24px rgba(0, 0, 0, 0.06);
+}
+.dark {
+  --phoson-sidebar-shadow: 4px 0 28px rgba(0, 0, 0, 0.42);
+}
+.app-sidebar {
+  box-shadow: var(--phoson-sidebar-shadow);
+}

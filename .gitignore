@@ -1,0 +1,24 @@
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Sidecar binaries (descargados desde GitHub Releases en build)
+src-tauri/binaries/
+
+# Misc
+.DS_Store
+.env
+.env.local
