@@ -136,6 +136,14 @@ export interface ConfigView {
   mcpConfigFile?: string;
 }
 
+/** Adjunto pendiente (materializado por el sidecar). */
+export interface Attachment {
+  path: string;
+  name: string;
+  /** image | audio | video | document | file */
+  kind: string;
+}
+
 /** Entrada del explorador de archivos. */
 export interface FsEntry {
   name: string;

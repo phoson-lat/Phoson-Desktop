@@ -12,6 +12,7 @@ import { create } from "zustand";
 import { phoson } from "../bridge/client";
 import type {
   AgentEvent,
+  Attachment,
   ConfirmRequest,
   NotifyMessage,
   RunMetrics,
@@ -42,6 +43,7 @@ export interface SessionView {
   metrics: RunMetrics | null;
   confirmations: ConfirmRequest[];
   notifications: NotifyMessage[];
+  attachments: Attachment[];
   sending: boolean;
 }
 
@@ -58,6 +60,10 @@ interface SessionState {
   closeSession: (key: string) => Promise<void>;
   setActive: (key: string) => void;
   respondConfirm: (requestId: string, decision: "yes" | "always" | "no") => Promise<void>;
+  /** Adjuntos: pegar, arrastrar o elegir archivos. */
+  loadAttachments: () => Promise<void>;
+  addFiles: (files: File[]) => Promise<void>;
+  removeAttachment: (path: string) => Promise<void>;
   /** Primer arranque sin proveedor configurado. */
   onboardingNeeded: boolean;
   finishOnboarding: () => void;
@@ -71,8 +77,18 @@ const emptyView = (key: string): SessionView => ({
   metrics: null,
   confirmations: [],
   notifications: [],
+  attachments: [],
   sending: false,
 });
+
+/** Convierte un File a base64 (sin el prefijo data:). */
+const fileToBase64 = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 
 // Buffer de tokens por sesión + flush por rAF.
 const tokenBuffer = new Map<string, string>();
@@ -185,6 +201,10 @@ export const useSession = create<SessionState>((set, get) => {
           patchView(key, (v) => ({ ...v, sending: false }));
           break;
         }
+        case "attachments.changed":
+          // El controller los volcó en el turno: ya no están pendientes.
+          if (key) patchView(key, (v) => ({ ...v, attachments: [] }));
+          break;
         case "notify":
           if (key)
             patchView(key, (v) => ({
@@ -295,6 +315,58 @@ export const useSession = create<SessionState>((set, get) => {
         confirmations: v.confirmations.filter((c) => c.requestId !== requestId),
       }));
       await phoson.respondConfirm(key, requestId, decision);
+    },
+
+    loadAttachments: async () => {
+      const key = get().activeKey;
+      if (!key) return;
+      try {
+        const res = await phoson.attachmentList(key);
+        patchView(key, (v) => ({ ...v, attachments: res.attachments ?? [] }));
+      } catch {
+        /* sin adjuntos */
+      }
+    },
+
+    addFiles: async (files) => {
+      const key = get().activeKey;
+      if (!key || files.length === 0) return;
+      for (const file of files) {
+        try {
+          const data = await fileToBase64(file);
+          const res = await phoson.attachmentPush(key, file.name, data);
+          patchView(key, (v) => ({ ...v, attachments: res.attachments ?? [] }));
+        } catch (e) {
+          const message = String(e).replace(/^Error:\s*/, "");
+          set((s) => {
+            const view = s.sessions[key];
+            if (!view) return s;
+            return {
+              sessions: {
+                ...s.sessions,
+                [key]: {
+                  ...view,
+                  notifications: [
+                    ...view.notifications,
+                    { sessionId: key, kind: "warn", message: `${file.name}: ${message}` },
+                  ],
+                },
+              },
+            };
+          });
+        }
+      }
+    },
+
+    removeAttachment: async (path) => {
+      const key = get().activeKey;
+      if (!key) return;
+      try {
+        const res = await phoson.attachmentRemove(key, path);
+        patchView(key, (v) => ({ ...v, attachments: res.attachments ?? [] }));
+      } catch {
+        /* ignorar */
+      }
     },
 
     finishOnboarding: () => {

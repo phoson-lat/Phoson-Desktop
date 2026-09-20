@@ -147,6 +147,9 @@ class Bridge:
             "mcp.get": self._mcp_get,
             "mcp.save": self._mcp_save,
             "mcp.remove": self._mcp_remove,
+            "attachment.list": self._attachment_list,
+            "attachment.push": self._attachment_push,
+            "attachment.remove": self._attachment_remove,
             "attachment.add": self._attachment_add,
             "attachment.clear": self._attachment_clear,
             "confirm.respond": self._confirm_respond,
@@ -727,6 +730,70 @@ class Bridge:
         path = self._mcp_store(cfg, data)
         await self._reload_plugins(repl)
         return {"ok": True, "path": path, "mcp": self._mcp_summary(cfg)}
+
+    # ── Adjuntos (pegar / arrastrar archivos) ─────────────────────────────
+    #: Tope de tamaño al materializar un archivo enviado desde la UI.
+    _MAX_PUSH = 25 * 1024 * 1024
+
+    def _attachment_payload(self, repl: Any) -> list[dict[str, Any]]:
+        """Vista normalizada de los adjuntos pendientes: ruta, nombre y tipo."""
+        from pathlib import Path
+
+        out: list[dict[str, Any]] = []
+        for att in repl._controller.attachments.list_pending():
+            path = str(getattr(att, "path", ""))
+            block = getattr(att, "block", None)
+            kind = type(block).__name__.replace("Block", "").lower() if block else "file"
+            out.append({"path": path, "name": Path(path).name, "kind": kind})
+        return out
+
+    async def _attachment_list(self, params: dict[str, Any]) -> dict[str, Any]:
+        repl = self.sessions.get(params["sessionId"])
+        return {"attachments": self._attachment_payload(repl)}
+
+    async def _attachment_push(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Materializa un archivo enviado por la UI (base64) y lo adjunta.
+
+        Pegar/arrastrar en la WebView no da rutas del sistema, así que el
+        archivo viaja por contenido y el sidecar lo escribe en
+        `~/.phoson/attachments/` antes de usar `AttachmentManager.attach`.
+        """
+        import base64
+        import uuid as _uuid
+        from pathlib import Path
+
+        repl = self.sessions.get(params["sessionId"])
+        raw = base64.b64decode(params.get("data") or "")
+        if not raw:
+            raise ValueError("archivo vacío")
+        if len(raw) > self._MAX_PUSH:
+            raise ValueError("archivo demasiado grande (máx. 25 MB)")
+
+        name = Path(str(params.get("name") or "archivo")).name or "archivo"
+        dest_dir = Path(repl.config.sessions_dir).expanduser().parent / "attachments"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / f"{_uuid.uuid4().hex[:8]}-{name}"
+        dest.write_bytes(raw)
+        try:
+            repl._controller.attachments.attach(str(dest))
+        except Exception:
+            dest.unlink(missing_ok=True)  # tipo no soportado: no dejamos basura
+            raise
+        return {"ok": True, "attachments": self._attachment_payload(repl)}
+
+    async def _attachment_remove(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Quita un adjunto pendiente.
+
+        `AttachmentManager` no tiene remove, así que se re-adjunta el resto.
+        """
+        repl = self.sessions.get(params["sessionId"])
+        manager = repl._controller.attachments
+        target = str(params.get("path") or "")
+        keep = [str(a.path) for a in manager.list_pending() if str(a.path) != target]
+        manager.clear()
+        for path in keep:
+            manager.attach(path)
+        return {"ok": True, "attachments": self._attachment_payload(repl)}
 
     @staticmethod
     async def _reload_plugins(repl: Any) -> None:

@@ -441,6 +441,46 @@ Composer → useSession.send(text)
 - [x] Verificado: las 5 plantillas y las filas tienen icono; `postgres` usa el
       elefante real. 0 errores.
 
+### M0.23 — Composer: voz, adjuntos y listas MD
+- [x] **Adjuntos por contenido**: como pegar/arrastrar en la webview no da rutas,
+      el archivo viaja en base64 y el sidecar lo materializa en
+      `~/.phoson/attachments/` antes de `AttachmentManager.attach`. RPC
+      `attachment.push` / `.remove` / `.list` (payload normalizado
+      `{path, name, kind}`). Límite 25 MB; los tipos no soportados por el engine
+      se rechazan **sin dejar basura** en disco.
+- [x] **Pegar (Ctrl+V)** y **arrastrar y soltar**: el composer detecta archivos en
+      el clipboard y en el drop (con overlay "Suelta los archivos"), y muestra
+      chips con icono por tipo y botón de quitar. El clip ahora abre el selector
+      de archivos.
+- [x] **Dictado por voz** (`useVoiceInput`): Web Speech API con resultados
+      interinos (se ve el texto mientras hablas) y finales; botón con anillo
+      `animate-ping` al grabar; aviso si el motor no lo soporta.
+- [x] **Listas markdown automáticas** en el **salto de línea** (Shift/Ctrl+Enter):
+      continúa `-`, `*`, `+` (repitiendo el marcador) y las numeradas
+      **incrementan el número** (`1. ` → `2. `). Con el marcador vacío, sale de la
+      lista. **Enter a secas siempre envía** —nunca inserta salto—, y Ctrl/Cmd+
+      Enter inserta el salto manualmente (el navegador no lo hace por defecto).
+- [x] Los avisos (p. ej. tipo no soportado) se muestran en el pie del composer
+      durante unos segundos.
+- [x] **Corrección del formateo**: el handler leía `value` del estado de React,
+      que puede ir un paso por detrás del DOM al teclear rápido → la detección de
+      la lista fallaba y el Enter se perdía. Ahora lee `el.value` (fuente de
+      verdad), respeta selecciones y envía con ese texto.
+- [x] **Visualizador de voz** al dictar, junto al botón de enviar (4px):
+      `components/audio-bars.tsx`, 5 barras redondeadas centradas que siguen el
+      volumen (patrón de `AgentAudioVisualizerBar` de **LiveKit Agents UI**,
+      Apache-2.0, que lo recomienda para interfaces limpias). Bandas perceptivas,
+      suavizado temporal, normalización por pico, brillo "idle" y soporte de
+      `prefers-reduced-motion`. Respaldo sintético sin micrófono.
+      *(Se probaron antes una cinta curva y un halo deformable; se descartaron por
+      poco elegantes.)*
+- [x] Verificado: `- primero`→`- `, `1. uno`→`2. `, `* item`→`* `, `- `→`` ;
+      drop y pegado crean chips; `paquete.zip` → aviso "Unsupported file type".
+      Listas también con tecleo rápido y con pegado; onda de 48 barras que
+      cambian de altura mientras se dicta. Teclado: `Enter` envía siempre;
+      `Shift+Enter`/`Ctrl+Enter` hacen el salto (y ahí aplica la continuación de
+      lista); `Enter` en una línea de lista **envía**, no continúa.
+
 ### M1 — Puente
 - [x] Framing NDJSON, spawn/relay en Rust, `rpc()`.
 - [x] Aislar stdout del engine (logs a stderr).

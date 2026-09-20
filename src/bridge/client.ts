@@ -14,6 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type {
+  Attachment,
   ConfigView,
   Envelope,
   FsListResult,
@@ -153,6 +154,29 @@ class MockBridge implements Bridge {
         return { ok: true, path: p.path } as unknown as T;
       case "mcp.get":
         return MOCK_MCP as unknown as T;
+      case "attachment.list":
+        return { attachments: MOCK_ATTACHMENTS } as unknown as T;
+      case "attachment.push": {
+        const name = String(p.name ?? "archivo");
+        const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+        const allowed: Record<string, string[]> = {
+          image: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"],
+          audio: ["mp3", "wav", "ogg", "flac", "m4a", "aac"],
+          video: ["mp4", "webm", "mov", "mkv", "avi"],
+          document: ["pdf"],
+        };
+        // Igual que el engine: rechaza tipos no soportados.
+        const kind = Object.keys(allowed).find((k) => allowed[k].includes(ext));
+        if (p.data && !kind) throw new Error(`Unsupported file type '.${ext}'.`);
+        MOCK_ATTACHMENTS = [
+          ...MOCK_ATTACHMENTS,
+          { path: `/home/me/.phoson/attachments/${name}`, name, kind: kind ?? "file" },
+        ];
+        return { ok: true, attachments: MOCK_ATTACHMENTS } as unknown as T;
+      }
+      case "attachment.remove":
+        MOCK_ATTACHMENTS = MOCK_ATTACHMENTS.filter((a) => a.path !== String(p.path));
+        return { ok: true, attachments: MOCK_ATTACHMENTS } as unknown as T;
       case "mcp.save": {
         const name = String(p.name);
         const incoming = (p.server ?? {}) as Record<string, unknown>;
@@ -298,6 +322,8 @@ const MOCK_FS: Record<string, Array<{ name: string; dir: boolean; size?: number;
     { name: "config.toml", dir: false, size: 410 },
   ],
 };
+let MOCK_ATTACHMENTS: Attachment[] = [];
+
 let MOCK_CWD = "/home/me/proyecto";
 
 /** Contenido de archivos para el visor en modo demo. */
@@ -418,6 +444,19 @@ export const phoson = {
     bridge.rpc<{ ok: boolean; mcp: McpState }>("mcp.save", { sessionId, name, server }),
   mcpRemove: (sessionId: string, name: string) =>
     bridge.rpc<{ ok: boolean; mcp: McpState }>("mcp.remove", { sessionId, name }),
+  attachmentList: (sessionId: string) =>
+    bridge.rpc<{ attachments: Attachment[] }>("attachment.list", { sessionId }),
+  attachmentPush: (sessionId: string, name: string, data: string) =>
+    bridge.rpc<{ ok: boolean; attachments: Attachment[] }>("attachment.push", {
+      sessionId,
+      name,
+      data,
+    }),
+  attachmentRemove: (sessionId: string, path: string) =>
+    bridge.rpc<{ ok: boolean; attachments: Attachment[] }>("attachment.remove", {
+      sessionId,
+      path,
+    }),
   runTurn: (sessionId: string, text: string) =>
     bridge.rpc("turn.run", { sessionId, text }),
   cancelTurn: (sessionId: string) =>

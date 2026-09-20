@@ -36,6 +36,9 @@ export default function App() {  const {
     respondConfirm,
     onboardingNeeded,
     finishOnboarding,
+    loadAttachments,
+    addFiles,
+    removeAttachment,
   } = useSession();
   const [draft, setDraft] = useState("");
   const [navOpen, setNavOpen] = useState(false);
@@ -64,7 +67,8 @@ export default function App() {  const {
       .fsCwd()
       .then((r) => setCwd(r.cwd))
       .catch(() => {});
-  }, [ready]);
+    void loadAttachments();
+  }, [ready, loadAttachments]);
 
   const setWorkspace = async (path: string) => {
     try {
@@ -106,11 +110,11 @@ export default function App() {  const {
     return first ? (first.length > 60 ? first.slice(0, 60) + "…" : first) : "Nueva sesión";
   }, [messages]);
 
-  const submit = () => {
-    const text = draft.trim();
-    if (!text || view?.sending) return;
+  const submit = (text?: string) => {
+    const value = (text ?? draft).trim();
+    if (!value || view?.sending) return;
     setDraft("");
-    void send(text);
+    void send(value);
   };
 
   return (
@@ -227,13 +231,21 @@ export default function App() {  const {
           <Composer
             value={draft}
             onChange={setDraft}
-            onSend={submit}
+            onSend={(text) => submit(text)}
             onStop={() => void cancel()}
             sending={!!view?.sending}
             disabled={!ready}
             sessionId={activeKey}
             model={metrics?.model}
             provider={metrics?.provider}
+            attachments={view?.attachments ?? []}
+            onAddFiles={(files) => void addFiles(files)}
+            onRemoveAttachment={(path) => void removeAttachment(path)}
+            notice={
+              view?.notifications?.length
+                ? view.notifications[view.notifications.length - 1].message
+                : null
+            }
           />
         </main>
 
