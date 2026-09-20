@@ -2,7 +2,7 @@ import { Folder, Menu, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { isTauri, phoson } from "@/bridge/client";
+import { isTauri, openExternal, phoson } from "@/bridge/client";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,6 +16,7 @@ import { SettingsDialog } from "@/features/settings-dialog";
 import { Sidebar } from "@/features/sidebar";
 import { Welcome } from "@/features/welcome";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { DEMO_USER } from "@/lib/demo-content";
 import { useSession } from "@/stores/session";
 
@@ -35,6 +36,7 @@ export default function App() {  const {
     setActive,
     respondConfirm,
     onboardingNeeded,
+    bootError,
     finishOnboarding,
     loadAttachments,
     addFiles,
@@ -51,6 +53,8 @@ export default function App() {  const {
   const [cwd, setCwd] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
+  /** El explorador pasa a panel superpuesto en ventanas estrechas. */
+  const narrow = useMediaQuery("(max-width: 1279px)");
 
   const view = activeKey ? sessions[activeKey] : undefined;
   const messages = view?.messages ?? [];
@@ -59,6 +63,25 @@ export default function App() {  const {
   useEffect(() => {
     void init();
   }, [init]);
+
+  // Los enlaces (markdown, settings, MCP) deben abrirse en el navegador del
+  // sistema: la webview de Tauri no navega fuera de la app.
+  useEffect(() => {
+    const onClick = (event: MouseEvent) => {
+      const anchor = (event.target as HTMLElement | null)?.closest?.(
+        "a[href]",
+      ) as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const href = anchor.getAttribute("href") ?? "";
+      const external =
+        href.startsWith("http://") || href.startsWith("https://") || href.startsWith("mailto:");
+      if (!external) return;
+      event.preventDefault();
+      void openExternal(href).catch(() => window.open(href, "_blank", "noopener"));
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
 
   // Workspace del agente (cwd del sidecar): el que usan los tools.
   useEffect(() => {
@@ -180,7 +203,15 @@ export default function App() {  const {
             <ContextMeter metrics={metrics ?? undefined} />
           </header>
 
-          {messages.length === 0 ? (
+          {!ready && bootError ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+              <p className="text-sm text-destructive">No se pudo conectar con el engine</p>
+              <p className="max-w-md text-xs text-muted-foreground">{bootError}</p>
+              <Button size="sm" className="bg-violet text-white hover:bg-violet/90" onClick={() => void init()}>
+                Reintentar
+              </Button>
+            </div>
+          ) : messages.length === 0 ? (
             <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
               <Welcome onPick={(t) => void send(t)} />
             </div>
@@ -255,6 +286,7 @@ export default function App() {  const {
               onClose={() => setExplorerOpen(false)}
               onSetCwd={(p) => void setWorkspace(p)}
               onOpenFile={setOpenFile}
+              overlay={narrow}
             />
           )}
         </div>

@@ -41,6 +41,15 @@ export interface Bridge {
 export const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+/** Abre una URL en el navegador del sistema (o en una pestaña, en el navegador). */
+export async function openExternal(url: string): Promise<void> {
+  if (isTauri()) {
+    await invoke("open_url", { url });
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 // ── Implementación real (Tauri) ───────────────────────────────────────────
 class TauriBridge implements Bridge {
   async rpc<T = Json>(method: string, params?: Json): Promise<T> {

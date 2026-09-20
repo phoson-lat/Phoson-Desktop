@@ -79,6 +79,17 @@ class SessionManager:
         if repl is not None:
             await repl.shutdown()
 
+    def ensure_any(self) -> str:
+        """Garantiza que exista al menos una sesión y devuelve una clave.
+
+        El front-end puede cerrar la sesión por defecto; sin esto, el bridge se
+        queda sin sesiones y cualquier RPC que las use (initialize, fs.setCwd…)
+        falla con "sesión desconocida".
+        """
+        if self._repls:
+            return next(iter(self._repls))
+        return self.create()
+
     async def close_all(self) -> None:
         for key in list(self._repls):
             await self.close(key)
@@ -245,6 +256,8 @@ class Bridge:
 
     # ── Métodos RPC ───────────────────────────────────────────────────────
     async def _initialize(self, _params: dict[str, Any]) -> dict[str, Any]:
+        # Recupera la sesión por defecto si el front-end la cerró.
+        self._default_session = self.sessions.ensure_any()
         repl = self.sessions.get(self._default_session)
         visible = engine_visible_tools(repl.engine)
         return {
@@ -291,7 +304,9 @@ class Bridge:
 
     async def _session_close(self, params: dict[str, Any]) -> dict[str, Any]:
         await self.sessions.close(params["sessionId"])
-        return {"ok": True}
+        # Nunca dejamos el bridge sin sesiones: el front-end puede cerrar todas.
+        self._default_session = self.sessions.ensure_any()
+        return {"ok": True, "defaultSessionId": self._default_session}
 
     async def _turn_run(self, params: dict[str, Any]) -> dict[str, Any]:
         repl = self.sessions.get(params["sessionId"])
@@ -569,6 +584,7 @@ class Bridge:
             raise ValueError(f"no es un directorio: {target}")
         os.chdir(target)
         # La sesión por defecto aún puede adoptar el nuevo workspace.
+        self._default_session = self.sessions.ensure_any()
         repl = self.sessions.get(self._default_session)
         repl._controller.tree.cwd = str(target)
         return {"cwd": str(target)}

@@ -41,6 +41,8 @@ function crumbs(path: string): { label: string; path: string }[] {
 
 interface FileExplorerProps {
   onClose: () => void;
+  /** En ventanas estrechas se muestra como panel superpuesto. */
+  overlay?: boolean;
   /** Workspace actual del agente (cwd del sidecar). */
   cwd: string;
   onSetCwd: (path: string) => void;
@@ -53,7 +55,13 @@ interface FileExplorerProps {
  * del agente (el cwd del proceso del sidecar, contra el que los tools resuelven
  * las rutas relativas).
  */
-export function FileExplorer({ onClose, cwd, onSetCwd, onOpenFile }: FileExplorerProps) {
+export function FileExplorer({
+  onClose,
+  cwd,
+  onSetCwd,
+  onOpenFile,
+  overlay = false,
+}: FileExplorerProps) {
   const [path, setPath] = useState(cwd);
   const [data, setData] = useState<FsListResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -80,7 +88,22 @@ export function FileExplorer({ onClose, cwd, onSetCwd, onOpenFile }: FileExplore
   const isWorkspace = data?.path === cwd;
 
   return (
-    <aside className="dashboard-panel flex w-72 shrink-0 flex-col border-l border-[var(--dashboard-border)]">
+    <>
+      {overlay && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px]"
+          onClick={onClose}
+          aria-hidden
+        />
+      )}
+      <aside
+        className={cn(
+          "dashboard-panel flex shrink-0 flex-col border-[var(--dashboard-border)]",
+          overlay
+            ? "fixed inset-y-0 right-0 z-50 w-[min(20rem,90vw)] border-l shadow-2xl"
+            : "w-[min(18rem,32vw)] border-l",
+        )}
+      >
       {/* Cabecera */}
       <div className="flex items-center gap-2 px-3 py-2.5">
         <FolderOpen className="size-4 text-violet" />
@@ -196,6 +219,7 @@ export function FileExplorer({ onClose, cwd, onSetCwd, onOpenFile }: FileExplore
           </p>
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

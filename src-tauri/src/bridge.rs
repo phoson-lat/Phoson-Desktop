@@ -26,7 +26,8 @@ pub struct BridgeState {
     /// Proceso del sidecar (su `write` envía al stdin del bridge Python).
     pub child: Mutex<Option<CommandChild>>,
     /// Respuestas pendientes, casadas por `id` de JSON-RPC.
-    pub pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
+    /// El `Err` viaja como rechazo del `invoke` en el frontend.
+    pub pending: Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>,
     pub next_id: AtomicU64,
 }
 
@@ -48,7 +49,7 @@ pub async fn rpc(
     params: Option<Value>,
 ) -> Result<Value, String> {
     let id = state.next_id.fetch_add(1, Ordering::SeqCst);
-    let (tx, rx) = oneshot::channel::<Value>();
+    let (tx, rx) = oneshot::channel::<Result<Value, String>>();
     state.pending.lock().unwrap().insert(id, tx);
 
     let line = json!({
@@ -68,7 +69,10 @@ pub async fn rpc(
             .map_err(|e| e.to_string())?;
     }
 
-    rx.await.map_err(|_| "el sidecar terminó sin responder".to_string())
+    let result = rx
+        .await
+        .map_err(|_| "el sidecar terminó sin responder".to_string())?;
+    result
 }
 
 /// Bucle de lectura del stdout del sidecar. Llamar una vez desde `setup`.
@@ -113,12 +117,20 @@ fn dispatch_line(app: &AppHandle, line: &str) {
         return;
     };
 
-    // Respuesta a un request pendiente.
+    // Respuesta a un request pendiente: el error se propaga como rechazo para que
+    // el frontend pueda mostrarlo (antes se devolvía como respuesta válida).
     if let Some(id) = message.id {
-        let payload = message.result.or(message.error).unwrap_or(Value::Null);
+        let outcome = match message.error {
+            Some(err) => Err(err
+                .get("message")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| err.to_string())),
+            None => Ok(message.result.unwrap_or(Value::Null)),
+        };
         let state = app.state::<BridgeState>();
         if let Some(tx) = state.pending.lock().unwrap().remove(&id) {
-            let _ = tx.send(payload);
+            let _ = tx.send(outcome);
         }
         return;
     }

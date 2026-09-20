@@ -13,6 +13,7 @@ import { phoson } from "../bridge/client";
 import type {
   AgentEvent,
   Attachment,
+  InitResult,
   ConfirmRequest,
   NotifyMessage,
   RunMetrics,
@@ -66,6 +67,8 @@ interface SessionState {
   removeAttachment: (path: string) => Promise<void>;
   /** Primer arranque sin proveedor configurado. */
   onboardingNeeded: boolean;
+  /** Error de arranque (si `initialize` falló tras los reintentos). */
+  bootError: string | null;
   finishOnboarding: () => void;
 }
 
@@ -89,6 +92,33 @@ const fileToBase64 = (file: File) =>
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+
+/** Texto plano de un `Message` del engine (string o lista de bloques). */
+function blocksToText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((block) => {
+        const b = block as { text?: string; content?: string };
+        return typeof b?.text === "string" ? b.text : typeof b?.content === "string" ? b.content : "";
+      })
+      .join("");
+  }
+  return "";
+}
+
+/** Reconstruye el historial que llega al cargar una sesión (`print_history`). */
+function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const raw of payload.messages ?? []) {
+    const m = raw as { role?: string; content?: unknown };
+    const role: ChatMessage["role"] = m.role === "user" ? "user" : "assistant";
+    const text = blocksToText(m.content);
+    if (!text.trim()) continue; // ignora turnos solo-tool
+    out.push({ id: uid(), role, text, tools: [], status: "done" });
+  }
+  return out;
+}
 
 // Buffer de tokens por sesión + flush por rAF.
 const tokenBuffer = new Map<string, string>();
@@ -201,6 +231,10 @@ export const useSession = create<SessionState>((set, get) => {
           patchView(key, (v) => ({ ...v, sending: false }));
           break;
         }
+        case "session.history":
+          // Replay al cargar una sesión previa.
+          if (key) patchView(key, (v) => ({ ...v, messages: historyToMessages(params) }));
+          break;
         case "attachments.changed":
           // El controller los volcó en el turno: ya no están pendientes.
           if (key) patchView(key, (v) => ({ ...v, attachments: [] }));
@@ -233,17 +267,34 @@ export const useSession = create<SessionState>((set, get) => {
     order: [],
     sessions: {},
     onboardingNeeded: false,
+    bootError: null,
 
     init: () => {
       bootPromise ??= (async () => {
         await attach();
-        const info = await phoson.initialize();
+        // El sidecar puede estar construyendo el engine (MCP tarda): reintenta.
+        let info: InitResult | null = null;
+        let lastError = "";
+        for (let attempt = 0; attempt < 4 && !info; attempt++) {
+          try {
+            info = await phoson.initialize();
+          } catch (e) {
+            lastError = String(e);
+            await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+          }
+        }
+        if (!info) {
+          set({ ready: false, bootError: lastError || "no se pudo inicializar el engine" });
+          bootPromise = null; // permite reintentar
+          return;
+        }
         const key = info.defaultSessionId;
         const dismissed =
           typeof localStorage !== "undefined" &&
           localStorage.getItem("phoson.onboarded") === "1";
         set((s) => ({
           ready: true,
+          bootError: null,
           activeKey: key,
           order: [key],
           onboardingNeeded: Boolean(info.onboarding?.needed) && !dismissed,
@@ -303,6 +354,8 @@ export const useSession = create<SessionState>((set, get) => {
           activeKey: s.activeKey === key ? (order[order.length - 1] ?? null) : s.activeKey,
         };
       });
+      // Nunca dejar la app sin sesión: el backend también garantiza una.
+      if (get().order.length === 0) await get().newSession();
     },
 
     setActive: (key: string) => set({ activeKey: key }),
