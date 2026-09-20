@@ -1,14 +1,13 @@
-import { Menu, Settings, Sparkles } from "lucide-react";
+import { Menu, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isTauri } from "@/bridge/client";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Composer } from "@/features/composer";
+import { ContextMeter } from "@/features/context-meter";
 import { MessageRow } from "@/features/message";
-import { MetricsBar } from "@/features/metrics";
 import { Onboarding } from "@/features/onboarding";
 import { SettingsDialog } from "@/features/settings-dialog";
 import { Sidebar } from "@/features/sidebar";
@@ -140,18 +139,7 @@ export default function App() {
               </div>
             </div>
 
-            {!isMobile && <MetricsBar metrics={metrics ?? undefined} />}
-
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 shrink-0 text-muted-foreground"
-              onClick={() => setSettingsOpen(true)}
-              title="Configuración"
-            >
-              <Settings className="size-3.5" />
-            </Button>
-            <ThemeToggle />
+            <ContextMeter metrics={metrics ?? undefined} />
           </header>
 
           {messages.length === 0 ? (

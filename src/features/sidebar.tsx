@@ -1,7 +1,8 @@
-import { Search, PanelLeft, MessageSquare, X, SquarePen } from "lucide-react";
+import { Search, PanelLeft, MessageSquare, Settings, X, SquarePen } from "lucide-react";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 
 import { PhosonLogo } from "@/components/phoson-logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Input } from "@/components/ui/input";
 import { phoson } from "@/bridge/client";
 import type { SessionMeta } from "@/bridge/protocol";
@@ -208,14 +209,15 @@ export function Sidebar({
 
               <div className="flex-1" />
 
-              <button
-                onClick={onOpenSettings}
-                title={model ? `${model}${provider ? " · " + provider : ""}` : "Ajustes"}
-                aria-label="Ajustes"
-                className="grid size-8 place-items-center rounded-full border border-[var(--dashboard-border)] dashboard-hover"
+              <ThemeToggle />
+              <IconButton icon={Settings} label="Ajustes" onClick={onOpenSettings} />
+
+              <div
+                title={model ? `${model}${provider ? " · " + provider : ""}` : "Phoson"}
+                className="mt-1 grid size-8 shrink-0 place-items-center rounded-full border border-[var(--dashboard-border)]"
               >
                 <PhosonLogo size={16} showText={false} />
-              </button>
+              </div>
             </div>
           ) : (
             /* ── Barra completa ─────────────────────────────────────────── */
@@ -304,22 +306,20 @@ export function Sidebar({
                 )}
               </div>
 
-              {/* Pie: "cuenta" (modelo/proveedor) → Ajustes ───────────── */}
-              <button
-                onClick={onOpenSettings}
-                title="Ajustes"
-                className="flex w-full items-center gap-2 border-t border-[var(--dashboard-border)] px-3 py-2 text-left transition-colors dashboard-hover"
-              >
+              {/* Pie: identidad (modelo/proveedor) + tema y ajustes ────── */}
+              <div className="flex items-center gap-0.5 border-t border-[var(--dashboard-border)] px-2 py-2">
                 <div className="grid size-7 shrink-0 place-items-center rounded-full border border-[var(--dashboard-border)]">
                   <PhosonLogo size={16} showText={false} />
                 </div>
-                <div className="min-w-0 flex-1 leading-tight">
+                <div className="min-w-0 flex-1 pl-2 leading-tight">
                   <div className="truncate text-[0.72rem]">{model ?? "—"}</div>
                   <div className="truncate text-[0.62rem] text-muted-foreground">
                     {provider ?? ""}
                   </div>
                 </div>
-              </button>
+                <ThemeToggle />
+                <IconButton icon={Settings} label="Ajustes" onClick={onOpenSettings} />
+              </div>
             </>
           )}
         </div>

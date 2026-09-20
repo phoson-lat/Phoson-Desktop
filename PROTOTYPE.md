@@ -336,6 +336,21 @@ Composer → useSession.send(text)
       `fill 20/40/60/80/100%` y `particle·range = #38bdf8 → #5b2eff → #a855f7 →
       #f59e0b → #ef4444`. 0 errores. Capturas `/tmp/effort-0.png` … `-4.png`.
 
+### M0.17 — Medidor de contexto (loader) + acciones en la barra
+- [x] **`ContextMeter`** (sustituye a `MetricsBar`): **anillo de progreso**
+      estilo loader con el % de contexto usado; el color del anillo escala
+      (violeta → ámbar ≥70% → rojo ≥90%) y **gira mientras el agente trabaja**
+      (`isRunning`).
+- [x] **Al hacer hover se despliega** un `HoverCard` con el detalle: barra de
+      consumo, en uso/disponible/ventana, tokens (in/out), coste, pasos, modelo,
+      proveedor y estado.
+- [x] **Ajustes y tema movidos del header a la barra lateral**: en el pie
+      (identidad modelo/proveedor + ☀ tema + ⚙ ajustes) y también en el rail
+      colapsado. El header queda con título + medidor.
+- [x] Verificado: `meterInHeader:true`, `settingsInHeader:false`,
+      `themeInHeader:false`, `settingsInSidebar:true`, `themeInSidebar:true`;
+      el hover despliega el detalle y Ajustes abre desde la barra. 0 errores.
+
 ### M1 — Puente
 - [x] Framing NDJSON, spawn/relay en Rust, `rpc()`.
 - [x] Aislar stdout del engine (logs a stderr).
