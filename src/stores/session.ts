@@ -127,8 +127,10 @@ let rafHandle: number | null = null;
 export const useSession = create<SessionState>((set, get) => {
   const patchView = (key: string, patch: (v: SessionView) => SessionView) => {
     set((state) => {
-      const view = state.sessions[key];
-      if (!view) return state;
+      // Upsert: algunas notificaciones (p. ej. `session.history` al cargar una
+      // sesión) llegan ANTES de que exista la vista, porque el sidecar las emite
+      // durante la propia llamada RPC.
+      const view = state.sessions[key] ?? emptyView(key);
       return { sessions: { ...state.sessions, [key]: patch(view) } };
     });
   };
@@ -329,7 +331,8 @@ export const useSession = create<SessionState>((set, get) => {
       set((s) => ({
         activeKey: sessionId,
         order: [...s.order, sessionId],
-        sessions: { ...s.sessions, [sessionId]: emptyView(sessionId) },
+        // La vista puede existir ya si llegó `session.history` antes que la respuesta.
+        sessions: { ...s.sessions, [sessionId]: s.sessions[sessionId] ?? emptyView(sessionId) },
       }));
     },
 
@@ -338,7 +341,7 @@ export const useSession = create<SessionState>((set, get) => {
       set((s) => ({
         activeKey: sessionId,
         order: [...s.order, sessionId],
-        sessions: { ...s.sessions, [sessionId]: emptyView(sessionId) },
+        sessions: { ...s.sessions, [sessionId]: s.sessions[sessionId] ?? emptyView(sessionId) },
       }));
     },
 

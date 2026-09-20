@@ -34,19 +34,29 @@ export function ModelPicker({ sessionId, current, provider, compact }: ModelPick
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !sessionId || loading || models.length > 0) return;
+    if (!open || !sessionId) return;
+    // Se consulta al abrir (y al cambiar de proveedor) para no mostrar una lista
+    // obsoleta; mientras llega, se mantiene la anterior en pantalla.
+    let cancelled = false;
     setLoading(true);
     setError(null);
     phoson
       .listModels(sessionId)
       .then((r) => {
+        if (cancelled) return;
         setModels(r.models ?? []);
         if (r.error) setError(r.error);
       })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, sessionId]);
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, sessionId, provider]);
 
   const label = current?.split("/").pop() ?? "modelo";
 

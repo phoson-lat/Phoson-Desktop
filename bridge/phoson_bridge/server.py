@@ -241,6 +241,9 @@ class Bridge:
         metrics = repl.session_metrics
         tokens = metrics.total_input_tokens + metrics.total_output_tokens
         return {
+            # El frontend enruta las notificaciones por `sessionId`: sin él, las
+            # métricas se descartan (y el modelo seleccionado no se actualiza).
+            "sessionId": session_key,
             "costUsd": metrics.total_cost_usd,
             "credits": metrics.total_credits,
             "tokens": tokens,
