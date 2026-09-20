@@ -303,7 +303,24 @@ class Bridge:
         if not ok:
             await self.sessions.close(key)
             raise ValueError(f"no se pudo cargar la sesión {params['id']}")
-        return {"sessionId": key}
+
+        # Respeta el directorio de trabajo con el que se creó la sesión: los tools
+        # resuelven las rutas relativas contra el cwd del PROCESO.
+        session_cwd = str(getattr(repl._controller.tree, "cwd", "") or "")
+        adopted = os.getcwd()
+        if session_cwd and os.path.isdir(session_cwd):
+            os.chdir(session_cwd)
+            adopted = session_cwd
+        elif session_cwd:
+            log.warning("la sesión %s apunta a un cwd inexistente: %s", params["id"], session_cwd)
+
+        self._emit("session.info", {"sessionId": key, "cwd": adopted})
+        return {
+            "sessionId": key,
+            "cwd": adopted,
+            "sessionCwd": session_cwd,
+            "cwdMissing": bool(session_cwd) and not os.path.isdir(session_cwd),
+        }
 
     async def _session_close(self, params: dict[str, Any]) -> dict[str, Any]:
         await self.sessions.close(params["sessionId"])
@@ -590,6 +607,7 @@ class Bridge:
         self._default_session = self.sessions.ensure_any()
         repl = self.sessions.get(self._default_session)
         repl._controller.tree.cwd = str(target)
+        self._emit("session.info", {"sessionId": self._default_session, "cwd": str(target)})
         return {"cwd": str(target)}
 
     #: Límite de lectura para el visor de código (512 KB).

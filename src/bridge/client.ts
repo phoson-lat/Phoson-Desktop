@@ -431,7 +431,7 @@ export const phoson = {
   initialize: () => bridge.rpc<InitResult>("initialize"),
   newSession: () => bridge.rpc<{ sessionId: string }>("session.new"),
   openSession: (engineId: string) =>
-    bridge.rpc<{ sessionId: string }>("session.open", { id: engineId }),
+    bridge.rpc<{ sessionId: string; cwd?: string; cwdMissing?: boolean }>("session.open", { id: engineId }),
   closeSession: (sessionId: string) => bridge.rpc("session.close", { sessionId }),
   listSessions: () => bridge.rpc<{ sessions: SessionMeta[] }>("session.list"),
   listModels: (sessionId: string) =>

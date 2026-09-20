@@ -2,7 +2,7 @@ import { Folder, Menu, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { isTauri, openExternal, phoson } from "@/bridge/client";
+import { isTauri, openExternal } from "@/bridge/client";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -37,6 +37,9 @@ export default function App() {  const {
     respondConfirm,
     onboardingNeeded,
     bootError,
+    cwd,
+    loadCwd,
+    setWorkspace,
     finishOnboarding,
     loadAttachments,
     addFiles,
@@ -50,7 +53,6 @@ export default function App() {  const {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [openFile, setOpenFile] = useState<string | null>(null);
-  const [cwd, setCwd] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   /** El explorador pasa a panel superpuesto en ventanas estrechas. */
@@ -86,18 +88,14 @@ export default function App() {  const {
   // Workspace del agente (cwd del sidecar): el que usan los tools.
   useEffect(() => {
     if (!ready) return;
-    phoson
-      .fsCwd()
-      .then((r) => setCwd(r.cwd))
-      .catch(() => {});
+    void loadCwd();
     void loadAttachments();
-  }, [ready, loadAttachments]);
+  }, [ready, loadCwd, loadAttachments]);
 
-  const setWorkspace = async (path: string) => {
+  const applyWorkspace = async (path: string) => {
     try {
-      const r = await phoson.fsSetCwd(path);
-      setCwd(r.cwd);
-      toast.success("Espacio de trabajo actualizado", { description: r.cwd });
+      const next = await setWorkspace(path);
+      toast.success("Espacio de trabajo actualizado", { description: next });
     } catch (e) {
       toast.error("No se pudo cambiar el espacio de trabajo", { description: String(e) });
     }
@@ -284,7 +282,7 @@ export default function App() {  const {
             <FileExplorer
               cwd={cwd}
               onClose={() => setExplorerOpen(false)}
-              onSetCwd={(p) => void setWorkspace(p)}
+              onSetCwd={(p) => void applyWorkspace(p)}
               onOpenFile={setOpenFile}
               overlay={narrow}
             />

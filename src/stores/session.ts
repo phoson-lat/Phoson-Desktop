@@ -69,6 +69,12 @@ interface SessionState {
   onboardingNeeded: boolean;
   /** Error de arranque (si `initialize` falló tras los reintentos). */
   bootError: string | null;
+  /** Workspace del agente (cwd del proceso del sidecar), global a la app. */
+  cwd: string;
+  /** Refresca el workspace desde el sidecar. */
+  loadCwd: () => Promise<void>;
+  /** Fija el workspace y devuelve el cwd efectivo. */
+  setWorkspace: (path: string) => Promise<string>;
   finishOnboarding: () => void;
 }
 
@@ -219,8 +225,10 @@ export const useSession = create<SessionState>((set, get) => {
           if (key) patchView(key, (v) => ({ ...v, metrics: envelope.params as RunMetrics }));
           break;
         case "session.info":
-          if (key)
+          if (key && typeof params.engineSessionId === "string")
             patchView(key, (v) => ({ ...v, engineId: params.engineSessionId as string }));
+          // El sidecar emite aquí el cwd al fijarlo o al adoptar el de una sesión.
+          if (typeof params.cwd === "string" && params.cwd) set({ cwd: params.cwd as string });
           break;
         case "session.assistant.done": {
           if (!key) break;
@@ -270,6 +278,7 @@ export const useSession = create<SessionState>((set, get) => {
     sessions: {},
     onboardingNeeded: false,
     bootError: null,
+    cwd: "",
 
     init: () => {
       bootPromise ??= (async () => {
@@ -337,11 +346,29 @@ export const useSession = create<SessionState>((set, get) => {
     },
 
     openSession: async (engineId: string) => {
-      const { sessionId } = await phoson.openSession(engineId);
+      const { sessionId, cwd, cwdMissing } = await phoson.openSession(engineId);
+      // Los tools usan el cwd del proceso: al cargar, adoptamos el de la sesión.
+      if (cwd) set({ cwd });
       set((s) => ({
         activeKey: sessionId,
         order: [...s.order, sessionId],
-        sessions: { ...s.sessions, [sessionId]: s.sessions[sessionId] ?? emptyView(sessionId) },
+        sessions: {
+          ...s.sessions,
+          [sessionId]: cwdMissing
+            ? {
+                ...(s.sessions[sessionId] ?? emptyView(sessionId)),
+                notifications: [
+                  ...(s.sessions[sessionId]?.notifications ?? []),
+                  {
+                    sessionId,
+                    kind: "warn" as const,
+                    message:
+                      "La carpeta original de esta sesión ya no existe: se usa el workspace actual.",
+                  },
+                ],
+              }
+            : (s.sessions[sessionId] ?? emptyView(sessionId)),
+        },
       }));
     },
 
@@ -423,6 +450,21 @@ export const useSession = create<SessionState>((set, get) => {
       } catch {
         /* ignorar */
       }
+    },
+
+    loadCwd: async () => {
+      try {
+        const res = await phoson.fsCwd();
+        set({ cwd: res.cwd });
+      } catch {
+        /* sin workspace todavía */
+      }
+    },
+
+    setWorkspace: async (path) => {
+      const res = await phoson.fsSetCwd(path);
+      set({ cwd: res.cwd });
+      return res.cwd;
     },
 
     finishOnboarding: () => {
