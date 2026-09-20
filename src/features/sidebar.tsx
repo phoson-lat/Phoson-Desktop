@@ -1,5 +1,6 @@
-import { Search, PanelLeft, MessageSquare, Settings, X, SquarePen } from "lucide-react";
+import { Search, PanelLeft, MessageSquare, Settings, Trash2, X, SquarePen } from "lucide-react";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { toast } from "sonner";
 
 import { PhosonLogo } from "@/components/phoson-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -125,6 +126,9 @@ export function Sidebar({
   onOpenSettings,
 }: SidebarProps) {
   const [saved, setSaved] = useState<SessionMeta[]>([]);
+  /** Sesión pendiente de confirmar borrado (confirmación en dos pasos). */
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
 
@@ -134,6 +138,20 @@ export function Sidebar({
       .then((r) => setSaved(r.sessions ?? []))
       .catch(() => setSaved([]));
   }, []);
+
+  const deleteSaved = async (id: string) => {
+    setDeletingId(id);
+    try {
+      await phoson.deleteSession(id);
+      setSaved((list) => list.filter((s) => s.id !== id));
+      toast.success("Sesión eliminada");
+    } catch (e) {
+      toast.error("No se pudo eliminar la sesión", { description: String(e) });
+    } finally {
+      setDeletingId(null);
+      setConfirmId(null);
+    }
+  };
 
   const q = query.trim().toLowerCase();
 
@@ -291,9 +309,44 @@ export function Sidebar({
                           label={s.title || s.id.slice(0, 8)}
                           onClick={() => onOpen(s.id)}
                           trailing={
-                            <span className="shrink-0 text-[0.65rem] text-muted-foreground">
-                              {s.message_count}
-                            </span>
+                            confirmId === s.id ? (
+                              <span
+                                className="flex shrink-0 items-center gap-1"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <span
+                                  role="button"
+                                  onClick={() => void deleteSaved(s.id)}
+                                  className="rounded px-1.5 py-0.5 text-[0.65rem] text-destructive transition-colors hover:bg-destructive/10"
+                                >
+                                  {deletingId === s.id ? "…" : "Eliminar"}
+                                </span>
+                                <span
+                                  role="button"
+                                  onClick={() => setConfirmId(null)}
+                                  className="rounded px-1.5 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:text-foreground"
+                                >
+                                  No
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="flex shrink-0 items-center gap-1.5">
+                                <span className="text-[0.65rem] text-muted-foreground">
+                                  {s.message_count}
+                                </span>
+                                <span
+                                  role="button"
+                                  title="Eliminar sesión"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setConfirmId(s.id);
+                                  }}
+                                  className="opacity-0 transition-opacity hover:text-destructive group-hover:opacity-80"
+                                >
+                                  <Trash2 className="size-3" />
+                                </span>
+                              </span>
+                            )
                           }
                         />
                       ))}

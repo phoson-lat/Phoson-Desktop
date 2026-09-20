@@ -105,6 +105,12 @@ class MockBridge implements Bridge {
       }
       case "session.list":
         return { sessions: MOCK_SESSIONS } as unknown as T;
+      case "session.delete": {
+        const id = String(p.id);
+        const idx = MOCK_SESSIONS.findIndex((x) => x.id === id);
+        if (idx >= 0) MOCK_SESSIONS.splice(idx, 1);
+        return { ok: true, id } as unknown as T;
+      }
       case "models.list":
         return {
           current: { model: "deepseek/deepseek-v4.1-flash", provider: "openrouter" },
@@ -434,6 +440,8 @@ export const phoson = {
     bridge.rpc<{ sessionId: string; cwd?: string; cwdMissing?: boolean }>("session.open", { id: engineId }),
   closeSession: (sessionId: string) => bridge.rpc("session.close", { sessionId }),
   listSessions: () => bridge.rpc<{ sessions: SessionMeta[] }>("session.list"),
+  deleteSession: (id: string) =>
+    bridge.rpc<{ ok: boolean; id: string }>("session.delete", { id }),
   listModels: (sessionId: string) =>
     bridge.rpc<ModelsListResult>("models.list", { sessionId }),
   setModel: (sessionId: string, model: string, provider?: string) =>

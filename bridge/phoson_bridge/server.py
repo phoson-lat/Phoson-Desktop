@@ -138,6 +138,7 @@ class Bridge:
             "session.list": self._session_list,
             "session.open": self._session_open,
             "session.close": self._session_close,
+            "session.delete": self._session_delete,
             "turn.run": self._turn_run,
             "turn.cancel": self._turn_cancel,
             "session.undo": self._session_undo,
@@ -295,6 +296,18 @@ class Bridge:
     async def _session_list(self, _params: dict[str, Any]) -> dict[str, Any]:
         sessions = await self.sessions.storage().list_sessions()
         return {"sessions": [to_jsonable(s) for s in sessions]}
+
+    async def _session_delete(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Elimina una sesión guardada (borra su archivo JSONL).
+
+        No afecta a las sesiones abiertas en memoria: el frontend la quita de la
+        lista de guardadas.
+        """
+        session_id = str(params.get("id") or "")
+        if not session_id:
+            raise ValueError("falta el id de la sesión a eliminar")
+        await self.sessions.storage().delete(session_id)
+        return {"ok": True, "id": session_id}
 
     async def _session_open(self, params: dict[str, Any]) -> dict[str, Any]:
         key = self.sessions.create()
