@@ -17,7 +17,9 @@ def run() -> None:
     protocol_out = os.fdopen(protocol_fd, "w", buffering=1, encoding="utf-8")
     sys.stdout = sys.stderr  # aísla prints accidentales del framing
 
-    from .server import main
+    # Import ABSOLUTO: al congelar con PyInstaller el script corre como
+    # `__main__` sin paquete, así que un import relativo fallaría.
+    from phoson_bridge.server import main
 
     main(protocol_out)
 

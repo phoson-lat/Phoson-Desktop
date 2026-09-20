@@ -42,6 +42,7 @@ from phoson_cli.session_utils import engine_masked_count, engine_visible_tools
 from .sink import GuiSink
 from .protocol import dump, to_jsonable
 from .confirmation import GuiConfirmation
+from .stt import SttManager
 
 log = logging.getLogger("phoson_bridge")
 
@@ -130,6 +131,7 @@ class Bridge:
         self._out: asyncio.Queue[str] = asyncio.Queue()
         self.config = load_config()
         self.sessions = SessionManager(self.config, self._emit)
+        self.stt = SttManager(self._emit)
         # Sesión inicial lista para usar.
         self._default_session = self.sessions.create()
         self._methods = {
@@ -155,6 +157,8 @@ class Bridge:
             "fs.list": self._fs_list,
             "fs.setCwd": self._fs_set_cwd,
             "fs.read": self._fs_read,
+            "fs.readImage": self._fs_read_image,
+            "upload.file": self._upload_file,
             "fs.write": self._fs_write,
             "mcp.get": self._mcp_get,
             "mcp.save": self._mcp_save,
@@ -165,6 +169,9 @@ class Bridge:
             "attachment.add": self._attachment_add,
             "attachment.clear": self._attachment_clear,
             "confirm.respond": self._confirm_respond,
+            "stt.status": self._stt_status,
+            "stt.start": self._stt_start,
+            "stt.stop": self._stt_stop,
             "shutdown": self._shutdown,
         }
 
@@ -197,9 +204,18 @@ class Bridge:
                 except json.JSONDecodeError:
                     log.warning("línea no-JSON ignorada: %r", raw[:200])
                     continue
+                # JSON válido pero no-objeto (p. ej. `[1,2]`): `_dispatch` haría
+                # `message.get` y lanzaría antes del try, perdiéndose el error
+                # (el task es fire-and-forget).
+                if not isinstance(message, dict):
+                    log.warning("línea JSON no-objeto ignorada: %r", raw[:200])
+                    continue
                 asyncio.create_task(self._dispatch(message))
         finally:
             writer.cancel()
+            # Cierra el micrófono antes de tumbar el loop (si no, el `asyncio.run`
+            # cancela las capturas abruptamente y puede dejar audio a medias).
+            await self.stt.stop_all()
             await self.sessions.close_all()
 
     async def _dispatch(self, message: dict[str, Any]) -> None:
@@ -286,14 +302,20 @@ class Bridge:
                 "providers": self._provider_status(repl.config),
             },
             "defaultSessionId": self._default_session,
+            "cwd": os.getcwd(),
             "metrics": self._metrics(self._default_session),
         }
 
     async def _session_new(self, _params: dict[str, Any]) -> dict[str, Any]:
         key = self.sessions.create()
-        return {"sessionId": key}
+        # El cwd del proceso es el workspace del sidecar (uno por proyecto).
+        return {"sessionId": key, "cwd": os.getcwd()}
 
     async def _session_list(self, _params: dict[str, Any]) -> dict[str, Any]:
+        # Historial COMPLETO: todas las sesiones guardadas, de cualquier
+        # workspace. Los sidecars comparten `sessions_dir`, así que cualquiera
+        # puede listarlas; el `cwd` de cada `SessionMeta` permite abrirla en su
+        # propio sidecar (enrutado por workspace en el frontend).
         sessions = await self.sessions.storage().list_sessions()
         return {"sessions": [to_jsonable(s) for s in sessions]}
 
@@ -364,14 +386,32 @@ class Bridge:
     async def _turn_cancel(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"cancelled": self.sessions.get(params["sessionId"]).cancel_current()}
 
+    @staticmethod
+    def _history_messages(repl: Any) -> list[Any]:
+        """Mensajes del camino activo, para que la UI refresque tras mutar el
+        historial (undo/rewind/compact). Se devuelven en la RESPUESTA RPC y no
+        como notificación: así el frontend los aplica al resolver la llamada, sin
+        carrera con un envío inmediato."""
+        path = repl._controller._node_path()
+        return [to_jsonable(n.message) for n in path]
+
     async def _session_undo(self, params: dict[str, Any]) -> dict[str, Any]:
-        ok, message = self.sessions.get(params["sessionId"]).undo_last_turn()
-        return {"ok": ok, "message": message}
+        repl = self.sessions.get(params["sessionId"])
+        ok, message = repl.undo_last_turn()
+        return {
+            "ok": ok,
+            "message": message,
+            "history": self._history_messages(repl) if ok else None,
+        }
 
     async def _session_rewind(self, params: dict[str, Any]) -> dict[str, Any]:
         repl = self.sessions.get(params["sessionId"])
         ok, message = repl.jump_to_user_turn(params["userNodeId"])
-        return {"ok": ok, "message": message}
+        return {
+            "ok": ok,
+            "message": message,
+            "history": self._history_messages(repl) if ok else None,
+        }
 
     async def _session_jump_candidates(self, params: dict[str, Any]) -> dict[str, Any]:
         repl = self.sessions.get(params["sessionId"])
@@ -380,7 +420,12 @@ class Bridge:
     async def _session_compact(self, params: dict[str, Any]) -> dict[str, Any]:
         repl = self.sessions.get(params["sessionId"])
         before, after, ok = await repl.compact_context(params.get("profile"))
-        return {"ok": ok, "before": before, "after": after}
+        return {
+            "ok": ok,
+            "before": before,
+            "after": after,
+            "history": self._history_messages(repl) if ok else None,
+        }
 
     async def _session_plan_compact(self, params: dict[str, Any]) -> dict[str, Any]:
         repl = self.sessions.get(params["sessionId"])
@@ -650,6 +695,95 @@ class Bridge:
             "truncated": size > self._MAX_READ,
         }
 
+    #: Extensiones de imagen que la webview puede previsualizar.
+    _IMAGE_MIME: dict[str, str] = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".svg": "image/svg+xml",
+        ".ico": "image/x-icon",
+        ".tif": "image/tiff",
+        ".tiff": "image/tiff",
+        ".avif": "image/avif",
+    }
+    #: Límite para previsualizar (el base64 pesa ~1.33× en el JSON).
+    _MAX_IMAGE_READ = 12 * 1024 * 1024
+
+    async def _fs_read_image(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Lee una imagen local como base64 para previsualizarla en la webview.
+
+        La webview no puede abrir rutas del sistema, así que se devuelve el
+        contenido embebido (data URL en el frontend). Solo imágenes y con tope de
+        tamaño; el path relativo se resuelve contra el cwd del workspace.
+        """
+        import base64
+        from pathlib import Path
+
+        target = Path(str(params.get("path") or "")).expanduser().resolve()
+        if not target.is_file():
+            raise ValueError(f"no es un archivo: {target}")
+        mime = self._IMAGE_MIME.get(target.suffix.lower())
+        if mime is None:
+            raise ValueError(f"extensión no previsualizable: {target.suffix or '(sin extensión)'}")
+        size = target.stat().st_size
+        if size > self._MAX_IMAGE_READ:
+            raise ValueError(
+                f"imagen demasiado grande para previsualizar ({size} bytes, "
+                f"máx {self._MAX_IMAGE_READ})"
+            )
+        data = base64.b64encode(target.read_bytes()).decode("ascii")
+        return {"path": str(target), "mediaType": mime, "size": size, "base64": data}
+
+    #: Tope para subir archivos no nativos al workspace (50 MB).
+    _MAX_UPLOAD = 50 * 1024 * 1024
+
+    async def _upload_file(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Sube al workspace un archivo NO soportado como adjunto nativo.
+
+        Se escribe en ``<cwd>/uploads/`` (deduplicando el nombre) y se devuelve
+        la ruta **relativa** para que el prompt pueda referenciarlo y el agente
+        lo lea con ``read_file``.
+        """
+        import base64
+        from pathlib import Path
+
+        name = Path(str(params.get("name") or "archivo")).name or "archivo"
+        data = str(params.get("data") or "")
+        if not data:
+            raise ValueError("falta el contenido del archivo")
+        try:
+            payload = base64.b64decode(data, validate=False)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"contenido base64 inválido: {exc}") from exc
+        if len(payload) > self._MAX_UPLOAD:
+            raise ValueError(
+                f"archivo demasiado grande ({len(payload)} bytes, máx {self._MAX_UPLOAD})"
+            )
+
+        workspace = Path(os.getcwd())
+        dest_dir = workspace / "uploads"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / name
+        counter = 1
+        while dest.exists():
+            dest = dest_dir / f"{Path(name).stem}-{counter}{Path(name).suffix}"
+            counter += 1
+        dest.write_bytes(payload)
+        try:
+            relative = dest.relative_to(workspace).as_posix()
+        except ValueError:
+            relative = str(dest)
+        return {
+            "ok": True,
+            "path": str(dest),
+            "relative": relative,
+            "name": dest.name,
+            "size": len(payload),
+        }
+
     async def _fs_write(self, params: dict[str, Any]) -> dict[str, Any]:
         """Escribe un archivo de texto (editor ligero)."""
         from pathlib import Path
@@ -868,7 +1002,21 @@ class Bridge:
         ok = self.sessions.resolve_confirm(params["requestId"], params)
         return {"ok": ok}
 
+    # ── Dictado por voz (STT del engine) ──────────────────────────────────
+    async def _stt_status(self, _params: dict[str, Any]) -> dict[str, Any]:
+        return self.stt.status()
+
+    async def _stt_start(self, params: dict[str, Any]) -> dict[str, Any]:
+        return await self.stt.start(
+            str(params.get("sessionId") or ""),
+            params.get("language"),
+        )
+
+    async def _stt_stop(self, params: dict[str, Any]) -> dict[str, Any]:
+        return await self.stt.stop(str(params.get("sessionId") or ""))
+
     async def _shutdown(self, _params: dict[str, Any]) -> dict[str, Any]:
+        await self.stt.stop_all()
         await self.sessions.close_all()
         return {"ok": True}
 

@@ -84,7 +84,20 @@ class GuiSink:
         self._notify("notify", {"kind": kind, "message": message})
 
     def on_subagent_progress(self, progress: object | None) -> None:
-        self._notify(
-            "subagent.progress",
-            {"progress": to_jsonable(progress) if progress is not None else None},
-        )
+        self._notify("subagent.progress", {"progress": self._subagent_snapshot(progress)})
+
+    @staticmethod
+    def _subagent_snapshot(progress: object | None) -> Any:
+        """Snapshot serializable del tracker de subagentes.
+
+        ``SubagentProgressTracker`` es una clase opaca (no dataclass), así que
+        ``to_jsonable`` la reduciría a un ``repr`` inservible. Extraemos sus
+        ``tasks`` (``SubagentProgress`` sí es dataclass) para que la UI pueda
+        pintar el progreso real de cada subagente.
+        """
+        if progress is None:
+            return None
+        tasks = getattr(progress, "tasks", None)
+        if tasks is not None:
+            return {"tasks": [to_jsonable(t) for t in tasks]}
+        return to_jsonable(progress)

@@ -10,10 +10,14 @@ dependencies = [
 
 [project.optional-dependencies]
 # Extras instalados en el venv del sidecar (empaquetado con PyInstaller).
-# Habilitar según los plugins que queramos en la app.
+# `bundle` agrupa los plugins que van DENTRO del binario de escritorio; los
+# plugins bgjobs/monitor/swarm ya vienen en el paquete base del engine.
 mcp = ["phoson-engine-minimal[mcp]"]
-ssh = ["phoson-engine-minimal[ssh]"]
 stt = ["phoson-engine-minimal[stt]"]
+checkpoint = ["phoson-engine-minimal[checkpoint]"]
+bundle = [
+    "phoson-engine-minimal[mcp,stt,checkpoint]",
+]
 
 [project.scripts]
 phoson-bridge = "phoson_bridge.__main__:run"
