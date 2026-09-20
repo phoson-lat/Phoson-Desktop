@@ -47,21 +47,13 @@ export function MessageRow({ message }: { message: ChatMessage }) {
     );
   }
 
-  // Agente: sin tarjeta. Markdown completo (GFM, KaTeX, shiki, mermaid, HTML).
+  // Agente: sin tarjeta. Se renderizan las partes EN ORDEN (texto y tools
+  // intercalados, tal como los emite el bucle ReAct del engine).
+  const lastIndex = message.parts.length - 1;
+
   return (
     <div className="flex flex-col">
-      {message.tools.length > 0 && (
-        <div className="mb-2 space-y-0.5">
-          {message.tools.map((t) => (
-            <ToolRow key={t.id} tool={t} />
-          ))}
-        </div>
-      )}
-      {message.text ? (
-        <div className="text-[0.9375rem] text-foreground">
-          <MarkdownRenderer content={message.text} streaming={message.status === "streaming"} />
-        </div>
-      ) : (
+      {message.parts.length === 0 ? (
         <span className="inline-flex gap-1 py-1">
           {[0, 1, 2].map((i) => (
             <span
@@ -71,6 +63,20 @@ export function MessageRow({ message }: { message: ChatMessage }) {
             />
           ))}
         </span>
+      ) : (
+        message.parts.map((part, index) =>
+          part.kind === "tool" ? (
+            <ToolRow key={`tool-${part.tool.id}-${index}`} tool={part.tool} />
+          ) : (
+            <div key={`text-${index}`} className="text-[0.9375rem] text-foreground">
+              <MarkdownRenderer
+                content={part.text}
+                // Solo el último bloque (el que aún llega) se renderiza en modo stream.
+                streaming={message.status === "streaming" && index === lastIndex}
+              />
+            </div>
+          ),
+        )
       )}
     </div>
   );

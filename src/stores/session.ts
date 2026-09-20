@@ -28,14 +28,28 @@ export interface ToolCard {
   status: "running" | "done" | "error";
 }
 
+/**
+ * Parte de un mensaje del agente, **en orden de llegada**: el engine emite
+ * texto y tools intercalados (iteraciones del ReAct), y hay que respetarlo.
+ */
+export type MessagePart =
+  | { kind: "text"; text: string }
+  | { kind: "tool"; tool: ToolCard };
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
+  /** Texto del turno del usuario (el agente usa `parts`). */
   text: string;
+  /** Contenido del agente en orden: texto y tool calls intercalados. */
+  parts: MessagePart[];
   reasoning?: string;
-  tools: ToolCard[];
   status: "streaming" | "done" | "error" | "cancelled";
 }
+
+/** Texto plano de un mensaje (usado para títulos y previews). */
+export const messageText = (m: ChatMessage): string =>
+  m.role === "user" ? m.text : m.parts.filter((p) => p.kind === "text").map((p) => p.text).join("");
 
 export interface SessionView {
   key: string;
@@ -99,30 +113,73 @@ const fileToBase64 = (file: File) =>
     reader.readAsDataURL(file);
   });
 
-/** Texto plano de un `Message` del engine (string o lista de bloques). */
-function blocksToText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((block) => {
-        const b = block as { text?: string; content?: string };
-        return typeof b?.text === "string" ? b.text : typeof b?.content === "string" ? b.content : "";
-      })
-      .join("");
-  }
-  return "";
-}
-
-/** Reconstruye el historial que llega al cargar una sesión (`print_history`). */
+/**
+ * Reconstruye el historial del replay (`print_history`) **respetando el orden**:
+ * texto y tool calls intercalados, y los `ToolResultBlock` (que el engine manda
+ * en mensajes de usuario) se enganchan a su tool por `tool_call_id`.
+ */
 function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
   const out: ChatMessage[] = [];
+  let assistant: ChatMessage | null = null;
+
+  const flush = () => {
+    if (assistant && assistant.parts.length > 0) out.push(assistant);
+    assistant = null;
+  };
+  const blocksOf = (content: unknown): Record<string, unknown>[] => {
+    if (typeof content === "string") return [{ type: "TextBlock", text: content }];
+    return Array.isArray(content) ? (content as Record<string, unknown>[]) : [];
+  };
+
   for (const raw of payload.messages ?? []) {
     const m = raw as { role?: string; content?: unknown };
-    const role: ChatMessage["role"] = m.role === "user" ? "user" : "assistant";
-    const text = blocksToText(m.content);
-    if (!text.trim()) continue; // ignora turnos solo-tool
-    out.push({ id: uid(), role, text, tools: [], status: "done" });
+    const blocks = blocksOf(m.content);
+
+    if (m.role === "user") {
+      // Tool results llegan como mensajes de usuario: se adjuntan a su tool.
+      for (const b of blocks) {
+        if (b.type !== "ToolResultBlock") continue;
+        const id = String(b.tool_call_id ?? "");
+        const result = typeof b.content === "string" ? b.content : "";
+        const target = out[out.length - 1];
+        if (!target) continue;
+        target.parts = target.parts.map((part) =>
+          part.kind === "tool" && part.tool.id === id
+            ? { kind: "tool", tool: { ...part.tool, result, status: "done" } }
+            : part,
+        );
+      }
+      const text = blocks
+        .filter((b) => b.type === "TextBlock" && typeof b.text === "string")
+        .map((b) => b.text as string)
+        .join("");
+      if (text.trim()) {
+        flush();
+        out.push({ id: uid(), role: "user", text, parts: [], status: "done" });
+      }
+      continue;
+    }
+
+    if (!assistant) {
+      assistant = { id: uid(), role: "assistant", text: "", parts: [], status: "done" };
+    }
+    for (const b of blocks) {
+      if (b.type === "TextBlock" && typeof b.text === "string" && b.text) {
+        assistant.parts.push({ kind: "text", text: b.text });
+      } else if (b.type === "ToolUseBlock") {
+        assistant.parts.push({
+          kind: "tool",
+          tool: {
+            id: String(b.id ?? uid()),
+            name: String(b.name ?? "tool"),
+            args: b.input,
+            status: "done",
+          },
+        });
+      }
+    }
   }
+  flush();
   return out;
 }
 
@@ -156,7 +213,13 @@ export const useSession = create<SessionState>((set, get) => {
     for (const [key, chunk] of tokenBuffer) {
       if (!chunk) continue;
       tokenBuffer.set(key, "");
-      patchLastAssistant(key, (m) => ({ ...m, text: m.text + chunk }));
+      patchLastAssistant(key, (m) => {
+        const parts = [...m.parts];
+        const last = parts[parts.length - 1];
+        if (last?.kind === "text") parts[parts.length - 1] = { kind: "text", text: last.text + chunk };
+        else parts.push({ kind: "text", text: chunk });
+        return { ...m, parts };
+      });
     }
   };
 
@@ -183,16 +246,25 @@ export const useSession = create<SessionState>((set, get) => {
           args: event.args,
           status: "running",
         };
-        patchLastAssistant(key, (m) => ({ ...m, tools: [...m.tools, card] }));
+        // Se añade como parte: mantiene el orden respecto al texto del stream.
+        patchLastAssistant(key, (m) => ({ ...m, parts: [...m.parts, { kind: "tool", tool: card }] }));
         break;
       }
       case "AgentToolDoneEvent":
         patchLastAssistant(key, (m) => ({
           ...m,
-          tools: m.tools.map((t) =>
-            t.id === String(event.tool_call_id)
-              ? { ...t, result: event.result, error: event.error, status: event.error ? "error" : "done" }
-              : t,
+          parts: m.parts.map((part) =>
+            part.kind === "tool" && part.tool.id === String(event.tool_call_id)
+              ? {
+                  kind: "tool" as const,
+                  tool: {
+                    ...part.tool,
+                    result: event.result,
+                    error: event.error,
+                    status: event.error ? ("error" as const) : ("done" as const),
+                  },
+                }
+              : part,
           ),
         }));
         break;
@@ -200,7 +272,7 @@ export const useSession = create<SessionState>((set, get) => {
         patchLastAssistant(key, (m) => ({
           ...m,
           status: "error",
-          text: m.text || String(event.message ?? "Error"),
+          parts: [...m.parts, { kind: "text", text: String(event.message ?? "Error") }],
         }));
         break;
       default:
@@ -323,8 +395,8 @@ export const useSession = create<SessionState>((set, get) => {
         sending: true,
         messages: [
           ...v.messages,
-          { id: uid(), role: "user", text, tools: [], status: "done" },
-          { id: uid(), role: "assistant", text: "", tools: [], status: "streaming" },
+          { id: uid(), role: "user", text, parts: [], status: "done" },
+          { id: uid(), role: "assistant", text: "", parts: [], status: "streaming" },
         ],
       }));
       await phoson.runTurn(key, text);

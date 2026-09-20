@@ -293,11 +293,43 @@ class MockBridge implements Bridge {
     setTimeout(() => ev({ type: "AgentStartEvent", timestamp: now(), tool_count: 10 }), 120);
 
     const words = reply.split(/(\s+)/);
+    const total = words.length;
+    // Secuencia de tools INTERCALADA con el texto, como hace el engine real
+    // (iteraciones del bucle ReAct): permite verificar el orden en el thread.
+    const marks = [
+      { at: Math.floor(total * 0.1), kind: "start", id: "call_mock_1", name: "bash", args: { command: "uname -a" } },
+      { at: Math.floor(total * 0.16), kind: "done", id: "call_mock_1", name: "bash", result: "Linux phoson 6.11.0 #1 SMP x86_64 GNU/Linux" },
+      { at: Math.floor(total * 0.5), kind: "start", id: "call_mock_2", name: "bash", args: { command: "df -h /" } },
+      { at: Math.floor(total * 0.56), kind: "done", id: "call_mock_2", name: "bash", result: "/dev/nvme0n1 233G 187G 34G 85%" },
+    ] as const;
+
     let t = 220;
-    for (const w of words) {
+    words.forEach((word, i) => {
       t += 14 + Math.random() * 26;
-      setTimeout(() => ev({ type: "AgentTokenEvent", timestamp: now(), content: w }), t);
-    }
+      setTimeout(() => ev({ type: "AgentTokenEvent", timestamp: now(), content: word }), t);
+      for (const mark of marks.filter((m) => m.at === i)) {
+        setTimeout(() => {
+          if (mark.kind === "start") {
+            ev({
+              type: "AgentToolStartEvent",
+              timestamp: now(),
+              tool_call_id: mark.id,
+              tool_name: mark.name,
+              args: mark.args,
+            });
+          } else {
+            ev({
+              type: "AgentToolDoneEvent",
+              timestamp: now(),
+              tool_call_id: mark.id,
+              tool_name: mark.name,
+              result: mark.result,
+              error: null,
+            });
+          }
+        }, t);
+      }
+    });
     setTimeout(() => {
       ev({ type: "AgentDoneEvent", timestamp: now() });
       this.emit("session.metrics", { ...this.metrics(sessionId), isRunning: false });
