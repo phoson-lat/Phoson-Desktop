@@ -510,3 +510,51 @@ Composer → useSession.send(text)
    que rompe `deepcopy`).
 4. **stdout = protocolo**: mitigado en `__main__.py`; validado (0 errores).
 5. **Fail-closed**: el sidecar siempre inyecta `GuiConfirmation`.
+
+---
+
+## 🖥️ Estado para ejecutarla como app de escritorio (auditoría 2026-09-20)
+
+### Bloqueadores
+1. **Binario del sidecar**: `src-tauri/binaries/phoson-bridge-<triple>` **no existe**.
+   `tauri.conf.json` declara `externalBin`, así que `tauri build` falla sin él.
+   Ruta más corta para dev: que `main.rs` arranque `python -m phoson_bridge`
+   (venv del engine) y quitaremos `externalBin`; la de distribución es PyInstaller
+   (decisión #2: binarios publicados en GitHub).
+2. **Librerías de sistema (Linux)**: faltan `webkit2gtk-4.1`, `gtk+-3.0`,
+   `gdk-pixbuf-2.0` y `libsoup-3.0`. `cargo check` falla en pkg-config.
+   Requiere sudo:
+   `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`
+3. **Nunca se ha compilado el Rust**: al auditar la API real de
+   `tauri-plugin-shell 2.3.6` apareció un error de compilación que ya está
+   corregido (ver abajo). Habrá más en la primera compilación.
+
+### Corregido en esta auditoría (código Rust)
+- `CommandChild` **no expone su stdin**: se escribe con
+  `CommandChild::write(&mut self, &[u8])` (antes usábamos `child.stdin.take()`,
+  que no compila). `BridgeState.child` ahora es `Mutex<Option<CommandChild>>`.
+- Se maneja `CommandEvent::Error` (variante que existe en la API).
+- Verificado: `spawn()` → `(Receiver<CommandEvent>, CommandChild)`,
+  `TerminatedPayload { code, signal }`, `shell().sidecar()`.
+
+### Hallazgos de comportamiento en Tauri
+- **`dragDropEnabled` es `true` por defecto** → la webview intercepta el drop y
+  los eventos HTML5 `drop` de archivos **no disparan**. Hay que poner
+  `"dragDropEnabled": false` en la ventana (así `dataTransfer.files` funciona y
+  sirve el push en base64) **o** usar `onDragDropEvent` para obtener rutas y
+  llamar a `attachment.add` (mejor: sin transferir contenido).
+- Al pegar un archivo desde el gestor de archivos en Tauri suele llegar como
+  **ruta en texto**, no como `File`; conviene detectar rutas y usar
+  `attachment.add`.
+- Las capacidades de shell (`shell:allow-spawn`) **no son necesarias**: el
+  sidecar se lanza desde Rust, y el scope del plugin solo aplica a la API JS.
+- **Voz**: la Web Speech API no existe en WebKitGTK (Linux) ni en WKWebView
+  (macOS) → el botón se deshabilita. Para dictado universal hay que cablear el
+  plugin **STT** del engine por el sidecar.
+
+### Lo que ya está listo
+- Frontend completo (chat con render enriquecido, onboarding, settings con MCP,
+  explorador + visor de código, composer con voz/adjuntos/listas): `tsc` 0
+  errores y `vite build` OK.
+- Bridge Python validado contra el engine real por stdio (todas las RPC).
+- En navegador ya es usable hoy con `pnpm dev` (transporte mock).

@@ -23,11 +23,9 @@ fn main() {
                 .sidecar("phoson-bridge")
                 .expect("sidecar phoson-bridge no encontrado");
             let (rx, child) = sidecar.spawn().expect("no se pudo lanzar el sidecar");
-
-            let stdin = child.stdin.take();
             {
                 let state = handle.state::<BridgeState>();
-                *state.stdin.blocking_lock() = stdin;
+                *state.child.lock().unwrap() = Some(child);
             }
 
             tauri::async_runtime::spawn(async move {
