@@ -1,15 +1,15 @@
 
-import { useEffect, useMemo, useState } from "react"
+import { memo, useEffect, useMemo, useState } from "react"
 import ReactMarkdown, { type Components, type Options as MarkdownOptions } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
 import rehypeRaw from "rehype-raw"
 import rehypeKatex from "rehype-katex"
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
-import { codeToHtml } from "shiki"
 import { useTheme } from "next-themes"
 import { Check, Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { highlight } from "@/lib/highlighter"
 import { HtmlArtifact, MermaidArtifact } from "@/components/ui/artifact-block"
 
 // Sanitization: raw HTML from AI output is allowed through but stripped of
@@ -119,27 +119,31 @@ function CodeBlock({ code, language, streaming = false }: CodeBlockProps) {
       return
     }
 
-    const highlight = async () => {
+    // `highlight` carga el lenguaje bajo demanda (async): si el código o el tema
+    // cambian mientras carga, hay que descartar el resultado obsoleto.
+    let cancelled = false
+    const runHighlight = async () => {
+      let html: string | null = null
       try {
-        const lang = detectedLang || "text"
-        const html = await codeToHtml(code, {
-          lang,
-          themes: {
-            dark: "github-dark",
-            light: "github-light",
-          },
-          defaultColor: resolvedTheme === "dark" ? "dark" : "light",
-        })
-        setHighlightedHtml(html)
+        html = await highlight(code, detectedLang, resolvedTheme === "dark")
       } catch {
-        const escaped = code
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-        setHighlightedHtml(`<pre class="shiki"><code>${escaped}</code></pre>`)
+        html = null
       }
+      if (cancelled) return
+      if (html) {
+        setHighlightedHtml(html)
+        return
+      }
+      const escaped = code
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+      setHighlightedHtml(`<pre class="shiki"><code>${escaped}</code></pre>`)
     }
-    highlight()
+    runHighlight()
+    return () => {
+      cancelled = true
+    }
   }, [code, detectedLang, resolvedTheme, streaming])
 
   const handleCopy = async () => {
@@ -189,7 +193,7 @@ function CodeBlock({ code, language, streaming = false }: CodeBlockProps) {
   )
 }
 
-export function MarkdownRenderer({ content, className, streaming = false }: MarkdownRendererProps) {
+function MarkdownRendererBase({ content, className, streaming = false }: MarkdownRendererProps) {
   const components = useMemo<Components>(
     () => ({
       h1: ({ children, ...props }) => (
@@ -247,7 +251,7 @@ export function MarkdownRenderer({ content, className, streaming = false }: Mark
 
         // Artifact: raw HTML block
         if (language === "html") {
-          return <HtmlArtifact code={code} />
+          return <HtmlArtifact code={code} streaming={streaming} />
         }
 
         // Fenced code block with syntax highlighting
@@ -367,3 +371,9 @@ export function MarkdownRenderer({ content, className, streaming = false }: Mark
     </div>
   )
 }
+
+/**
+ * Memoizado por `content`/`streaming`: en un mensaje con tools intercaladas,
+ * solo el bloque que cambia vuelve a ejecutar remark/rehype/KaTeX.
+ */
+export const MarkdownRenderer = memo(MarkdownRendererBase)

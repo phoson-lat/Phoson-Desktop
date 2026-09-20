@@ -1,4 +1,4 @@
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import type { RunMetrics } from "@/bridge/protocol";
 import { cn } from "@/lib/utils";
@@ -61,7 +61,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 /**
  * Ventana de contexto como *loader*: anillo de progreso con el % usado, que
- * gira mientras el agente corre. Al pasar el ratón se despliega el detalle
+ * gira mientras el agente corre. Al pulsar (clic o teclado) se despliega el detalle
  * (contexto, tokens, coste, pasos, modelo).
  */
 export function ContextMeter({ metrics }: { metrics?: RunMetrics }) {
@@ -72,11 +72,12 @@ export function ContextMeter({ metrics }: { metrics?: RunMetrics }) {
   const free = Math.max(total - used, 0);
 
   return (
-    <HoverCard openDelay={120} closeDelay={90}>
-      <HoverCardTrigger asChild>
+    <Popover>
+      <PopoverTrigger asChild>
         <button
           className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
           title="Ventana de contexto"
+          aria-label="Ventana de contexto y métricas"
         >
           <Ring pct={pct} color={color} spinning={metrics?.isRunning} />
           <span className="tabular-nums" style={{ color }}>
@@ -86,9 +87,9 @@ export function ContextMeter({ metrics }: { metrics?: RunMetrics }) {
             {fmt(used)}/{fmt(total)}
           </span>
         </button>
-      </HoverCardTrigger>
+      </PopoverTrigger>
 
-      <HoverCardContent align="end" className="w-72 p-3.5">
+      <PopoverContent align="end" className="w-72 p-3.5">
         <div className="space-y-2.5 text-xs">
           <div className="flex items-baseline justify-between gap-4">
             <span className="font-medium">Ventana de contexto</span>
@@ -133,7 +134,7 @@ export function ContextMeter({ metrics }: { metrics?: RunMetrics }) {
             />
           </div>
         </div>
-      </HoverCardContent>
-    </HoverCard>
+      </PopoverContent>
+    </Popover>
   );
 }

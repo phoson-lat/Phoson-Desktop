@@ -5,6 +5,7 @@ import { phoson } from "@/bridge/client";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
+import { isEditableTarget, isModalOpen, shortcutLabel } from "@/lib/platform";
 import {
   REASONING_EFFORTS,
   effortColor,
@@ -135,6 +136,21 @@ export function ReasoningEffortPicker({ sessionId, className }: ReasoningEffortP
       .finally(() => setReady(true));
   }, [sessionId]);
 
+  // Atajo global Ctrl/⌘+E → abrir/cerrar el selector de esfuerzo.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.key.toLowerCase() !== "e" && event.code !== "KeyE") return;
+      // No robar el foco a un campo editable, a un modal abierto, ni abrir el
+      // selector cuando aún no hay sesión.
+      if (isModalOpen() || isEditableTarget(event.target) || !sessionId) return;
+      event.preventDefault();
+      setOpen((o) => !o);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sessionId]);
+
   const index = effortIndex(effort);
   const color = effortColor(effort);
   /** El deslizador siempre tiene una posición (auto se muestra en el mínimo). */
@@ -158,7 +174,7 @@ export function ReasoningEffortPicker({ sessionId, className }: ReasoningEffortP
             "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors dashboard-hover hover:text-foreground",
             className,
           )}
-          title="Esfuerzo de razonamiento"
+          title={`Esfuerzo de razonamiento (${shortcutLabel("E")})`}
           disabled={!ready}
         >
           <Gauge className="size-3.5" style={{ color }} />

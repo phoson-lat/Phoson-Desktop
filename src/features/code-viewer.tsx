@@ -1,12 +1,13 @@
-import { Check, FileText, Loader2, Pencil, Save, X } from "lucide-react";
+import { Check, ExternalLink, FileText, Loader2, Pencil, Save, X } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { phoson } from "@/bridge/client";
+import { isTauri, openPath, phoson } from "@/bridge/client";
 import type { FsReadResult } from "@/bridge/protocol";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { highlight } from "@/lib/highlighter";
 import { cn } from "@/lib/utils";
 
 /** Extensión → lenguaje de shiki (subconjunto común). */
@@ -95,16 +96,9 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
   useEffect(() => {
     if (!data || data.binary || editing) return;
     let cancelled = false;
-    import("shiki")
-      .then(({ codeToHtml }) =>
-        codeToHtml(data.text, {
-          lang: langFor(data.path),
-          themes: { dark: "github-dark", light: "github-light" },
-          defaultColor: resolvedTheme === "dark" ? "dark" : "light",
-        }),
-      )
+    highlight(data.text, langFor(data.path), resolvedTheme === "dark")
       .then((h) => {
-        if (!cancelled) setHtml(h);
+        if (!cancelled) setHtml(h ?? "");
       })
       .catch(() => {
         if (!cancelled) setHtml("");
@@ -132,8 +126,21 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
   const dirty = !!data && draft !== data.text;
 
   return (
-    <Dialog open={path !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl gap-0 p-0 sm:max-w-4xl">
+    <Dialog
+      open={path !== null}
+      onOpenChange={(o) => {
+        if (o) return;
+        // No cerrar (Escape/overlay) con cambios sin guardar: se perderían.
+        if (dirty) {
+          toast.warning("Hay cambios sin guardar", {
+            description: "Guarda o pulsa «Cancelar» antes de cerrar.",
+          });
+          return;
+        }
+        onClose();
+      }}
+    >
+      <DialogContent showCloseButton={false} className="max-w-4xl gap-0 p-0 sm:max-w-4xl">
         <div className="flex items-center gap-2 px-4 py-3">
           <FileText className="size-4 shrink-0 text-violet" />
           <DialogTitle className="truncate text-sm font-medium">
@@ -178,6 +185,22 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
                 <Pencil className="size-3.5" /> Editar
               </Button>
             )
+          )}
+          {path && isTauri() && (
+            <button
+              onClick={() =>
+                void openPath(path).catch((e) =>
+                  toast.error("No se pudo abrir el archivo", {
+                    description: String(e).replace(/^Error:\s*/, ""),
+                  }),
+                )
+              }
+              title="Abrir en el visor del sistema"
+              aria-label="Abrir en el visor del sistema"
+              className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
+            >
+              <ExternalLink className="size-3.5" />
+            </button>
           )}
           <button
             onClick={onClose}

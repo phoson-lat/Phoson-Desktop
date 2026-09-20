@@ -1,8 +1,9 @@
 import { ArrowUp, FileText, Image as ImageIcon, Mic, Paperclip, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import type { Attachment } from "@/bridge/protocol";
+import type { Attachment, UploadedFile } from "@/bridge/protocol";
 import { AudioBars } from "@/components/audio-bars";
+import { UploadedFiles } from "@/components/uploads-block";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ModelPicker } from "@/features/model-picker";
@@ -24,15 +25,19 @@ interface ComposerProps {
   provider?: string;
   /** Adjuntos pendientes (pegar, arrastrar o elegir). */
   attachments: Attachment[];
+  /** Archivos no nativos ya subidos al workspace (se referencian en el prompt). */
+  uploads: UploadedFile[];
   onAddFiles: (files: File[]) => void;
   onRemoveAttachment: (path: string) => void;
+  onRemoveUpload: (path: string) => void;
   /** Aviso puntual (p. ej. tipo de archivo no soportado). */
   notice?: string | null;
 }
 
 /**
- * Continúa listas markdown al pulsar Enter: repite el marcador (`-`, `*`, `+`)
- * o incrementa el número. Con el marcador vacío, sale de la lista.
+ * Continúa listas markdown al pulsar **Shift/Ctrl/Cmd + Enter** (el salto de
+ * línea manual): repite el marcador (`-`, `*`, `+`) o incrementa el número. Con
+ * el marcador vacío, sale de la lista. Enter a secas envía el mensaje.
  */
 function continueList(text: string, caret: number): { text: string; caret: number } | null {
   const before = text.slice(0, caret);
@@ -73,8 +78,10 @@ export function Composer({
   model,
   provider,
   attachments,
+  uploads,
   onAddFiles,
   onRemoveAttachment,
+  onRemoveUpload,
   notice,
 }: ComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -94,6 +101,7 @@ export function Composer({
   }, [value]);
 
   const { supported, listening, error, toggle } = useVoiceInput({
+    sessionId,
     onText: (text, final) => {
       if (final) {
         voiceBase.current = `${voiceBase.current} ${text}`.trimStart();
@@ -119,7 +127,9 @@ export function Composer({
 
   const submit = (text?: string) => {
     if (!(text ?? value).trim() || disabled) return;
-    onSend();
+    // Reenvía el texto del DOM cuando lo tenemos: puede ir por delante del
+    // estado de React (tecleo rápido / IME) y no debe perderse.
+    onSend(text);
   };
 
   return (
@@ -127,6 +137,7 @@ export function Composer({
       <div
         onDragOver={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           setDragging(true);
         }}
         onDragLeave={(e) => {
@@ -134,6 +145,8 @@ export function Composer({
         }}
         onDrop={(e) => {
           e.preventDefault();
+          // El contenedor raíz también acepta drops: no duplicar.
+          e.stopPropagation();
           setDragging(false);
           const files = Array.from(e.dataTransfer.files ?? []);
           if (files.length) onAddFiles(files);
@@ -177,6 +190,9 @@ export function Composer({
           </div>
         )}
 
+        {/* Archivos subidos al workspace (no nativos): se referencian en el prompt */}
+        <UploadedFiles files={uploads} onRemove={onRemoveUpload} className="px-1 pb-1.5" />
+
         <Textarea
           ref={ref}
           value={value}
@@ -187,7 +203,12 @@ export function Composer({
               ? "Escuchando…"
               : "Escribe un mensaje…  (Enter envía · Shift/Ctrl+Enter salto de línea)"
           }
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            // Si el usuario edita a mano mientras dicta, sincroniza la base para
+            // que el siguiente fragmento no sobrescriba lo escrito.
+            if (listening) voiceBase.current = e.target.value;
+            onChange(e.target.value);
+          }}
           onPaste={(e) => {
             const files = Array.from(e.clipboardData.files ?? []);
             if (files.length) {
@@ -196,6 +217,12 @@ export function Composer({
             }
           }}
           onKeyDown={(e) => {
+            // Escape detiene la generación (convención de los chats de agente).
+            if (e.key === "Escape" && sending) {
+              e.preventDefault();
+              onStop();
+              return;
+            }
             if (e.key !== "Enter") return;
             const el = e.currentTarget;
             // El DOM es la fuente de verdad: el estado de React puede ir un paso
@@ -271,7 +298,7 @@ export function Composer({
                   ? listening
                     ? "Detener dictado"
                     : "Dictado por voz"
-                  : "El dictado no está soportado en este motor"
+                  : "El dictado no está soportado en este sistema"
               }
               className={cn(
                 "relative grid shrink-0 place-items-center rounded-md transition-all",

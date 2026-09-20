@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { phoson } from "@/bridge/client";
 import type { ModelOption } from "@/bridge/protocol";
@@ -62,7 +63,14 @@ export function ModelPicker({ sessionId, current, provider, compact }: ModelPick
 
   const select = (m: ModelOption) => {
     setOpen(false);
-    if (sessionId) void phoson.setModel(sessionId, m.id, m.provider);
+    if (!sessionId) return;
+    // Con feedback: si el cambio falla, el picker no debe quedarse mostrando el
+    // modelo anterior en silencio.
+    phoson.setModel(sessionId, m.id, m.provider).catch((e) => {
+      toast.error("No se pudo cambiar de modelo", {
+        description: String(e).replace(/^Error:\s*/, ""),
+      });
+    });
   };
 
   return (

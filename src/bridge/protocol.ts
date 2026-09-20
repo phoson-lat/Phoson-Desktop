@@ -85,6 +85,8 @@ export interface InitResult {
   /** Presente cuando el sidecar sabe si hay proveedor configurado. */
   onboarding?: { needed: boolean; providers: ProviderStatus[] };
   defaultSessionId: string;
+  /** cwd del sidecar por defecto (su workspace). */
+  cwd?: string;
   metrics: RunMetrics;
 }
 
@@ -136,12 +138,54 @@ export interface ConfigView {
   mcpConfigFile?: string;
 }
 
+/** Archivo no nativo subido al workspace (se referencia en el prompt). */
+export interface UploadedFile {
+  ok?: boolean;
+  /** Ruta absoluta en el workspace. */
+  path: string;
+  /** Ruta relativa al workspace (la que se menciona en el prompt). */
+  relative: string;
+  name: string;
+  size: number;
+}
+
+/** Progreso de una subtarea (subagente) — `SubagentProgress` serializado. */
+export interface SubagentTask {
+  index: number;
+  task: string;
+  /** running | done | error … (valor del enum del engine). */
+  status?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  cost_usd?: number;
+  done?: boolean;
+}
+
 /** Adjunto pendiente (materializado por el sidecar). */
 export interface Attachment {
   path: string;
   name: string;
   /** image | audio | video | document | file */
   kind: string;
+}
+
+/** Estado del dictado por voz del sidecar (motor STT del engine). */
+export interface SttStatus {
+  supported: boolean;
+  listening: boolean;
+  language: string | null;
+  /** Códigos de idioma admitidos por el motor. */
+  languages: string[];
+  /** Motivo accionable cuando `supported` es false. */
+  reason?: string | null;
+}
+
+/** Resultado de `stt.start`. */
+export interface SttStartResult {
+  ok: boolean;
+  supported: boolean;
+  language?: string;
+  reason?: string | null;
 }
 
 /** Entrada del explorador de archivos. */

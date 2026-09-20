@@ -2,7 +2,7 @@ import { Folder, Menu, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { isTauri, openExternal } from "@/bridge/client";
+import { isTauri, onTerminated, openExternal } from "@/bridge/client";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -13,10 +13,13 @@ import { FileExplorer } from "@/features/file-explorer";
 import { MessageRow } from "@/features/message";
 import { Onboarding } from "@/features/onboarding";
 import { SettingsDialog } from "@/features/settings-dialog";
+import { CommandPalette } from "@/features/command-palette";
+import { SubagentPanel } from "@/features/subagent-panel";
 import { Sidebar } from "@/features/sidebar";
 import { Welcome } from "@/features/welcome";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { checkForUpdates } from "@/lib/updater";
 import { DEMO_USER } from "@/lib/demo-content";
 import { useSession } from "@/stores/session";
 
@@ -30,6 +33,7 @@ export default function App() {  const {
     init,
     send,
     cancel,
+    regenerate,
     newSession,
     openSession,
     closeSession,
@@ -45,8 +49,14 @@ export default function App() {  const {
     loadAttachments,
     addFiles,
     removeAttachment,
+    removeUpload,
   } = useSession();
-  const [draft, setDraft] = useState("");
+  // Borrador POR SESIÓN: cambiar de sesión no debe arrastrar (ni enviar) el
+  // texto que estabas escribiendo en otra.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const draft = (activeKey ? drafts[activeKey] : "") ?? "";
+  const setDraft = (v: string) =>
+    setDrafts((d) => (activeKey ? { ...d, [activeKey]: v } : d));
   const [navOpen, setNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(
     () => typeof localStorage !== "undefined" && localStorage.getItem("phoson.nav") === "collapsed",
@@ -122,10 +132,41 @@ export default function App() {  const {
     }
   }, [collapsed]);
 
+  // Si el motor de un workspace se cae, avisamos: sus sesiones en memoria se
+  // pierden y el sidecar se respawnea al volver a usarlo.
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    void onTerminated(({ workspace }) => {
+      toast.error("El motor de un espacio de trabajo se detuvo", {
+        description: workspace
+          ? `Se reiniciará al volver a usarlo: ${basename(workspace)}`
+          : "Se reiniciará al volver a usarlo.",
+      });
+    }).then((fn) => {
+      dispose = fn;
+    });
+    return () => dispose?.();
+  }, []);
+
+  // Pegado al fondo: solo auto-scroll si el usuario ya está abajo. Si sube a
+  // leer un mensaje anterior, no le arrastramos la vista en cada token.
+  const stickToBottom = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
-    el?.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+    if (!el) return;
+    const onScroll = () => {
+      stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !stickToBottom.current) return;
+    // `auto` mientras el agente trabaja: `smooth` en cada token pelea con la lectura.
+    el.scrollTo({ top: el.scrollHeight, behavior: view?.sending ? "auto" : "smooth" });
+  }, [messages, view?.sending]);
 
   const title = useMemo(() => {
     const first = messages.find((m) => m.role === "user")?.text;
@@ -139,15 +180,71 @@ export default function App() {  const {
     void send(value);
   };
 
+  // Check silencioso de actualizaciones al arrancar (con cooldown de 12 h).
+  useEffect(() => {
+    if (!ready || !isTauri()) return;
+    let last = 0;
+    try {
+      last = Number(localStorage.getItem("phoson.updateCheck") || 0);
+    } catch {
+      /* almacenamiento no disponible */
+    }
+    if (Date.now() - last < 12 * 3600 * 1000) return;
+    try {
+      localStorage.setItem("phoson.updateCheck", String(Date.now()));
+    } catch {
+      /* almacenamiento no disponible */
+    }
+    void checkForUpdates()
+      .then((u) => {
+        if (u) {
+          toast.info(`Nueva versión v${u.version} disponible`, {
+            description: "Ajustes → Acerca de para instalarla.",
+          });
+        }
+      })
+      .catch(() => {
+        /* sin red o feed sin configurar: silencio */
+      });
+  }, [ready]);
+
+  // Drag & drop en TODA la ventana (no solo el composer).
+  const [dragOver, setDragOver] = useState(false);
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    setDragOver(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget === e.target) setDragOver(false);
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length) void addFiles(files);
+  };
+
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="dashboard-shell-overlay flex h-full min-h-0 w-full overflow-hidden">
+      <div
+        className="dashboard-shell-overlay flex h-full min-h-0 w-full overflow-hidden"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {dragOver && (
+          <div className="pointer-events-none fixed inset-0 z-[90] grid place-items-center bg-[var(--background)]/70 text-sm text-violet">
+            Suelta los archivos para adjuntarlos
+          </div>
+        )}
         <Sidebar
           activeKey={activeKey}
           order={order}
           sessions={sessions}
           model={metrics?.model}
           provider={metrics?.provider}
+          workspace={cwd}
           mobile={isMobile}
           open={navOpen}
           collapsed={collapsed}
@@ -160,8 +257,8 @@ export default function App() {  const {
             void newSession();
             setNavOpen(false);
           }}
-          onOpen={(id) => {
-            void openSession(id);
+          onOpen={(id, ws) => {
+            void openSession(id, ws);
             setNavOpen(false);
           }}
           onClose={(k) => void closeSession(k)}
@@ -212,21 +309,34 @@ export default function App() {  const {
             </div>
           ) : messages.length === 0 ? (
             <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
-              <Welcome onPick={(t) => void send(t)} />
+              <Welcome
+                onPick={(t) => void send(t)}
+                onOpenSession={(id, ws) => void openSession(id, ws)}
+              />
             </div>
           ) : (
             <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               <div className="mx-auto flex max-w-3xl flex-col gap-6 px-3 py-5 sm:px-4 sm:py-8">
-                {messages.map((m) => (
-                  <MessageRow key={m.id} message={m} />
+                {messages.map((m, i) => (
+                  <MessageRow
+                    key={m.id}
+                    message={m}
+                    isLast={i === messages.length - 1}
+                    onRegenerate={() => void regenerate()}
+                  />
                 ))}
               </div>
             </div>
           )}
 
+          <SubagentPanel tasks={view?.subagents ?? []} />
+
           {view?.confirmations.map((c) => (
             <div
               key={c.requestId}
+              role="alertdialog"
+              aria-live="assertive"
+              aria-label="Confirmación de comando"
               className="dashboard-panel-strong mx-3 mb-2 rounded-xl border p-3 sm:mx-auto sm:w-full sm:max-w-3xl"
             >
               <div className="mb-1 flex items-center gap-2 text-xs font-medium">
@@ -269,8 +379,10 @@ export default function App() {  const {
             model={metrics?.model}
             provider={metrics?.provider}
             attachments={view?.attachments ?? []}
+            uploads={view?.uploads ?? []}
             onAddFiles={(files) => void addFiles(files)}
             onRemoveAttachment={(path) => void removeAttachment(path)}
+            onRemoveUpload={removeUpload}
             notice={
               view?.notifications?.length
                 ? view.notifications[view.notifications.length - 1].message
@@ -301,6 +413,10 @@ export default function App() {  const {
         }}
       />
       <CodeViewer path={openFile} onClose={() => setOpenFile(null)} />
+      <CommandPalette
+        onOpenSettings={() => setSettingsOpen(true)}
+        onToggleExplorer={() => setExplorerOpen((v) => !v)}
+      />
       {ready && onboardingNeeded && (
         <Onboarding sessionId={activeKey} onDone={finishOnboarding} />
       )}

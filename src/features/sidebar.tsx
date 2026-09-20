@@ -1,5 +1,5 @@
-import { Search, PanelLeft, MessageSquare, Settings, Trash2, X, SquarePen } from "lucide-react";
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { AlertTriangle, Bot, Search, PanelLeft, MessageSquare, Settings, Trash2, X, SquarePen } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { toast } from "sonner";
 
 import { PhosonLogo } from "@/components/phoson-logo";
@@ -16,9 +16,11 @@ interface SidebarProps {
   sessions: Record<string, SessionView>;
   model?: string;
   provider?: string;
+  /** Workspace activo: las sesiones guardadas se listan acotadas a él. */
+  workspace?: string;
   onSelect: (key: string) => void;
   onNew: () => void;
-  onOpen: (engineId: string) => void;
+  onOpen: (engineId: string, workspace?: string) => void;
   onClose: (key: string) => void;
   /** Responsive: en móvil se muestra como cajón superpuesto. */
   mobile?: boolean;
@@ -114,6 +116,7 @@ export function Sidebar({
   sessions,
   model,
   provider,
+  workspace,
   onSelect,
   onNew,
   onOpen,
@@ -131,13 +134,33 @@ export function Sidebar({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Enfoca (y selecciona) el input cuando se abre el buscador.
+  useEffect(() => {
+    if (searching) searchRef.current?.focus();
+  }, [searching]);
+
+  // El cajón móvil se cierra con Escape (además del overlay).
+  useEffect(() => {
+    if (!mobile || !open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onDismiss?.();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobile, open, onDismiss]);
 
   useEffect(() => {
     phoson
       .listSessions()
       .then((r) => setSaved(r.sessions ?? []))
       .catch(() => setSaved([]));
-  }, []);
+    // Historial global: se refresca al cambiar de workspace para reflejar
+    // sesiones recién guardadas en cualquier proyecto.
+  }, [workspace]);
 
   const deleteSaved = async (id: string) => {
     setDeletingId(id);
@@ -188,6 +211,10 @@ export function Sidebar({
       )}
 
       <aside
+        aria-hidden={mobile && !open}
+        // Cerrado en móvil: fuera del orden de tabulación (si no, se tabula a
+        // botones "invisibles" tras el `-translate-x-full`).
+        inert={mobile && !open}
         className={cn(
           "app-sidebar dashboard-panel shrink-0 overflow-hidden",
           mobile
@@ -217,7 +244,7 @@ export function Sidebar({
               <IconButton icon={SquarePen} label="Nueva sesión" onClick={onNew} />
               <IconButton
                 icon={Search}
-                label="Buscar"
+                label="Buscar sesiones"
                 onClick={() => {
                   onToggleCollapse?.();
                   setSearching(true);
@@ -244,8 +271,13 @@ export function Sidebar({
                 <div className="min-w-0 flex-1 pl-1">{brandBlock}</div>
                 <IconButton
                   icon={Search}
-                  label="Buscar"
-                  onClick={() => setSearching((s) => !s)}
+                  label="Buscar sesiones"
+                  onClick={() => {
+                    // Al cerrar, limpia el filtro: si no, la lista quedaría
+                    // filtrada sin caja visible y sin forma evidente de limpiarla.
+                    setQuery("");
+                    setSearching((s) => !s);
+                  }}
                 />
                 {onToggleCollapse && (
                   <IconButton icon={PanelLeft} label="Ocultar barra lateral" onClick={onToggleCollapse} />
@@ -257,13 +289,22 @@ export function Sidebar({
 
               {searching && (
                 <div className="px-3 pb-1">
-                  <Input
-                    autoFocus
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Buscar sesiones…"
-                    className="h-8 text-xs"
-                  />
+                  <div className="relative">
+                    <Input
+                      ref={searchRef}
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setSearching(false);
+                          setQuery("");
+                        }
+                      }}
+                      placeholder="Buscar sesiones…"
+                      className="h-8 text-xs"
+                    />
+                  </div>
                 </div>
               )}
 
@@ -284,13 +325,34 @@ export function Sidebar({
                           active={key === activeKey}
                           onClick={() => onSelect(key)}
                           trailing={
-                            <X
-                              className="size-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-60"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void onClose(key);
-                              }}
-                            />
+                            <span className="flex shrink-0 items-center gap-1.5">
+                              {(sessions[key]?.subagents.length ?? 0) > 0 && (
+                                <span
+                                  title={`Subagentes en curso (${sessions[key]?.subagents.length})`}
+                                  className="flex items-center gap-0.5 text-violet"
+                                >
+                                  <Bot className="size-3" />
+                                  <span className="text-[0.6rem] tabular-nums">
+                                    {sessions[key]?.subagents.length}
+                                  </span>
+                                </span>
+                              )}
+                              {(sessions[key]?.confirmations.length ?? 0) > 0 && (
+                                <span
+                                  title="Esta sesión espera una confirmación"
+                                  className="text-amber-500"
+                                >
+                                  <AlertTriangle className="size-3" />
+                                </span>
+                              )}
+                              <X
+                                className="size-3 opacity-0 transition-opacity group-hover:opacity-60"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void onClose(key);
+                                }}
+                              />
+                            </span>
                           }
                         />
                       ))}
@@ -302,12 +364,12 @@ export function Sidebar({
                   <>
                     <SectionLabel>Guardadas</SectionLabel>
                     <div className="space-y-0.5 px-2">
-                      {savedRows.slice(0, 20).map((s) => (
+                      {savedRows.map((s) => (
                         <Row
                           key={s.id}
                           icon={MessageSquare}
                           label={s.title || s.id.slice(0, 8)}
-                          onClick={() => onOpen(s.id)}
+                          onClick={() => onOpen(s.id, s.cwd || undefined)}
                           trailing={
                             confirmId === s.id ? (
                               <span
@@ -316,15 +378,33 @@ export function Sidebar({
                               >
                                 <span
                                   role="button"
+                                  tabIndex={0}
+                                  aria-label="Confirmar eliminar sesión"
                                   onClick={() => void deleteSaved(s.id)}
-                                  className="rounded px-1.5 py-0.5 text-[0.65rem] text-destructive transition-colors hover:bg-destructive/10"
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      void deleteSaved(s.id);
+                                    }
+                                  }}
+                                  className="rounded px-1.5 py-0.5 text-[0.65rem] text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                 >
                                   {deletingId === s.id ? "…" : "Eliminar"}
                                 </span>
                                 <span
                                   role="button"
+                                  tabIndex={0}
+                                  aria-label="Cancelar borrado"
                                   onClick={() => setConfirmId(null)}
-                                  className="rounded px-1.5 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:text-foreground"
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setConfirmId(null);
+                                    }
+                                  }}
+                                  className="rounded px-1.5 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                 >
                                   No
                                 </span>
@@ -336,12 +416,21 @@ export function Sidebar({
                                 </span>
                                 <span
                                   role="button"
+                                  tabIndex={0}
                                   title="Eliminar sesión"
+                                  aria-label="Eliminar sesión"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setConfirmId(s.id);
                                   }}
-                                  className="opacity-0 transition-opacity hover:text-destructive group-hover:opacity-80"
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setConfirmId(s.id);
+                                    }
+                                  }}
+                                  className="opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-80"
                                 >
                                   <Trash2 className="size-3" />
                                 </span>

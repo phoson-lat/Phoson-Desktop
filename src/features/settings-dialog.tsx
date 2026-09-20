@@ -2,6 +2,7 @@ import {
   Check,
   Cpu,
   ExternalLink,
+  Info,
   KeyRound,
   Loader2,
   Monitor,
@@ -9,6 +10,7 @@ import {
   Palette,
   Plug,
   Plus,
+  RefreshCw,
   Server,
   ShieldCheck,
   Sun,
@@ -37,6 +39,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { REASONING_EFFORTS, effortLabel } from "@/lib/reasoning";
 import { PROVIDER_META, providerLabel } from "@/lib/providers";
+import { checkForUpdates, currentVersion, installPendingUpdate, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -45,7 +48,7 @@ const SOURCE_LABEL: Record<string, string> = {
   default: "sin configurar",
 };
 
-type SectionId = "models" | "providers" | "local" | "mcp" | "agent" | "appearance";
+type SectionId = "models" | "providers" | "local" | "mcp" | "agent" | "appearance" | "about";
 
 const SECTIONS: { id: SectionId; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { id: "models", label: "Modelos", icon: Cpu },
@@ -54,6 +57,7 @@ const SECTIONS: { id: SectionId; label: string; icon: ComponentType<{ className?
   { id: "mcp", label: "MCP", icon: Plug },
   { id: "agent", label: "Agente y sesiones", icon: ShieldCheck },
   { id: "appearance", label: "Apariencia", icon: Palette },
+  { id: "about", label: "Acerca de", icon: Info },
 ];
 
 /** Plantillas de servidores MCP comunes (rellenan el formulario). */
@@ -122,6 +126,42 @@ export function SettingsDialog({
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [urlDrafts, setUrlDrafts] = useState<Record<string, string>>({});
   const [mcp, setMcp] = useState<McpState | null>(null);
+  const [version, setVersion] = useState("0.0.0");
+  const [checking, setChecking] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [upToDate, setUpToDate] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    void currentVersion().then(setVersion);
+  }, []);
+
+  const runUpdateCheck = async () => {
+    setChecking(true);
+    setUpdate(null);
+    setUpToDate(false);
+    try {
+      const found = await checkForUpdates();
+      setUpdate(found);
+      setUpToDate(found === null);
+    } catch (e) {
+      toast.error("No se pudo buscar actualizaciones", { description: String(e) });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const runInstall = async () => {
+    setInstalling(true);
+    setProgress(0);
+    try {
+      await installPendingUpdate(setProgress);
+    } catch (e) {
+      toast.error("La actualización falló", { description: String(e) });
+      setInstalling(false);
+    }
+  };
 
   useEffect(() => {
     if (!open || !sessionId) return;
@@ -725,6 +765,70 @@ export function SettingsDialog({
                             </Button>
                           </Row>
                         </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Acerca de / actualizaciones */}
+                  {section === "about" && (
+                    <div className="space-y-5">
+                      <SectionTitle
+                        title="Acerca de"
+                        hint="Actualizaciones firmadas servidas desde el feed de releases."
+                      />
+                      <Row label="Versión instalada" hint="Phoson Desktop">
+                        <span className="font-mono text-xs text-muted-foreground">v{version}</span>
+                      </Row>
+
+                      <Separator />
+
+                      {update ? (
+                        <div className="space-y-3">
+                          <p className="text-sm text-foreground">
+                            Nueva versión disponible:{" "}
+                            <span className="font-medium text-violet">v{update.version}</span>
+                          </p>
+                          {update.notes && (
+                            <p className="max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-[var(--phoson-surface-2)] p-3 text-xs text-muted-foreground">
+                              {update.notes}
+                            </p>
+                          )}
+                          {installing && (
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full bg-violet transition-[width]"
+                                style={{ width: `${Math.round(progress * 100)}%` }}
+                              />
+                            </div>
+                          )}
+                          <Button
+                            size="sm"
+                            className="bg-violet text-white hover:bg-violet/90"
+                            disabled={installing}
+                            onClick={() => void runInstall()}
+                          >
+                            {installing ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <RefreshCw className="size-3.5" />
+                            )}
+                            Descargar e instalar
+                          </Button>
+                        </div>
+                      ) : (
+                        <Row
+                          label="Actualizaciones"
+                          hint={
+                            upToDate
+                              ? "Tienes la última versión."
+                              : "Busca una versión más reciente."
+                          }
+                        >
+                          <Button size="sm" variant="ghost" disabled={checking} onClick={() => void runUpdateCheck()}>
+                            {checking ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+                            Buscar
+                          </Button>
+                        </Row>
                       )}
                     </div>
                   )}

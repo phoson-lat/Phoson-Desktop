@@ -5,6 +5,9 @@ import { Code2, GitBranch, Globe, X, Eye, Code } from "lucide-react"
 import { useTheme } from "next-themes"
 import { cn } from "@/lib/utils"
 
+/** Tema con el que se inicializó mermaid (global): evita re-init en cada render. */
+let mermaidInitedTheme: string | null = null
+
 /* ── Shared card chrome ──────────────────────────────────────────── */
 
 type ArtifactType = "html" | "mermaid"
@@ -145,10 +148,30 @@ function htmlArtifactBase(dark: boolean): string {
   );
 }
 
-export function HtmlArtifact({ code }: { code: string }) {
+export function HtmlArtifact({ code, streaming = false }: { code: string; streaming?: boolean }) {
   const { resolvedTheme } = useTheme()
   const [panelOpen, setPanelOpen] = useState(false)
   const doc = htmlArtifactBase(resolvedTheme === "dark") + code
+  // Mientras el fence ```html aún crece, `srcDoc` cambia en cada token y
+  // recargaría el iframe (re-parse + re-ejecución) en cada flush. Mostramos un
+  // esqueleto hasta que el bloque termina.
+  if (streaming) {
+    return (
+      <ArtifactCard type="html">
+        <div className="relative flex items-center justify-center" style={{ height: 170 }}>
+          <div className="phoson-shimmer pointer-events-none absolute inset-0 opacity-70" />
+          <p className="relative text-[11px] text-muted-foreground tracking-wide">
+            Building preview
+            <span className="phoson-dots">
+              <span>.</span>
+              <span>.</span>
+              <span>.</span>
+            </span>
+          </p>
+        </div>
+      </ArtifactCard>
+    )
+  }
   return (
     <>
       <ArtifactCard
@@ -167,7 +190,7 @@ export function HtmlArtifact({ code }: { code: string }) {
         <div className="relative" style={{ height: 170 }}>
           <iframe
             srcDoc={doc}
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts"
             className="w-full h-full border-0 bg-[var(--phoson-surface)]"
             style={{ pointerEvents: "none" }}
             title="HTML preview"
@@ -186,7 +209,7 @@ export function HtmlArtifact({ code }: { code: string }) {
       <SidePanel open={panelOpen} onOpenChange={setPanelOpen} type="html">
         <iframe
           srcDoc={doc}
-          sandbox="allow-scripts allow-same-origin"
+          sandbox="allow-scripts"
           className="w-full h-full border-0 bg-[var(--phoson-surface)]"
           title="HTML artifact"
         />
@@ -274,12 +297,18 @@ function MermaidRenderer({ code }: { code: string }) {
 
     import("mermaid")
       .then(({ default: mermaid }) => {
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: resolvedTheme === "dark" ? "dark" : "default",
-          securityLevel: "loose",
-          fontFamily: "inherit",
-        })
+        // `initialize` configura mermaid GLOBALMENTE: hacerlo en cada render es
+        // caro y reconfigura para todos los diagramas. Solo al cambiar de tema.
+        const theme = resolvedTheme === "dark" ? "dark" : "default"
+        if (mermaidInitedTheme !== theme) {
+          mermaid.initialize({
+            startOnLoad: false,
+            theme,
+            securityLevel: "strict",
+            fontFamily: "inherit",
+          })
+          mermaidInitedTheme = theme
+        }
         return mermaid.render(idRef.current, code)
       })
       .then(({ svg: rendered }) => {

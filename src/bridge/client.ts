@@ -15,6 +15,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type {
   Attachment,
+  UploadedFile,
   ConfigView,
   Envelope,
   FsListResult,
@@ -24,6 +25,8 @@ import type {
   McpState,
   SessionMeta,
   ModelsListResult,
+  SttStatus,
+  SttStartResult,
   Json,
 } from "./protocol";
 import { DEMO_ASSISTANT, DEMO_USER } from "../lib/demo-content";
@@ -34,7 +37,7 @@ const GENERIC_REPLY =
   "markdown, código, LaTeX, mermaid y artifacts HTML.";
 
 export interface Bridge {
-  rpc<T = Json>(method: string, params?: Json): Promise<T>;
+  rpc<T = Json>(method: string, params?: Json, workspace?: string | null): Promise<T>;
   onNotify(handler: (envelope: Envelope) => void): Promise<UnlistenFn>;
 }
 
@@ -50,10 +53,16 @@ export async function openExternal(url: string): Promise<void> {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+/** Abre una ruta local en el visor/aplicación por defecto del sistema. */
+export async function openPath(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_path", { path });
+}
+
 // ── Implementación real (Tauri) ───────────────────────────────────────────
 class TauriBridge implements Bridge {
-  async rpc<T = Json>(method: string, params?: Json): Promise<T> {
-    return invoke<T>("rpc", { method, params: params ?? {} });
+  async rpc<T = Json>(method: string, params?: Json, workspace?: string | null): Promise<T> {
+    return invoke<T>("rpc", { method, params: params ?? {}, workspace: workspace ?? null });
   }
   async onNotify(handler: (envelope: Envelope) => void): Promise<UnlistenFn> {
     return listen<Envelope>("phoson://message", (event) => handler(event.payload));
@@ -167,6 +176,32 @@ class MockBridge implements Bridge {
       case "fs.write":
         MOCK_FILES[String(p.path)] = String(p.text ?? "");
         return { ok: true, path: p.path } as unknown as T;
+      case "upload.file": {
+        // Modo demo: simula la subida al workspace.
+        const name = String(p.name ?? "archivo");
+        const relative = `uploads/${name}`;
+        return {
+          ok: true,
+          path: `${MOCK_CWD}/${relative}`,
+          relative,
+          name,
+          size: 1024,
+        } as unknown as T;
+      }
+      case "stt.status":
+        // El navegador no puede capturar audio en modo demo: la UI recurre a la
+        // Web Speech API si existe, o deshabilita el botón.
+        return {
+          supported: false,
+          listening: false,
+          language: null,
+          languages: [],
+          reason: "Dictado no disponible en el modo demo.",
+        } as unknown as T;
+      case "stt.start":
+        return { ok: false, supported: false, reason: "Dictado no disponible en el modo demo." } as unknown as T;
+      case "stt.stop":
+        return { ok: true } as unknown as T;
       case "mcp.get":
         return MOCK_MCP as unknown as T;
       case "attachment.list":
@@ -292,6 +327,22 @@ class MockBridge implements Bridge {
     this.emit("session.turn.started", { sessionId, task: text });
     setTimeout(() => ev({ type: "AgentStartEvent", timestamp: now(), tool_count: 10 }), 120);
 
+    // Razonamiento simulado (solo en la demo): hace visible el bloque "Reasoning"
+    // y su indicador de "Pensando…" antes de que empiece el texto.
+    const thoughts = isDemo
+      ? "El usuario quiere ver todo lo que la interfaz sabe renderizar: markdown, código, LaTeX, mermaid y artifacts HTML. Voy a preparar un ejemplo completo que recorra cada capacidad, cuidando que el orden de los bloques sea claro y verificable. "
+      : "";
+    let reasoningAt = 140;
+    if (thoughts) {
+      for (const chunk of thoughts.match(/.{1,18}/g) ?? []) {
+        reasoningAt += 45;
+        setTimeout(
+          () => ev({ type: "AgentReasoningEvent", timestamp: now(), content: chunk }),
+          reasoningAt,
+        );
+      }
+    }
+
     const words = reply.split(/(\s+)/);
     const total = words.length;
     // Secuencia de tools INTERCALADA con el texto, como hace el engine real
@@ -303,7 +354,7 @@ class MockBridge implements Bridge {
       { at: Math.floor(total * 0.56), kind: "done", id: "call_mock_2", name: "bash", result: "/dev/nvme0n1 233G 187G 34G 85%" },
     ] as const;
 
-    let t = 220;
+    let t = (thoughts ? reasoningAt : 0) + 220;
     words.forEach((word, i) => {
       t += 14 + Math.random() * 26;
       setTimeout(() => ev({ type: "AgentTokenEvent", timestamp: now(), content: word }), t);
@@ -462,54 +513,152 @@ const MOCK_SESSIONS: SessionMeta[] = [  { id: "a1b2c3", title: "Arquitectura del
 
 export const bridge: Bridge = isTauri() ? new TauriBridge() : new MockBridge();
 
+// ── Enrutado por workspace ────────────────────────────────────────────────
+// Cada proyecto (workspace) tiene su propio sidecar, con su propio `cwd` de
+// proceso: así varios proyectos conviven a la vez sin pisarse. El frontend
+// registra aquí a qué workspace pertenece cada sesión; `call` deduce el
+// workspace de `params.sessionId` (o usa el "actual" para las llamadas sin
+// sesión). Las llamadas existentes no cambian: el enrutado es transparente.
+const sessionWorkspace = new Map<string, string>();
+let currentWorkspace: string | null = null;
+
+/**
+ * Asocia una sesión a la **clave de workspace que se usó para enrutarla** (no al
+ * `cwd` que el sidecar reporta). `""` es válido y significa "sidecar por
+ * defecto"; hay que conservarlo, o las llamadas de esa sesión caerían al
+ * `currentWorkspace` actual y acabarían en OTRO sidecar (sesión desconocida).
+ */
+export const bindSessionWorkspace = (sessionId: string, workspace: string) => {
+  sessionWorkspace.set(sessionId, workspace);
+};
+
+/** Desasocia una sesión (al cerrarla). */
+export const unbindSessionWorkspace = (sessionId: string) => {
+  sessionWorkspace.delete(sessionId);
+};
+
+/** Workspace activo para las llamadas sin `sessionId`. */
+export const setCurrentWorkspace = (workspace: string | null) => {
+  currentWorkspace = workspace;
+};
+
+export const getCurrentWorkspace = () => currentWorkspace;
+
+/** Cierra (mata) el sidecar de un workspace: se respawnea al volver a usarlo. */
+export const killSidecar = async (workspace?: string | null): Promise<boolean> => {
+  if (!isTauri()) return false;
+  return invoke<boolean>("kill_sidecar", { workspace: workspace ?? null });
+};
+
+/**
+ * Aviso de que un sidecar terminó (evento `phoson://terminated` de Rust).
+ * Fuera de Tauri no hay proceso que pueda morir: no-op.
+ */
+export const onTerminated = (
+  handler: (payload: { workspace: string; code: number | null }) => void,
+): Promise<UnlistenFn> => {
+  if (!isTauri()) return Promise.resolve(() => {});
+  return listen<{ workspace: string; code: number | null }>("phoson://terminated", (e) =>
+    handler(e.payload),
+  );
+};
+
+const call = <T = Json,>(method: string, params?: Json): Promise<T> => {
+  const sid = (params as { sessionId?: string } | undefined)?.sessionId;
+  const workspace = (sid ? sessionWorkspace.get(sid) : undefined) ?? currentWorkspace;
+  return bridge.rpc<T>(method, params, workspace);
+};
+
+const callIn = <T = Json,>(workspace: string | null, method: string, params?: Json): Promise<T> =>
+  bridge.rpc<T>(method, params, workspace);
+
 // ── Atajos tipados (lo que consume el store) ──────────────────────────────
 export const phoson = {
-  rpc: <T = Json,>(method: string, params?: Json) => bridge.rpc<T>(method, params),
+  rpc: call,
   onNotify: (handler: (envelope: Envelope) => void) => bridge.onNotify(handler),
-  initialize: () => bridge.rpc<InitResult>("initialize"),
-  newSession: () => bridge.rpc<{ sessionId: string }>("session.new"),
-  openSession: (engineId: string) =>
-    bridge.rpc<{ sessionId: string; cwd?: string; cwdMissing?: boolean }>("session.open", { id: engineId }),
-  closeSession: (sessionId: string) => bridge.rpc("session.close", { sessionId }),
-  listSessions: () => bridge.rpc<{ sessions: SessionMeta[] }>("session.list"),
-  deleteSession: (id: string) =>
-    bridge.rpc<{ ok: boolean; id: string }>("session.delete", { id }),
+  initialize: (workspace?: string | null) => callIn<InitResult>(workspace ?? currentWorkspace, "initialize"),
+  newSession: (workspace?: string | null) =>
+    callIn<{ sessionId: string; cwd?: string }>(workspace ?? currentWorkspace, "session.new"),
+  openSession: (engineId: string, workspace?: string | null) =>
+    callIn<{ sessionId: string; cwd?: string; cwdMissing?: boolean }>(
+      workspace ?? currentWorkspace,
+      "session.open",
+      { id: engineId },
+    ),
+  closeSession: (sessionId: string) => call("session.close", { sessionId }),
+  /** Deshace el último turno de usuario (el engine mueve el cursor atrás). */
+  sessionUndo: (sessionId: string) =>
+    call<{ ok: boolean; message: string; history?: unknown[] | null }>("session.undo", { sessionId }),
+  /** Salta el cursor a un turno de usuario previo. */
+  sessionRewind: (sessionId: string, userNodeId: string) =>
+    call<{ ok: boolean; message: string; history?: unknown[] | null }>("session.rewind", {
+      sessionId,
+      userNodeId,
+    }),
+  sessionJumpCandidates: (sessionId: string) =>
+    call<{ candidates: Array<{ userNodeId: string; preview: string }> }>("session.jumpCandidates", {
+      sessionId,
+    }),
+  /** Compacta el contexto (resumen del historial intermedio). */
+  sessionCompact: (sessionId: string, profile?: string) =>
+    call<{ ok: boolean; before: number; after: number; history?: unknown[] | null }>(
+      "session.compact",
+      profile ? { sessionId, profile } : { sessionId },
+    ),
+  /** Historial completo (todas las sesiones, de cualquier workspace). */
+  listSessions: () => callIn<{ sessions: SessionMeta[] }>(null, "session.list"),
+  deleteSession: (id: string) => callIn<{ ok: boolean; id: string }>(null, "session.delete", { id }),
   listModels: (sessionId: string) =>
-    bridge.rpc<ModelsListResult>("models.list", { sessionId }),
+    call<ModelsListResult>("models.list", { sessionId }),
   setModel: (sessionId: string, model: string, provider?: string) =>
-    bridge.rpc("model.set", { sessionId, model, provider }),
-  getConfig: (sessionId: string) => bridge.rpc<ConfigView>("config.get", { sessionId }),
+    call("model.set", { sessionId, model, provider }),
+  getConfig: (sessionId: string) => call<ConfigView>("config.get", { sessionId }),
   setConfig: (sessionId: string, patch: Json, secrets?: Json, baseUrls?: Json) =>
-    bridge.rpc("config.set", { sessionId, patch, secrets, base_urls: baseUrls }),
-  fsCwd: () => bridge.rpc<{ cwd: string }>("fs.cwd"),
+    call("config.set", { sessionId, patch, secrets, base_urls: baseUrls }),
+  fsCwd: (workspace?: string | null) =>
+    callIn<{ cwd: string }>(workspace ?? currentWorkspace, "fs.cwd"),
   fsList: (path?: string) =>
-    bridge.rpc<FsListResult>("fs.list", path ? { path } : {}),
-  fsSetCwd: (path: string) => bridge.rpc<{ cwd: string }>("fs.setCwd", { path }),
-  fsRead: (path: string) => bridge.rpc<FsReadResult>("fs.read", { path }),
+    call<FsListResult>("fs.list", path ? { path } : {}),
+  fsSetCwd: (path: string) => call<{ cwd: string }>("fs.setCwd", { path }),
+  fsRead: (path: string) => call<FsReadResult>("fs.read", { path }),
+  /** Lee una imagen local como base64 (data URL) para previsualizarla. */
+  fsReadImage: (path: string) =>
+    call<{ path: string; mediaType: string; size: number; base64: string }>("fs.readImage", {
+      path,
+    }),
   fsWrite: (path: string, text: string) =>
-    bridge.rpc<{ ok: boolean; path: string }>("fs.write", { path, text }),
-  mcpGet: (sessionId: string) => bridge.rpc<McpState>("mcp.get", { sessionId }),
+    call<{ ok: boolean; path: string }>("fs.write", { path, text }),
+  // Dictado por voz (motor STT del engine; sustituto de la Web Speech API en
+  // WebKitGTK/WKWebView).
+  sttStatus: () => call<SttStatus>("stt.status"),
+  sttStart: (sessionId: string, language?: string) =>
+    call<SttStartResult>("stt.start", language ? { sessionId, language } : { sessionId }),
+  sttStop: (sessionId: string) => call<{ ok: boolean }>("stt.stop", { sessionId }),
+  mcpGet: (sessionId: string) => call<McpState>("mcp.get", { sessionId }),
   mcpSave: (sessionId: string, name: string, server: Json) =>
-    bridge.rpc<{ ok: boolean; mcp: McpState }>("mcp.save", { sessionId, name, server }),
+    call<{ ok: boolean; mcp: McpState }>("mcp.save", { sessionId, name, server }),
   mcpRemove: (sessionId: string, name: string) =>
-    bridge.rpc<{ ok: boolean; mcp: McpState }>("mcp.remove", { sessionId, name }),
+    call<{ ok: boolean; mcp: McpState }>("mcp.remove", { sessionId, name }),
   attachmentList: (sessionId: string) =>
-    bridge.rpc<{ attachments: Attachment[] }>("attachment.list", { sessionId }),
+    call<{ attachments: Attachment[] }>("attachment.list", { sessionId }),
+  /** Sube al workspace un archivo no adjuntable de forma nativa. */
+  uploadFile: (sessionId: string, name: string, data: string) =>
+    call<UploadedFile>("upload.file", { sessionId, name, data }),
   attachmentPush: (sessionId: string, name: string, data: string) =>
-    bridge.rpc<{ ok: boolean; attachments: Attachment[] }>("attachment.push", {
+    call<{ ok: boolean; attachments: Attachment[] }>("attachment.push", {
       sessionId,
       name,
       data,
     }),
   attachmentRemove: (sessionId: string, path: string) =>
-    bridge.rpc<{ ok: boolean; attachments: Attachment[] }>("attachment.remove", {
+    call<{ ok: boolean; attachments: Attachment[] }>("attachment.remove", {
       sessionId,
       path,
     }),
   runTurn: (sessionId: string, text: string) =>
-    bridge.rpc("turn.run", { sessionId, text }),
+    call("turn.run", { sessionId, text }),
   cancelTurn: (sessionId: string) =>
-    bridge.rpc<{ cancelled: boolean }>("turn.cancel", { sessionId }),
+    call<{ cancelled: boolean }>("turn.cancel", { sessionId }),
   respondConfirm: (sessionId: string, requestId: string, decision: "yes" | "always" | "no") =>
-    bridge.rpc("confirm.respond", { sessionId, requestId, decision }),
+    call("confirm.respond", { sessionId, requestId, decision }),
 };

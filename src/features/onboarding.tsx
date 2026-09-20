@@ -8,6 +8,7 @@ import {
   Moon,
   ShieldCheck,
   Sun,
+  X,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState } from "react";
@@ -49,6 +50,18 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
   const [safeMode, setSafeMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Escape = "configurar más tarde": el overlay bloqueante no debe atrapar al usuario.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onDone();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onDone]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -173,6 +186,14 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               />
             ))}
           </div>
+          <button
+            onClick={onDone}
+            title="Configurar más tarde"
+            aria-label="Cerrar y configurar más tarde"
+            className="ml-2 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
         </header>
 
         {/* ── Contenido (key={step} re-dispara las animaciones) ────────── */}

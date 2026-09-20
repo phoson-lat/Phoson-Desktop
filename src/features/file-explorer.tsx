@@ -85,6 +85,18 @@ export function FileExplorer({
     void load(cwd);
   }, [cwd, load]);
 
+  // El explorador superpuesto se cierra con Escape.
+  useEffect(() => {
+    if (!overlay) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [overlay, onClose]);
+
   const isWorkspace = data?.path === cwd;
 
   return (
@@ -97,6 +109,9 @@ export function FileExplorer({
         />
       )}
       <aside
+        role={overlay ? "dialog" : undefined}
+        aria-modal={overlay || undefined}
+        aria-label="Explorador de archivos"
         className={cn(
           "dashboard-panel flex shrink-0 flex-col border-[var(--dashboard-border)]",
           overlay
