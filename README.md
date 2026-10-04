@@ -20,6 +20,10 @@ Phoson Desktop is the graphical front end for
 It reuses the engine's **runtime, plugins and session model** unchanged — the
 core has no UI dependency, so the desktop app is a new *sink*, not a fork.
 
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="Phoson Desktop — demo" width="760" />
+</p>
+
 ## Architecture
 
 ```
