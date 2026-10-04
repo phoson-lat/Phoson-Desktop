@@ -21,7 +21,16 @@ It reuses the engine's **runtime, plugins and session model** unchanged — the
 core has no UI dependency, so the desktop app is a new *sink*, not a fork.
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Phoson Desktop — demo" width="760" />
+  <a href="docs/assets/demo.mp4">
+    <img src="docs/assets/demo-poster.png" alt="Phoson Desktop — demo (clic para ver el vídeo)" width="760" />
+  </a>
+</p>
+
+<p align="center">
+  <sub>
+    <a href="docs/assets/demo.mp4">▶ Ver demo (MP4 · 24 s)</a> ·
+    <a href="docs/assets/demo.gif">GIF</a>
+  </sub>
 </p>
 
 ## Architecture
