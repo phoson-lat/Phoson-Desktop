@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, Search, PanelLeft, MessageSquare, Settings, Trash2, X, SquarePen } from "lucide-react";
+import { AlertTriangle, Bot, Search, PanelLeft, MessageSquare, Settings, Trash2, Users, X, SquarePen } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { toast } from "sonner";
 
@@ -31,9 +31,15 @@ interface SidebarProps {
   onToggleCollapse?: () => void;
   /** El pie de la barra abre Ajustes (como la cuenta en ChatGPT). */
   onOpenSettings?: () => void;
+  /** Abre la sección de swarms de agentes. */
+  onOpenSwarm?: () => void;
+  /** Sección visible en el área de contenido, para marcar el ítem activo. */
+  section?: "chat" | "swarm";
 }
 
 function titleOf(view: SessionView | undefined): string {
+  const stored = view?.title?.trim();
+  if (stored) return stored.length > 34 ? stored.slice(0, 34) + "…" : stored;
   const first = view?.messages.find((m) => m.role === "user")?.text;
   if (first) return first.length > 34 ? first.slice(0, 34) + "…" : first;
   return view?.engineId ? `Sesión ${view.engineId.slice(0, 6)}` : "Nueva sesión";
@@ -127,6 +133,8 @@ export function Sidebar({
   collapsed = false,
   onToggleCollapse,
   onOpenSettings,
+  onOpenSwarm,
+  section = "chat",
 }: SidebarProps) {
   const [saved, setSaved] = useState<SessionMeta[]>([]);
   /** Sesión pendiente de confirmar borrado (confirmación en dos pasos). */
@@ -191,6 +199,17 @@ export function Sidebar({
     [saved, q],
   );
 
+  // Título "vivo" de las sesiones abiertas (por id de engine) para que la lista
+  // de guardadas muestre el título del modelo sin recargar la lista.
+  const liveTitles = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const key of order) {
+      const view = sessions[key];
+      if (view?.engineId && view.title?.trim()) map.set(view.engineId, view.title.trim());
+    }
+    return map;
+  }, [order, sessions]);
+
   const rail = collapsed && !mobile;
 
   const brandBlock = (
@@ -251,6 +270,12 @@ export function Sidebar({
                 }}
               />
               <IconButton icon={MessageSquare} label="Sesiones" onClick={onToggleCollapse} />
+              <IconButton
+                icon={Users}
+                label="Swarms de agentes"
+                onClick={onOpenSwarm}
+                className={section === "swarm" ? "bg-[var(--phoson-surface-2)] text-foreground" : undefined}
+              />
 
               <div className="flex-1" />
 
@@ -310,6 +335,17 @@ export function Sidebar({
 
               <div className="px-2 pb-1 pt-1">
                 <Row icon={SquarePen} label="Nueva sesión" primary onClick={onNew} />
+                <Row
+                  icon={Users}
+                  label="Swarms de agentes"
+                  active={section === "swarm"}
+                  onClick={onOpenSwarm}
+                  trailing={
+                    <span className="shrink-0 rounded-full border border-violet/40 bg-violet/10 px-1.5 py-0.5 text-[0.58rem] font-medium text-violet-soft">
+                      Pronto
+                    </span>
+                  }
+                />
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto pb-3">
@@ -322,7 +358,7 @@ export function Sidebar({
                           key={key}
                           icon={MessageSquare}
                           label={titleOf(sessions[key])}
-                          active={key === activeKey}
+                          active={key === activeKey && section === "chat"}
                           onClick={() => onSelect(key)}
                           trailing={
                             <span className="flex shrink-0 items-center gap-1.5">
@@ -368,7 +404,7 @@ export function Sidebar({
                         <Row
                           key={s.id}
                           icon={MessageSquare}
-                          label={s.title || s.id.slice(0, 8)}
+                          label={liveTitles.get(s.id) || s.title || s.id.slice(0, 8)}
                           onClick={() => onOpen(s.id, s.cwd || undefined)}
                           trailing={
                             confirmId === s.id ? (

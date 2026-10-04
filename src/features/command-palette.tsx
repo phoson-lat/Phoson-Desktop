@@ -13,6 +13,7 @@ import {
   Settings,
   Sun,
   Undo2,
+  Users,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -36,6 +37,7 @@ import { useSession, messageText } from "@/stores/session";
 interface CommandPaletteProps {
   onOpenSettings: () => void;
   onToggleExplorer: () => void;
+  onOpenSwarm: () => void;
 }
 
 /**
@@ -43,7 +45,11 @@ interface CommandPaletteProps {
  * atajo que antes solo enfocaba el buscador de la barra lateral, pero ahora lo
  * incluye (buscar y abrir sesiones) junto a acciones de uso frecuente.
  */
-export function CommandPalette({ onOpenSettings, onToggleExplorer }: CommandPaletteProps) {
+export function CommandPalette({
+  onOpenSettings,
+  onToggleExplorer,
+  onOpenSwarm,
+}: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [saved, setSaved] = useState<SessionMeta[]>([]);
   const [candidates, setCandidates] = useState<Array<{ userNodeId: string; preview: string }>>([]);
@@ -158,6 +164,12 @@ export function CommandPalette({ onOpenSettings, onToggleExplorer }: CommandPale
         <CommandGroup heading="Acciones">
           <CommandItem value="nueva sesion new chat" onSelect={() => run(() => void newSession())}>
             <Plus /> Nueva sesión
+          </CommandItem>
+          <CommandItem
+            value="swarm agentes multiagente equipo roles maestros arbol proximamente"
+            onSelect={() => run(onOpenSwarm)}
+          >
+            <Users /> Swarms de agentes · próximamente
           </CommandItem>
           <CommandItem
             value="deshacer undo ultimo turno"

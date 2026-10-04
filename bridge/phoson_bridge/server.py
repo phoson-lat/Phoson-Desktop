@@ -30,6 +30,7 @@ import os
 import sys
 import copy
 import json
+import time
 import uuid
 import asyncio
 import logging
@@ -45,6 +46,17 @@ from .confirmation import GuiConfirmation
 from .stt import SttManager
 
 log = logging.getLogger("phoson_bridge")
+
+#: `session.list` lee y parsea todos los `.jsonl` (~3 s con muchos historiales),
+#: así que se cachea; el TTL cubre cambios hechos por OTRO sidecar (comparten
+#: `sessions_dir`) y las mutaciones locales invalidan de inmediato.
+_SESSION_LIST_TTL = 4.0
+#: `stt.status` sondea el plugin/motor de voz (~150 ms); apenas cambia.
+_STT_STATUS_TTL = 5.0
+#: Métodos que pueden alterar la lista de sesiones guardadas.
+_SESSION_MUTATING = frozenset(
+    {"turn.run", "session.delete", "session.new", "session.undo", "session.rewind", "session.compact"}
+)
 
 
 class SessionManager:
@@ -67,6 +79,10 @@ class SessionManager:
         sink = GuiSink(key, self._emit)
         confirmation = GuiConfirmation(key, self.request_user)
         self._repls[key] = PhosonRepl(config, sink=sink, confirmation=confirmation)
+        # El sink puede leer el título vivo del árbol (hook `on_session_title`).
+        sink.title_provider = lambda k=key: (
+            self._repls[k].tree.title if k in self._repls else ""
+        )
         return key
 
     def get(self, key: str) -> PhosonRepl:
@@ -127,13 +143,19 @@ class SessionManager:
 
 class Bridge:
     def __init__(self, protocol_out: TextIO) -> None:
+        self._started = time.monotonic()
+        self._session_list_cache: tuple[float, dict[str, Any]] | None = None
+        self._session_list_task: asyncio.Task[dict[str, Any]] | None = None
+        self._stt_status_cache: tuple[float, dict[str, Any]] | None = None
         self._out_stream = protocol_out
         self._out: asyncio.Queue[str] = asyncio.Queue()
         self.config = load_config()
         self.sessions = SessionManager(self.config, self._emit)
         self.stt = SttManager(self._emit)
         # Sesión inicial lista para usar.
+        _t = time.perf_counter()
         self._default_session = self.sessions.create()
+        log.info("[perf] bridge.init %.0fms", (time.perf_counter() - _t) * 1000)
         self._methods = {
             "initialize": self._initialize,
             "session.new": self._session_new,
@@ -172,6 +194,7 @@ class Bridge:
             "stt.status": self._stt_status,
             "stt.start": self._stt_start,
             "stt.stop": self._stt_stop,
+            "perf": self._perf,
             "shutdown": self._shutdown,
         }
 
@@ -238,7 +261,16 @@ class Bridge:
                 {"sessionId": params.get("sessionId"), "task": params.get("text", "")},
             )
         try:
+            _t = time.perf_counter()
             result = await handler(params)
+            _ms = (time.perf_counter() - _t) * 1000
+            # Traza de rendimiento: siempre initialize/turn.run; el resto solo si
+            # es lento (evita ruido en stderr).
+            if method in ("initialize", "turn.run") or _ms >= 50:
+                log.info("[perf] %s %.0fms", method, _ms)
+            # Una mutación (turno guardado, borrado…) invalida la lista cacheada.
+            if method in _SESSION_MUTATING:
+                self._session_list_cache = None
             self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
             if method in ("turn.run", "model.set", "provider.set"):
                 self._emit("session.metrics", self._metrics(params["sessionId"]))
@@ -253,6 +285,25 @@ class Bridge:
             )
 
     # ── Helpers ───────────────────────────────────────────────────────────
+    async def _perf(self, _params: dict[str, Any]) -> dict[str, Any]:
+        """Uso de recursos del sidecar (RSS + CPU), para medir desde la app."""
+        try:
+            import resource
+
+            maxrss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            # Linux: KB · macOS: bytes.
+            rss_bytes = int(maxrss) if sys.platform == "darwin" else int(maxrss) * 1024
+        except Exception:  # noqa: BLE001 — nunca tumbar la UI por medir
+            rss_bytes = 0
+        times = os.times()
+        return {
+            "pid": os.getpid(),
+            "rssBytes": rss_bytes,
+            "cpuUserSec": times.user,
+            "cpuSystemSec": times.system,
+            "uptimeSec": round(time.monotonic() - self._started, 3),
+        }
+
     def _metrics(self, session_key: str) -> dict[str, Any]:
         repl = self.sessions.get(session_key)
         metrics = repl.session_metrics
@@ -316,8 +367,28 @@ class Bridge:
         # workspace. Los sidecars comparten `sessions_dir`, así que cualquiera
         # puede listarlas; el `cwd` de cada `SessionMeta` permite abrirla en su
         # propio sidecar (enrutado por workspace en el frontend).
+        #
+        # Listar es caro (lee y parsea todos los .jsonl). Dos protecciones:
+        #  - caché con TTL (ráfagas separadas en el tiempo);
+        #  - **single-flight**: `serve()` despacha en tareas concurrentes, así que
+        #    varias llamadas a la vez comparten UNA sola lectura en vuelo.
+        cached = self._session_list_cache
+        if cached is not None and (time.monotonic() - cached[0]) < _SESSION_LIST_TTL:
+            return cached[1]
+        if self._session_list_task is None:
+            self._session_list_task = asyncio.create_task(self._compute_session_list())
+        task = self._session_list_task
+        try:
+            return await task
+        finally:
+            if self._session_list_task is task:
+                self._session_list_task = None
+
+    async def _compute_session_list(self) -> dict[str, Any]:
         sessions = await self.sessions.storage().list_sessions()
-        return {"sessions": [to_jsonable(s) for s in sessions]}
+        payload = {"sessions": [to_jsonable(s) for s in sessions]}
+        self._session_list_cache = (time.monotonic(), payload)
+        return payload
 
     async def _session_delete(self, params: dict[str, Any]) -> dict[str, Any]:
         """Elimina una sesión guardada (borra su archivo JSONL).
@@ -1004,7 +1075,13 @@ class Bridge:
 
     # ── Dictado por voz (STT del engine) ──────────────────────────────────
     async def _stt_status(self, _params: dict[str, Any]) -> dict[str, Any]:
-        return self.stt.status()
+        # Sondea plugin + runtime de audio; apenas cambia, así que se cachea.
+        cached = self._stt_status_cache
+        if cached is not None and (time.monotonic() - cached[0]) < _STT_STATUS_TTL:
+            return cached[1]
+        status = self.stt.status()
+        self._stt_status_cache = (time.monotonic(), status)
+        return status
 
     async def _stt_start(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self.stt.start(

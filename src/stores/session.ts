@@ -79,6 +79,8 @@ export const messageText = (m: ChatMessage): string =>
 
 export interface SessionView {
   key: string;
+  /** Título de la sesión (heurístico al primer mensaje y, luego, del modelo). */
+  title?: string;
   engineId?: string;
   messages: ChatMessage[];
   metrics: RunMetrics | null;
@@ -99,6 +101,10 @@ interface SessionState {
   activeKey: string | null;
   order: string[];
   sessions: Record<string, SessionView>;
+  /** Nombres de las tools que el engine ofrece (de `initialize`), sin duplicados. */
+  availableTools: string[];
+  /** Cuántas tools quedaron enmascaradas: si >0, `availableTools` está recortada. */
+  maskedTools: number;
   init: () => Promise<void>;
   send: (text: string) => Promise<void>;
   cancel: () => Promise<void>;
@@ -150,6 +156,7 @@ const rememberWorkspace = (path: string) => {
 
 const emptyView = (key: string): SessionView => ({
   key,
+  title: "",
   messages: [],
   metrics: null,
   confirmations: [],
@@ -457,6 +464,14 @@ export const useSession = create<SessionState>((set, get) => {
           }
           break;
         }
+        case "session.title": {
+          // Título generado por el engine (heurístico tras el primer turno y,
+          // en background, del modelo) — mismo comportamiento que el CLI.
+          if (key && typeof params.title === "string" && params.title.trim()) {
+            patchView(key, (v) => ({ ...v, title: (params.title as string).trim() }));
+          }
+          break;
+        }
         case "session.assistant.done": {
           if (!key) break;
           // Vuelca el streaming pendiente antes de cerrar el mensaje.
@@ -515,6 +530,8 @@ export const useSession = create<SessionState>((set, get) => {
     activeKey: null,
     order: [],
     sessions: {},
+    availableTools: [],
+    maskedTools: 0,
     onboardingNeeded: false,
     bootError: null,
     cwd: "",
@@ -562,6 +579,8 @@ export const useSession = create<SessionState>((set, get) => {
             activeKey: key,
             order: [key],
             cwd: workspace || s.cwd,
+            availableTools: info.tools?.visible ?? s.availableTools,
+            maskedTools: info.tools?.maskedCount ?? s.maskedTools,
             onboardingNeeded: Boolean(info.onboarding?.needed) && !dismissed,
             sessions: {
               ...s.sessions,
@@ -776,7 +795,14 @@ export const useSession = create<SessionState>((set, get) => {
       if (get().order.length === 0) await get().newSession();
     },
 
-    setActive: (key: string) => set({ activeKey: key }),
+    setActive: (key) =>
+      set((s) => ({
+        activeKey: key,
+        // El `cwd` mostrado es el del sidecar de la sesión **activa**, no el
+        // último usado: al cambiar de sesión entre workspaces, la etiqueta debe
+        // seguirla (si no, muestra un proyecto distinto al que realmente corre).
+        cwd: s.sessions[key]?.workspace || s.cwd,
+      })),
 
     respondConfirm: async (requestId, decision) => {
       const key = get().activeKey;

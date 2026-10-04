@@ -32,6 +32,11 @@ interface ComposerProps {
   onRemoveUpload: (path: string) => void;
   /** Aviso puntual (p. ej. tipo de archivo no soportado). */
   notice?: string | null;
+  /**
+   * Variante densa para paneles estrechos (p. ej. el del swarm): menos padding,
+   * sin pickers de modelo/razonamiento y con texto de ayuda más corto.
+   */
+  dense?: boolean;
 }
 
 /**
@@ -83,6 +88,7 @@ export function Composer({
   onRemoveAttachment,
   onRemoveUpload,
   notice,
+  dense,
 }: ComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -133,7 +139,7 @@ export function Composer({
   };
 
   return (
-    <div className="shrink-0 px-4 pb-4">
+    <div className={cn("shrink-0", dense ? "px-3 pb-3" : "px-4 pb-4")}>
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -201,7 +207,9 @@ export function Composer({
           placeholder={
             listening
               ? "Escuchando…"
-              : "Escribe un mensaje…  (Enter envía · Shift/Ctrl+Enter salto de línea)"
+              : dense
+                ? "Escribe al equipo…"
+                : "Escribe un mensaje…  (Enter envía · Shift/Ctrl+Enter salto de línea)"
           }
           onChange={(e) => {
             // Si el usuario edita a mano mientras dicta, sincroniza la base para
@@ -285,8 +293,12 @@ export function Composer({
             >
               <Paperclip className="size-4" />
             </Button>
-            <ModelPicker sessionId={sessionId} current={model} provider={provider} compact />
-            <ReasoningEffortPicker sessionId={sessionId} />
+            {!dense && (
+              <>
+                <ModelPicker sessionId={sessionId} current={model} provider={provider} compact />
+                <ReasoningEffortPicker sessionId={sessionId} />
+              </>
+            )}
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
@@ -334,14 +346,16 @@ export function Composer({
         </div>
       </div>
 
-      <p
-        className={cn(
-          "mt-2 text-center text-[0.7rem]",
-          error || shownNotice ? "text-amber-500" : "text-muted-foreground",
-        )}
-      >
-        {error ?? shownNotice ?? "El agente puede ejecutar herramientas. Revisa las acciones sensibles."}
-      </p>
+      {(!dense || error || shownNotice) && (
+        <p
+          className={cn(
+            "mt-2 text-center text-[0.7rem]",
+            error || shownNotice ? "text-amber-500" : "text-muted-foreground",
+          )}
+        >
+          {error ?? shownNotice ?? "El agente puede ejecutar herramientas. Revisa las acciones sensibles."}
+        </p>
+      )}
     </div>
   );
 }

@@ -13,6 +13,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import { record } from "@/lib/perf";
+
 import type {
   Attachment,
   UploadedFile,
@@ -62,7 +64,14 @@ export async function openPath(path: string): Promise<void> {
 // ── Implementación real (Tauri) ───────────────────────────────────────────
 class TauriBridge implements Bridge {
   async rpc<T = Json>(method: string, params?: Json, workspace?: string | null): Promise<T> {
-    return invoke<T>("rpc", { method, params: params ?? {}, workspace: workspace ?? null });
+    // Punto único de paso de todas las acciones del frontend al sidecar: aquí
+    // se mide “tiempo de cada acción”. `phosonPerf.summary()` lo agrega.
+    const start = performance.now();
+    try {
+      return await invoke<T>("rpc", { method, params: params ?? {}, workspace: workspace ?? null });
+    } finally {
+      record(`rpc:${method}`, performance.now() - start);
+    }
   }
   async onNotify(handler: (envelope: Envelope) => void): Promise<UnlistenFn> {
     return listen<Envelope>("phoson://message", (event) => handler(event.payload));
@@ -607,6 +616,15 @@ export const phoson = {
     ),
   /** Historial completo (todas las sesiones, de cualquier workspace). */
   listSessions: () => callIn<{ sessions: SessionMeta[] }>(null, "session.list"),
+  /** Uso de recursos del sidecar (RSS/CPU), para medir rendimiento. */
+  perf: () =>
+    callIn<{
+      pid: number;
+      rssBytes: number;
+      cpuUserSec: number;
+      cpuSystemSec: number;
+      uptimeSec: number;
+    }>(null, "perf"),
   deleteSession: (id: string) => callIn<{ ok: boolean; id: string }>(null, "session.delete", { id }),
   listModels: (sessionId: string) =>
     call<ModelsListResult>("models.list", { sessionId }),

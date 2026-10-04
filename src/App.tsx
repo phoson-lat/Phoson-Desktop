@@ -1,6 +1,7 @@
 import { Folder, Menu, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { isTauri, onTerminated, openExternal } from "@/bridge/client";
 import { Button } from "@/components/ui/button";
@@ -17,10 +18,13 @@ import { CommandPalette } from "@/features/command-palette";
 import { SubagentPanel } from "@/features/subagent-panel";
 import { Sidebar } from "@/features/sidebar";
 import { Welcome } from "@/features/welcome";
+import { ComingSoon } from "@/features/coming-soon";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { checkForUpdates } from "@/lib/updater";
 import { DEMO_USER } from "@/lib/demo-content";
+import { mark, record, uptime } from "@/lib/perf";
+import { cn } from "@/lib/utils";
 import { useSession } from "@/stores/session";
 
 const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
@@ -63,7 +67,28 @@ export default function App() {  const {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [explorerOpen, setExplorerOpen] = useState(false);
+  /** Sección visible en el área de contenido: la conversación o los swarms. */
+  const [section, setSection] = useState<"chat" | "swarm">("chat");
+  /**
+   * Secciones que ya se visitaron. Se montan en su primera visita (montar el
+   * lienzo de React Flow al arrancar sería pagar por lo que aún no se usa) y a
+   * partir de ahí se quedan: así el borrador y el encuadre sobreviven al cambiar
+   * de sección y volver.
+   */
+  const [visited, setVisited] = useState<Record<string, boolean>>({ chat: true });
   const [openFile, setOpenFile] = useState<string | null>(null);
+
+  // Rendimiento: hitos de arranque (requiere `phosonPerf` en la consola).
+  useEffect(() => {
+    mark("ui:app-mounted");
+  }, []);
+  const bootRecorded = useRef(false);
+  useEffect(() => {
+    if (ready && !bootRecorded.current) {
+      bootRecorded.current = true;
+      record("app:ready", uptime());
+    }
+  }, [ready]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   /** El explorador pasa a panel superpuesto en ventanas estrechas. */
@@ -72,6 +97,9 @@ export default function App() {  const {
   const view = activeKey ? sessions[activeKey] : undefined;
   const messages = view?.messages ?? [];
   const metrics = view?.metrics;
+  // El workspace mostrado en la cabecera es el de la **sesión activa**, no un
+  // `cwd` global que puede quedar desfasado al cambiar de sesión/proyecto.
+  const workspacePath = view?.workspace || cwd;
 
   useEffect(() => {
     void init();
@@ -124,6 +152,20 @@ export default function App() {  const {
     }
   }, [demoParam, ready, activeKey, send]);
 
+  // Deep-link: `?swarm=1` abre la sección de swarms al arrancar.
+  const search = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+  const swarmParam = search?.get("swarm") ?? null;
+  const linked = useRef(false);
+  useEffect(() => {
+    if (linked.current || swarmParam === null) return;
+    linked.current = true;
+    setSection("swarm");
+  }, [swarmParam]);
+
+  useEffect(() => {
+    setVisited((current) => (current[section] ? current : { ...current, [section]: true }));
+  }, [section]);
+
   useEffect(() => {
     try {
       localStorage.setItem("phoson.nav", collapsed ? "collapsed" : "open");
@@ -169,9 +211,20 @@ export default function App() {  const {
   }, [messages, view?.sending]);
 
   const title = useMemo(() => {
+    // Prefiere el título del engine (heurístico → del modelo) y cae al primer
+    // mensaje del usuario como respaldo inmediato.
+    const stored = view?.title?.trim();
+    if (stored) return stored;
     const first = messages.find((m) => m.role === "user")?.text;
     return first ? (first.length > 60 ? first.slice(0, 60) + "…" : first) : "Nueva sesión";
-  }, [messages]);
+  }, [view?.title, messages]);
+
+  // El título de la ventana sigue a la conversación (barra de tareas, alt-tab).
+  useEffect(() => {
+    const label = `${title} · Phoson`;
+    document.title = label;
+    if (isTauri()) void getCurrentWindow().setTitle(label).catch(() => {});
+  }, [title]);
 
   const submit = (text?: string) => {
     const value = (text ?? draft).trim();
@@ -249,24 +302,40 @@ export default function App() {  const {
           open={navOpen}
           collapsed={collapsed}
           onDismiss={() => setNavOpen(false)}
-          onSelect={(k) => {
-            setActive(k);
-            setNavOpen(false);
-          }}
           onNew={() => {
             void newSession();
             setNavOpen(false);
           }}
+          onSelect={(k) => {
+            setActive(k);
+            setSection("chat");
+            setNavOpen(false);
+          }}
           onOpen={(id, ws) => {
             void openSession(id, ws);
+            setSection("chat");
             setNavOpen(false);
           }}
           onClose={(k) => void closeSession(k)}
           onToggleCollapse={() => setCollapsed((c) => !c)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSwarm={() => setSection("swarm")}
+          section={section}
         />
 
-        <div className="flex min-h-0 min-w-0 flex-1">
+        <div className="relative min-h-0 min-w-0 flex-1">
+          {/* Las tres secciones conviven —para no perder borradores ni el
+              encuadre del lienzo— así que las inactivas se ocultan con
+              `visibility` y no con `display`: React Flow mide su contenedor al
+              montar, y un contenedor con `display:none` mide 0×0. */}
+          <div
+            aria-hidden={section !== "chat"}
+            data-section="chat"
+            className={cn(
+              "absolute inset-0 flex min-h-0 min-w-0",
+              section !== "chat" && "pointer-events-none invisible",
+            )}
+          >
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="flex items-center gap-2 border-b border-dashboard-border-soft px-3 py-2.5 sm:gap-3 sm:px-4">
             {isMobile && (
@@ -289,7 +358,7 @@ export default function App() {  const {
                 className="flex max-w-full items-center gap-1.5 truncate text-[0.68rem] text-muted-foreground transition-colors hover:text-foreground"
               >
                 <Folder className="size-3 shrink-0" />
-                <span className="truncate">{cwd ? basename(cwd) : "workspace"}</span>
+                <span className="truncate">{workspacePath ? basename(workspacePath) : "workspace"}</span>
                 <span className="shrink-0 opacity-40">·</span>
                 <span className="shrink-0">{ready ? "listo" : "conectando…"}</span>
                 {!isTauri() && <span className="shrink-0 opacity-60">· demo</span>}
@@ -400,6 +469,26 @@ export default function App() {  const {
               overlay={narrow}
             />
           )}
+          </div>
+
+          {/* La sección de swarms queda montada al cambiar de vista (así el
+              borrador y el encuadre sobreviven a ir a una sesión y volver). */}
+          <div
+            aria-hidden={section !== "swarm"}
+            data-section="swarm"
+            className={cn(
+              "absolute inset-0 flex min-h-0 min-w-0",
+              section !== "swarm" && "pointer-events-none invisible",
+            )}
+          >
+            {visited.swarm && (
+              <ComingSoon
+                title="Swarms de agentes"
+                note="Estamos afinando la orquestación multi-agente (topologías, estado en vivo y mensajería). Volverá en una próxima versión."
+                onExit={() => setSection("chat")}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -416,6 +505,7 @@ export default function App() {  const {
       <CommandPalette
         onOpenSettings={() => setSettingsOpen(true)}
         onToggleExplorer={() => setExplorerOpen((v) => !v)}
+        onOpenSwarm={() => setSection("swarm")}
       />
       {ready && onboardingNeeded && (
         <Onboarding sessionId={activeKey} onDone={finishOnboarding} />

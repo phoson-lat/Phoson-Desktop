@@ -28,6 +28,9 @@ class GuiSink:
         self._session_key = session_key
         self._emit = emit
         self._reasoning: list[str] = []
+        # Lo fija `SessionManager` para que el hook `on_session_title` pueda leer
+        # el título desde el árbol sin acoplar el sink al REPL.
+        self.title_provider: Callable[[], str] | None = None
 
     def _notify(self, method: str, params: dict[str, Any]) -> None:
         self._emit(method, {"sessionId": self._session_key, **params})
@@ -38,6 +41,20 @@ class GuiSink:
 
     def on_attachments(self, sources: list[str]) -> None:
         self._notify("attachments.changed", {"sources": list(sources)})
+
+    def on_session_title(self) -> None:
+        """El engine actualizó el título de la sesión (heurístico o del modelo).
+
+        Mismo comportamiento que el CLI: tras el primer turno, el título pasa del
+        primer mensaje a uno generado por el modelo en background (#55).
+        """
+        title = ""
+        if self.title_provider is not None:
+            try:
+                title = str(self.title_provider() or "")
+            except Exception:  # noqa: BLE001 — nunca tumbar el stream por un título
+                title = ""
+        self._notify("session.title", {"title": title})
 
     # -- stream ---------------------------------------------------------------
     def on_event(self, event: object) -> None:
