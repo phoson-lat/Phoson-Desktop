@@ -1,0 +1,98 @@
+name: release
+
+# Publica un release multiplataforma al empujar un tag `v*` (p. ej. v0.1.0-alpha.1).
+# También se puede lanzar a mano desde la UI de Actions (workflow_dispatch).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Cada runner construye su propio binario: no hay cross-compilación de
+          # PyInstaller, así que se usa el host como target.
+          - platform: ubuntu-22.04 # x86_64-unknown-linux-gnu
+          - platform: windows-latest # x86_64-pc-windows-msvc
+          - platform: macos-13 # x86_64-apple-darwin (Intel)
+          - platform: macos-14 # aarch64-apple-darwin (Apple Silicon)
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: checkout (app)
+        uses: actions/checkout@v4
+
+      # El engine se instala desde su repo etiquetado (la app lo fija por versión
+      # en bridge/pyproject.toml). Cámbialo aquí cuando subas el pin.
+      - name: checkout (engine)
+        uses: actions/checkout@v4
+        with:
+          repository: phoson-lat/phoson-engine-minimal
+          ref: v0.49.1
+          path: engine
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: instalar deps del sistema (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: deps del frontend
+        run: pnpm install --frozen-lockfile
+
+      # Crea el venv del engine, instala el engine + extras y compila el sidecar
+      # como `externalBin` (src-tauri/binaries/phoson-bridge-<triple>).
+      - name: compilar el sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv engine/.venv
+          if [ -x engine/.venv/bin/python ]; then
+            PY="$PWD/engine/.venv/bin/python"
+          else
+            PY="$PWD/engine/.venv/Scripts/python.exe"
+          fi
+          "$PY" -m pip install --upgrade pip
+          "$PY" -m pip install -e "./engine[bundle]"
+          PHOSON_ENGINE_DIR="$PWD/engine" bash scripts/build-sidecar.sh
+
+      # tauri-action compila la app con la config de release (externalBin +
+      # createUpdaterArtifacts), firma y sube los bundles + latest.json al release.
+      - name: build + release (tauri-action)
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Phoson Desktop v__VERSION__"
+          releaseBody: "Alpha. Descarga el bundle de tu plataforma."
+          releaseDraft: true
+          prerelease: true
+          args: "--config src-tauri/tauri.release.conf.json"

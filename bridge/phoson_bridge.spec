@@ -64,6 +64,7 @@ for pkg in (
     "phoson_plugin_mcp",
     "phoson_plugin_stt",
     "phoson_plugin_swarm",
+    "phoson_plugin_peers",
 ):
     HIDDEN_IMPORTS += _subs(pkg)
 

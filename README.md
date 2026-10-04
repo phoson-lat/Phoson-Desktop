@@ -73,6 +73,25 @@ core has no UI dependency, so the desktop app is a new *sink*, not a fork.
   sessions. **Reasoning effort** quick picker on `Ctrl/⌘+E`.
 - **Sub-agent progress** panel, context-window meter, model/provider pickers, MCP
   settings, first-run onboarding.
+- **Agent swarms** — define a team as a tree (a **master** plus specialised roles,
+  each with its own purpose, tool allowlist, model and token budget) and launch it:
+  the master creates the swarm through the engine's own `swarm_*` tools and
+  delegates. A **Messages** panel reconstructs the inter-agent traffic, with
+  `swarm_message` rendered as `@sender → @recipient` and `@` mentions highlighted.
+  Note the engine semantics: members are handed no messaging tools, so the master
+  is the only router and a message is delivered to the recipient's inbox on its
+  **next run** — it is routing, not live chat. The tree is **live**: each node
+  reflects its role's state (idle / assigned / messaged / running / error) derived
+  from the session's `swarm_*` tool calls, and an **Executions** tab keeps the
+  history of every launch (mission, time and the conversation it ran in). The
+  **Messages** panel also hosts a composer so you can write to the team: `@role`
+  routes the message to those members (the master is asked to pause them and
+  deliver it), while a message with no mention goes to the master/orchestrator.
+  The tree is drawn as an **editable graph** where each connection means
+  **bidirectional communication**: drag between a role's handles to connect or
+  disconnect it, and add roles with the floating **+** button (a modal). That
+  graph is **design-only** for now — the engine still routes through the master —
+  see `ENGINE_GAPS.md` (G1/G2).
 - **Updates** — Tauri updater with a signed static feed.
 
 ## Requirements
@@ -138,8 +157,10 @@ scripts/        Tooling (sidecar build, icon generation)
 - [`PLAN.md`](PLAN.md) — architecture plan and integration points
 - [`PROTOTYPE.md`](PROTOTYPE.md) — prototype notes
 - [`DISTRIBUTION.md`](DISTRIBUTION.md) — packaging, signing and updates
+- [`RELEASE.md`](RELEASE.md) — alpha release checklist + QA
+- [`PERF.md`](PERF.md) — performance method, baseline and budgets
+- [`ENGINE_GAPS.md`](ENGINE_GAPS.md) — features needed from the engine team
 
 ## License
 
-Not published yet. The sibling engine (`phoson-engine-minimal`) is MIT; add a
-`LICENSE` file here to match before distributing.
+MIT — see [`LICENSE`](LICENSE).

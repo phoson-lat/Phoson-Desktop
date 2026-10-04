@@ -7,8 +7,8 @@ entregar actualizaciones.
 
 El sidecar (`bridge/`) se compila a un único ejecutable que Tauri mete en el
 bundle como `externalBin`. Dentro van estos plugins del engine: **bgjobs,
-monitor, checkpoint, mcp, stt, swarm** (los dos primeros y swarm ya vienen en el
-paquete base; los demás aportan `mcp`, `asyncpg` y `moonshine-voice`).
+monitor, checkpoint, mcp, stt, swarm, peers** (los del paquete base; los demás
+aportan `mcp`, `asyncpg` y `moonshine-voice`).
 
 ```bash
 scripts/build-sidecar.sh          # detecta el triple de Rust del host
@@ -31,18 +31,29 @@ por plataforma en CI.
 > Cross-compile: PyInstaller **no** cross-compila. Cada plataforma se construye
 > en su runner (matrix de GitHub Actions con `ubuntu/windows/macos`).
 
-## 2. Firma (placeholders)
+## 2. Firma
 
 ### Updater (obligatoria para `createUpdaterArtifacts`)
 
 ```bash
-pnpm tauri signer generate -w ~/.tauri/phoson.key
-# imprime la clave PÚBLICA → pégala en tauri.conf.json → plugins.updater.pubkey
+pnpm tauri signer generate -w ~/.tauri/phoson-desktop.key
+# imprime/guarda la clave PÚBLICA (~/.tauri/phoson-desktop.key.pub)
 ```
 
-En CI:
-`TAURI_SIGNING_PRIVATE_KEY` (contenido o ruta de la clave) y
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Estado actual:
+- La clave pública **ya está** en `src-tauri/tauri.conf.json` →
+  `plugins.updater.pubkey` (par generado el 2026-10-04).
+- La clave **privada** vive **fuera del repo**: `~/.tauri/phoson-desktop.key`
+  (generada sin password). **No se versiona.**
+
+En CI (GitHub Actions → *Settings → Secrets and variables → Actions*), añade:
+- `TAURI_SIGNING_PRIVATE_KEY` — contenido del fichero
+  `~/.tauri/phoson-desktop.key`.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — vacío si la clave no tiene password.
+
+> ⚠️ Si pierdes la clave privada, no podrás firmar actualizaciones futuras y los
+> clientes instalarán una versión que ya no se puede actualizar. Guárdala en un
+> gestor de secretos.
 
 ### Firma de los instaladores (pendiente de credenciales)
 
@@ -51,9 +62,9 @@ En CI:
 - **macOS**: Developer ID + notarización (`APPLE_CERTIFICATE`,
   `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_PASSWORD`).
 
-De momento `pubkey` y la firma de instaladores son **placeholders**; la app
-funciona en local sin ellas. `tauri build` con `createUpdaterArtifacts: true`
-exige la clave del updater.
+La firma de instaladores sigue **pendiente**; la app funciona sin ella (con el
+aviso de "origen desconocido" del SO). El updater **sí** queda operativo con la
+clave de arriba.
 
 ## 3. Updater — solución elegida
 
@@ -64,11 +75,12 @@ y diff-friendly con el pipeline de releases existente.
 
 Configuración: `src-tauri/tauri.conf.json` → `plugins.updater.endpoints`.
 
-- GitHub Releases (recomendado):
-  `https://github.com/<org>/<repo>/releases/latest/download/latest.json`
-- Host propio (placeholder actual): `https://releases.phoson.lat/{{target}}/{{arch}}/{{current_version}}`
+- GitHub Releases (**elegido**):
+  `https://github.com/phoson-lat/Phoson-Desktop/releases/latest/download/latest.json`
+- Host propio (alternativa): `https://releases.phoson.lat/{{target}}/{{arch}}/{{current_version}}`
 
-Ejemplo de `latest.json`:
+El `latest.json` lo **genera y fusiona `tauri-action`** por plataforma al crear el
+release; no hay que escribirlo a mano. Ejemplo de formato:
 
 ```json
 {
@@ -93,9 +105,23 @@ pnpm tauri build --config src-tauri/tauri.release.conf.json   # requiere TAURI_S
 La UI de actualizaciones vive en **Ajustes → Acerca de** (`src/lib/updater.ts`).
 En modo demo (navegador) se degrada a no-op.
 
-## 5. CI sugerida
+## 5. CI
 
-1. `pnpm install && scripts/build-sidecar.sh` (cada SO).
-2. `pnpm tauri build` con los secretos de firma/updater.
-3. Publicar instaladores + `latest.json` (GitHub Release) — el formato de
-   `latest.json` para GitHub Releases lo genera `tauri action`/`tauri-action`.
+Ya implementada en `.github/workflows/`:
+
+- **`ci.yml`** — en cada push/PR: typecheck + build del frontend, `cargo check`
+  de `src-tauri` y `py_compile` del bridge.
+- **`release.yml`** — en push de un tag `v*` (o a mano): matrix
+  `ubuntu-22.04` / `windows-latest` / `macos-13` / `macos-14`; en cada runner
+  clona el engine (`v0.49.1`), crea su venv, compila **su** sidecar y corre
+  `tauri-action` (build de release firmado + release con bundles y `latest.json`).
+
+Para publicar un alpha:
+
+```bash
+git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1
+```
+
+Requiere los secretos `TAURI_SIGNING_PRIVATE_KEY` y
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (ver §2). El release sale como **draft +
+prerelease**: revísalo y publícalo para que el updater (`releases/latest`) lo vea.

@@ -1,0 +1,63 @@
+name: ci
+
+# Comprobaciones rápidas en cada push/PR: typecheck + build del frontend.
+# (El empaquetado multiplataforma vive en release.yml.)
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  frontend:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: deps
+        run: pnpm install --frozen-lockfile
+
+      - name: typecheck + build
+        run: pnpm build
+
+  rust:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: instalar deps del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # `cargo check` sin el binario del sidecar (la config de release no se usa aquí).
+      - name: cargo check (src-tauri)
+        working-directory: src-tauri
+        run: cargo check --locked
+
+  bridge:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: compilar el sidecar (sintaxis)
+        run: |
+          python -m py_compile bridge/phoson_bridge/*.py
+          echo "bridge OK"

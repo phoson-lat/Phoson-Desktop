@@ -2,7 +2,7 @@
 #
 # Construye el sidecar `phoson-bridge` con PyInstaller y lo deja listo como
 # `externalBin` de Tauri (uno por plataforma), con los plugins:
-# bgjobs, monitor, checkpoint, mcp, stt y swarm.
+# bgjobs, monitor, checkpoint, mcp, stt, swarm y peers.
 #
 #   scripts/build-sidecar.sh
 #
