@@ -30,7 +30,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU2NDNDRUEwNEU1MjhEODAKUldTQWpWSk9vTTVENXZWRExlM2Fic3lUeXM0eTVqOUJjaFZWaFRRMjkyTzBwbFpWOVBzQnhsS04K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgwRDg3Qjk5MjFCNUQzQjEKUldTeDA3VWhtWHZZZ0RiZlF2bHpzWkhPNCsyWjMxZVdKUEVkenQrakk2djQ1clNoL1poTGFkUmQK",
       "endpoints": [
         "https://github.com/phoson-lat/Phoson-Desktop/releases/latest/download/latest.json"
       ],
