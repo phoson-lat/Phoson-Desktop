@@ -60,10 +60,16 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libfuse2
 
       - name: deps del frontend
         run: pnpm install --frozen-lockfile
+
+      # `linuxdeploy` (AppImage) se ejecuta como AppImage: sin FUSE hay que
+      # extraerlo. Evita el panic de appimagetool en los runners.
+      - name: configurar entorno de bundling
+        shell: bash
+        run: echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
 
       # Crea el venv del engine, instala el engine + extras y compila el sidecar
       # como `externalBin` (src-tauri/binaries/phoson-bridge-<triple>).
