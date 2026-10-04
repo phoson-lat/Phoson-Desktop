@@ -160,6 +160,8 @@ scripts/        Tooling (sidecar build, icon generation)
 - [`RELEASE.md`](RELEASE.md) — alpha release checklist + QA
 - [`PERF.md`](PERF.md) — performance method, baseline and budgets
 - [`ENGINE_GAPS.md`](ENGINE_GAPS.md) — features needed from the engine team
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup and PR checks
+- [`SECURITY.md`](SECURITY.md) — how to report vulnerabilities
 
 ## License
 

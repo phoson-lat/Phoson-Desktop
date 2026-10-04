@@ -20,5 +20,12 @@ src-tauri/binaries/
 
 # Misc
 .DS_Store
+
+# Entorno (secretos locales)
 .env
 .env.local
+
+# Claves de firma (NUNCA versionar; viven fuera del repo)
+*.key
+*.key.pub
+
