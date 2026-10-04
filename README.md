@@ -148,13 +148,13 @@ The bundled sidecar ships the engine plugins `bgjobs`, `monitor`, `checkpoint`,
 
 ## Keyboard shortcuts
 
-| Shortcut | Action |
-|---|---|
-| `Ctrl/⌘ + K` | Command palette (actions + session search) |
-| `Ctrl/⌘ + E` | Reasoning effort picker |
-| `Enter` | Send message |
-| `Shift/Ctrl/⌘ + Enter` | New line (continues Markdown lists) |
-| `Esc` | Stop generation / close the focused overlay |
+| Shortcut                  | Action                                      |
+| ------------------------- | ------------------------------------------- |
+| `Ctrl/⌘ + K`           | Command palette (actions + session search)  |
+| `Ctrl/⌘ + E`           | Reasoning effort picker                     |
+| `Enter`                 | Send message                                |
+| `Shift/Ctrl/⌘ + Enter` | New line (continues Markdown lists)         |
+| `Esc`                   | Stop generation / close the focused overlay |
 
 ## Project layout
 
