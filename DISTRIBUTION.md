@@ -79,6 +79,14 @@ Configuración: `src-tauri/tauri.conf.json` → `plugins.updater.endpoints`.
   `https://github.com/phoson-lat/Phoson-Desktop/releases/latest/download/latest.json`
 - Host propio (alternativa): `https://releases.phoson.lat/{{target}}/{{arch}}/{{current_version}}`
 
+> **Requisitos del endpoint de GitHub Releases**
+> - El repo debe ser **público**. En un repo **privado**, `releases/…/download/…`
+>   devuelve **404** sin autenticación y el updater falla (no envía token).
+> - `/releases/latest` **excluye drafts y *prereleases***. Hay que **publicar el
+>   release como normal** (no marcar *Pre-release*) para que el updater lo vea.
+>   La versión puede seguir siendo `0.1.0-alpha.1`; la marca de prerelease en
+>   GitHub es cosmética y solo afecta a este endpoint.
+
 El `latest.json` lo **genera y fusiona `tauri-action`** por plataforma al crear el
 release; no hay que escribirlo a mano. Ejemplo de formato:
 

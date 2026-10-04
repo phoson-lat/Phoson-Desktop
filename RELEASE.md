@@ -13,18 +13,30 @@ Checklist operativa para publicar `0.1.0-alpha.1` (multiplataforma).
 
 ## 2. Publicar el tag
 
+Requisito previo: el **repo debe ser público** (el endpoint del updater es
+`releases/latest/download/latest.json`; en un repo privado devuelve 404 sin auth).
+
 ```bash
 git tag v0.1.0-alpha.1
 git push origin v0.1.0-alpha.1
 ```
 
 Esto dispara `.github/workflows/release.yml`:
-matrix Linux / Windows / macOS(Intel) / macOS(Apple Silicon) → compila el
-sidecar de cada plataforma y sube bundles + `latest.json` a un release
-**draft + prerelease**.
+matrix **Linux / Windows / macOS(Apple Silicon)** → compila el sidecar de cada
+plataforma y sube bundles + `latest.json` a un release **draft + prerelease**.
+> macOS Intel (`macos-13`) está **fuera** del matrix (runners Intel escasos);
+> reactivable añadiendo `- platform: macos-13`.
 
-- [ ] Revisar el draft en GitHub Releases y **publicarlo** (para que
-      `releases/latest/download/latest.json` resuelva y funcione el updater).
+- [ ] Revisar el draft en GitHub Releases y **publicarlo**.
+- [ ] **Quitar la marca *Pre-release*** al publicar: GitHub **excluye los
+      *prereleases* de `/releases/latest`**, así que con esa marca el updater
+      devuelve 404. La versión puede seguir diciendo `alpha.1`.
+
+Público ya (verificado):
+
+```bash
+curl -sI https://github.com/phoson-lat/Phoson-Desktop/releases/latest/download/latest.json | head -1
+```
 
 ## 3. QA manual (sobre el build empaquetado, en cada SO)
 
