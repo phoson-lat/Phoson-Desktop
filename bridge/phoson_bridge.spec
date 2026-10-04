@@ -98,15 +98,31 @@ HIDDEN_IMPORTS += ["sounddevice", "_sounddevice", "_cffi_backend", "tiktoken_ext
 DATAS: list[tuple[str, str]] = []
 BINARIES: list[tuple[str, str]] = []
 
-# Assets de moonshine_voice (wav de ejemplo, embeddings, tiny-en…).
-DATAS += collect_data_files("moonshine_voice")
-DATAS += collect_data_files("phoson_cli")  # banner phos-ascii.txt
-DATAS += collect_data_files("mcp")
-DATAS += collect_data_files("asyncpg")
+# Assets y libs nativas: **best-effort** por paquete. En plataformas sin wheel
+# de Moonshine (p. ej. macOS) el sidecar se construye sin STT y el plugin lo
+# degrada con un aviso.
+def _safe_data(pkg: str) -> list:
+    try:
+        return collect_data_files(pkg)
+    except Exception:  # noqa: BLE001 — paquete opcional ausente
+        return []
+
+
+def _safe_libs(pkg: str) -> list:
+    try:
+        return collect_dynamic_libs(pkg)
+    except Exception:  # noqa: BLE001 — paquete opcional ausente
+        return []
+
+
+DATAS += _safe_data("moonshine_voice")  # wav de ejemplo, embeddings, tiny-en…
+DATAS += _safe_data("phoson_cli")  # banner phos-ascii.txt
+DATAS += _safe_data("mcp")
+DATAS += _safe_data("asyncpg")
 
 # libmoonshine.so (destino: moonshine_voice/).
-BINARIES += collect_dynamic_libs("moonshine_voice")
-BINARIES += collect_dynamic_libs("sounddevice")
+BINARIES += _safe_libs("moonshine_voice")
+BINARIES += _safe_libs("sounddevice")
 
 # Onnxruntime vive en el directorio HERMANO `moonshine_voice.libs`, que el
 # loader de libmoonshine.so busca por RPATH relativo. Se replica esa ruta.

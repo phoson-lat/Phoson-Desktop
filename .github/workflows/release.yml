@@ -78,7 +78,9 @@ jobs:
             PY="$PWD/engine/.venv/Scripts/python.exe"
           fi
           "$PY" -m pip install --upgrade pip
-          "$PY" -m pip install -e "./engine[bundle]"
+          # Engine en editable (base). Los extras nativos (moonshine) los
+          # instala el script de build, best-effort por plataforma.
+          "$PY" -m pip install -e "./engine"
           PHOSON_ENGINE_DIR="$PWD/engine" bash scripts/build-sidecar.sh
 
       # tauri-action compila la app con la config de release (externalBin +

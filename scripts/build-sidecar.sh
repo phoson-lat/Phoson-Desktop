@@ -49,9 +49,16 @@ install_pkgs() {
     "$PY" -m pip install "$@"
   fi
 }
-echo "==> Instalando PyInstaller y extras de plugins (mcp, checkpoint, stt)…"
+echo "==> Instalando PyInstaller y extras de plugins…"
 install_pkgs pyinstaller
-install_pkgs "moonshine-voice>=0.1.5" "mcp>=1.0.0,<2.0.0" "asyncpg>=0.29.0"
+install_pkgs "mcp>=1.0.0,<2.0.0" "asyncpg>=0.29.0"
+# STT (Moonshine) trae wheels solo para algunas plataformas (en macOS x86_64 el
+# engine ya lo omite). Best-effort: si no está, el sidecar se construye sin STT y
+# el plugin lo degrada con un aviso.
+if ! install_pkgs "moonshine-voice>=0.1.5"; then
+  echo "==> AVISO: moonshine-voice no disponible aquí; se construye sin STT."
+  install_pkgs "moonshine-voice" 2>/dev/null || true
+fi
 
 # 2) Build (onefile).
 mkdir -p "$OUT_DIR" "$WORK_DIR"
