@@ -171,6 +171,7 @@ scripts/        Tooling (sidecar build, icon generation)
 - [`PROTOTYPE.md`](PROTOTYPE.md) — prototype notes
 - [`DISTRIBUTION.md`](DISTRIBUTION.md) — packaging, signing and updates
 - [`RELEASE.md`](RELEASE.md) — alpha release checklist + QA
+- [`ROADMAP.md`](ROADMAP.md) — what's next (priorities and effort)
 - [`PERF.md`](PERF.md) — performance method, baseline and budgets
 - [`ENGINE_GAPS.md`](ENGINE_GAPS.md) — features needed from the engine team
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup and PR checks
