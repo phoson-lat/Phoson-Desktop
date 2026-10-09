@@ -34,6 +34,7 @@ import time
 import uuid
 import asyncio
 import logging
+import threading
 from typing import Any, TextIO
 
 from phoson_cli.config import load_config, PhosonConfig, has_configured_provider
@@ -57,6 +58,39 @@ _STT_STATUS_TTL = 5.0
 _SESSION_MUTATING = frozenset(
     {"turn.run", "session.delete", "session.new", "session.undo", "session.rewind", "session.compact"}
 )
+#: El catálogo de modelos cambia poco y cada consulta es un round-trip de red
+#: (~430 ms); el picker lo abre al instante y un turno no debe pagarlo.
+_MODELS_LIST_TTL = 300.0
+
+#: Umbrales del watchdog (segundos). Dos situaciones distintas:
+#:  * arranque mudo: el handler no llega a escribir **nada** — el motor está
+#:    congelado (el bug de Windows: un `git` bloqueando el event loop);
+#:  * silencio prolongado: escribió y después se quedó mudo (p. ej. una llamada
+#:    al proveedor colgada sin timeout).
+#: Un modelo lento NO dispara nada: escribe `session.user_message`/
+#: `AgentStartEvent` en los primeros ms y solo calla hasta que fluye el token.
+#: Se pueden forzar con env para probar el comportamiento a mano:
+#:   PHOSON_WATCHDOG_SECONDS=3 PHOSON_WATCHDOG_SILENCE_SECONDS=5
+_WATCHDOG_SECONDS: dict[str, float] = {"turn.run": 15.0}
+_WATCHDOG_SILENCE_SECONDS: dict[str, float] = {"turn.run": 60.0}
+_WATCHDOG_DEFAULT_SECONDS = 30.0
+_WATCHDOG_DEFAULT_SILENCE_SECONDS = 120.0
+#: Avisos máximos por RPC en vuelo (el watchdog se reprograma mientras siga el
+#: problema, pero no hasta el infinito).
+_WATCHDOG_MAX_WARNINGS = 3
+
+
+def _watchdog_delays(method: str) -> tuple[float, float]:
+    """(umbral de arranque mudo, umbral de silencio) para un método."""
+    start = float(
+        os.environ.get("PHOSON_WATCHDOG_SECONDS")
+        or _WATCHDOG_SECONDS.get(method, _WATCHDOG_DEFAULT_SECONDS)
+    )
+    silence = float(
+        os.environ.get("PHOSON_WATCHDOG_SILENCE_SECONDS")
+        or _WATCHDOG_SILENCE_SECONDS.get(method, _WATCHDOG_DEFAULT_SILENCE_SECONDS)
+    )
+    return start, silence
 
 
 class SessionManager:
@@ -67,10 +101,23 @@ class SessionManager:
         self._emit = emit
         self._loop = asyncio.get_running_loop()
         self._repls: dict[str, PhosonRepl] = {}
+        # Sesiones creadas pero aún sin construir (lazy): `create` es barato y
+        # `get` paga el `PhosonRepl` la primera vez que alguien lo necesita.
+        self._pending: dict[str, tuple[Any, Any, Any]] = {}
+        # Construcciones en curso, compartidas entre las RPC que las esperan.
+        self._building: dict[str, asyncio.Task[PhosonRepl]] = {}
         self._confirmations: dict[str, asyncio.Future[dict[str, Any]]] = {}
 
     # -- ciclo de vida --------------------------------------------------------
     def create(self) -> str:
+        """Reserva una sesión. NO construye el ``PhosonRepl`` (≈1.7 s).
+
+        Construirlo aquí bloqueaba el event loop antes de que el sidecar
+        empezara a leer stdin: la primera petición de cada workspace pagaba el
+        arranque completo del engine antes de recibir ni un byte. Con lazy, las
+        RPC baratas (`session.list`, `stt.status`, `fs.*`) responden al momento
+        y `turn.run` emite `session.turn.started` antes de construir nada.
+        """
         key = uuid.uuid4().hex
         # Config propia por sesión: el controller muta config.model/provider.
         # `copy.copy` (superficial) basta: lo que se muta son escalares; el
@@ -78,20 +125,61 @@ class SessionManager:
         config = copy.copy(self._base_config)
         sink = GuiSink(key, self._emit)
         confirmation = GuiConfirmation(key, self.request_user)
-        self._repls[key] = PhosonRepl(config, sink=sink, confirmation=confirmation)
         # El sink puede leer el título vivo del árbol (hook `on_session_title`).
         sink.title_provider = lambda k=key: (
             self._repls[k].tree.title if k in self._repls else ""
         )
+        self._pending[key] = (config, sink, confirmation)
         return key
 
-    def get(self, key: str) -> PhosonRepl:
-        repl = self._repls.get(key)
-        if repl is None:
-            raise KeyError(f"sesión desconocida: {key}")
+    def _build(self, key: str, parts: tuple[Any, Any, Any]) -> PhosonRepl:
+        """Construye el ``PhosonRepl`` de una sesión (segundos de CPU/IO)."""
+        config, sink, confirmation = parts
+        _t = time.perf_counter()
+        repl = PhosonRepl(config, sink=sink, confirmation=confirmation)
+        log.info("[perf] bridge.init %.0fms", (time.perf_counter() - _t) * 1000)
         return repl
 
+    async def get(self, key: str) -> PhosonRepl:
+        """Devuelve el ``PhosonRepl`` de la sesión, construyéndolo si falta.
+
+        La construcción cuesta **segundos**, así que se hace en un hilo
+        (`asyncio.to_thread`): ejecutarla sobre el event loop congelaba todo lo
+        demás — en una traza real, cuatro `session.list` y el stream de otras
+        sesiones esperaron 7.7 s detrás de un solo `bridge.init`. Las RPC
+        concurrentes comparten la construcción en curso en vez de duplicarla.
+        """
+        repl = self._repls.get(key)
+        if repl is not None:
+            return repl
+        building = self._building.get(key)
+        if building is not None:
+            return await building
+
+        parts = self._pending.pop(key, None)
+        if parts is None:
+            raise KeyError(f"sesión desconocida: {key}")
+
+        async def _run() -> PhosonRepl:
+            try:
+                built = await asyncio.to_thread(self._build, key, parts)
+                self._repls[key] = built
+                return built
+            finally:
+                self._building.pop(key, None)
+
+        task = asyncio.create_task(_run())
+        self._building[key] = task
+        return await task
+
     async def close(self, key: str) -> None:
+        self._pending.pop(key, None)
+        building = self._building.get(key)
+        if building is not None:
+            try:
+                await building  # no dejar un engine construyéndose al vuelo
+            except Exception:  # noqa: BLE001 — el cierre manda
+                pass
         repl = self._repls.pop(key, None)
         if repl is not None:
             await repl.shutdown()
@@ -103,16 +191,22 @@ class SessionManager:
         queda sin sesiones y cualquier RPC que las use (initialize, fs.setCwd…)
         falla con "sesión desconocida".
         """
+        # `get` saca la sesión de `_pending` mientras se construye: sin mirar
+        # `_building` aquí se crearía una segunda sesión en paralelo.
+        if self._building:
+            return next(iter(self._building))
+        if self._pending:
+            return next(iter(self._pending))
         if self._repls:
             return next(iter(self._repls))
         return self.create()
 
     async def close_all(self) -> None:
-        for key in list(self._repls):
+        for key in list(self._building) + list(self._pending) + list(self._repls):
             await self.close(key)
 
     def keys(self) -> list[str]:
-        return list(self._repls)
+        return list(self._building) + list(self._pending) + list(self._repls)
 
     def storage(self):
         # Todas las sesiones comparten sessions_dir; cualquier controller sirve.
@@ -141,21 +235,92 @@ class SessionManager:
         return False
 
 
+class _WatchdogHandle:
+    """Watchdog de una RPC en vuelo: timer, avisos emitidos y cancelación.
+
+    El timer va en un ``threading.Timer`` y no en una tarea asyncio a propósito:
+    el bug que motivó esto **congelaba el propio event loop** (una llamada
+    síncrona a `git`), así que una tarea del loop no habría llegado a ejecutarse
+    nunca. El hilo, sí. El timer se reprograma mientras siga el silencio, por lo
+    que hay que poder cancelar el *actual* cuando la RPC termina.
+    """
+
+    def __init__(self, bridge: "Bridge", method: str, params: Any, started: float) -> None:
+        self._bridge = bridge
+        self._method = method
+        self._params = params
+        self._started = started
+        self._session_id = str(params.get("sessionId") or "") if isinstance(params, dict) else ""
+        # Líneas escritas para esta sesión cuando arrancó el handler: por encima
+        # de esto es el motor el que ha hablado (lo emitido antes, como
+        # `session.turn.started`, va con otra clave y no cuenta).
+        self._baseline = bridge._flush_seq.get(self._session_id, 0)
+        self._warns = 0
+        self._timer: threading.Timer | None = None
+        self._cancelled = False
+        self._arm()
+
+    def _arm(self, delay: float | None = None) -> None:
+        if delay is None:
+            delay = _watchdog_delays(self._method)[0]
+        timer = threading.Timer(delay, self._fire)
+        timer.daemon = True
+        self._timer = timer
+        timer.start()
+
+    def cancel(self) -> None:
+        """La RPC terminó: no hace falta seguir vigilando."""
+        self._cancelled = True
+        if self._timer is not None:
+            self._timer.cancel()
+
+    def _fire(self) -> None:
+        if self._cancelled:
+            return
+        warned, delay = self._bridge._watchdog_fire(
+            self._method, self._params, self._started, self._baseline
+        )
+        if warned:
+            self._warns += 1
+        if delay is None or self._warns >= _WATCHDOG_MAX_WARNINGS or self._cancelled:
+            return
+        self._arm(delay)  # aún sin resolver: reprograma para más tarde
+
+
 class Bridge:
     def __init__(self, protocol_out: TextIO) -> None:
         self._started = time.monotonic()
         self._session_list_cache: tuple[float, dict[str, Any]] | None = None
         self._session_list_task: asyncio.Task[dict[str, Any]] | None = None
         self._stt_status_cache: tuple[float, dict[str, Any]] | None = None
+        # Catálogo de modelos por proveedor (red) + single-flight.
+        self._models_cache: dict[str, tuple[float, list]] = {}
+        self._models_task: dict[str, asyncio.Task[tuple[list, str | None]]] = {}
+        # Última notificación emitida por sesión: la "señal de vida" que mira el
+        # watchdog para distinguir un motor lento de uno congelado.
+        # Cuándo se ESCRIBIÓ la última línea de cada sesión, y cuántas se han
+        # escrito. Solo una línea real en el stream demuestra que el motor sigue
+        # vivo (una encolada no: con el event loop congelado nadie la drena).
+        # El **contador** manda para decidir si hubo salida: `time.monotonic()`
+        # en Windows tiene ~1 ms de resolución y dos sucesos en el mismo ms
+        # empatan, lo que hacía fallar la comparación por tiempos.
+        self._last_flush: dict[str, float] = {}
+        self._flush_seq: dict[str, int] = {}
+        # Serializa las escrituras al stream de protocolo: el writer del loop y
+        # el hilo del watchdog pueden escribir a la vez.
+        self._out_lock = threading.Lock()
         self._out_stream = protocol_out
-        self._out: asyncio.Queue[str] = asyncio.Queue()
+        self._out: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
         self.config = load_config()
         self.sessions = SessionManager(self.config, self._emit)
         self.stt = SttManager(self._emit)
-        # Sesión inicial lista para usar.
-        _t = time.perf_counter()
+        # Sesión inicial *reservada*: el `PhosonRepl` se construye en un hilo la
+        # primera vez que alguien lo necesite (`SessionManager.get`), para que el
+        # sidecar empiece a leer stdin sin pagar el arranque del engine.
         self._default_session = self.sessions.create()
-        log.info("[perf] bridge.init %.0fms", (time.perf_counter() - _t) * 1000)
+        # …y se precalienta enseguida, en segundo plano: así `initialize` no paga
+        # esos segundos si llega cuando el engine ya está construido.
+        self._warm_task: asyncio.Task[Any] = asyncio.create_task(self._warm_default())
         self._methods = {
             "initialize": self._initialize,
             "session.new": self._session_new,
@@ -199,17 +364,36 @@ class Bridge:
         }
 
     # ── Emisión (síncrona desde el sink, no bloquea) ──────────────────────
-    def _emit(self, method: str, params: dict[str, Any]) -> None:
-        self._out.put_nowait(dump({"jsonrpc": "2.0", "method": method, "params": params}))
+    def _emit(self, method: str, params: dict[str, Any], *, life: bool = True) -> None:
+        """Encola una notificación. ``life=False`` para las que emite el propio
+        bridge (p. ej. `session.turn.started`): no demuestran que el motor esté
+        vivo y no deben silenciar al watchdog."""
+        session_id = str(params.get("sessionId") or "")
+        self._out.put_nowait((session_id if life else "-", dump({"jsonrpc": "2.0", "method": method, "params": params})))
 
     def _send(self, message: dict[str, Any]) -> None:
-        self._out.put_nowait(dump(message))
+        # `"-"` = sin sesión: una respuesta RPC no cuenta como vida de ninguna.
+        self._out.put_nowait(("-", dump(message)))
 
     async def _writer(self) -> None:
         while True:
-            line = await self._out.get()
-            self._out_stream.write(line + "\n")
-            self._out_stream.flush()
+            session_id, line = await self._out.get()
+            self._last_flush[session_id] = time.monotonic()
+            self._flush_seq[session_id] = self._flush_seq.get(session_id, 0) + 1
+            with self._out_lock:
+                self._out_stream.write(line + "\n")
+                self._out_stream.flush()
+
+    async def _warm_default(self) -> None:
+        """Construye el engine de la sesión por defecto mientras no hay RPC.
+
+        La misma construcción que haría `initialize`, pero sin que nadie la
+        espere: si la primera petición llega cuando ya está hecha, no la paga.
+        """
+        try:
+            await self.sessions.get(self._default_session)
+        except Exception:  # noqa: BLE001 — un precalentado fallido no tumba nada
+            log.exception("precalentado del engine falló")
 
     # ── Loop principal ────────────────────────────────────────────────────
     async def serve(self) -> None:
@@ -256,10 +440,15 @@ class Bridge:
             )
             return
         if method == "turn.run":
+            # `life=False`: la emite el bridge, no el motor; no demuestra vida.
             self._emit(
                 "session.turn.started",
                 {"sessionId": params.get("sessionId"), "task": params.get("text", "")},
+                life=False,
             )
+        # Watchdog (hilo aparte): avisa si la RPC se queda en silencio.
+        started = time.monotonic()
+        watchdog = _WatchdogHandle(self, method, params, started)
         try:
             _t = time.perf_counter()
             result = await handler(params)
@@ -273,7 +462,7 @@ class Bridge:
                 self._session_list_cache = None
             self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
             if method in ("turn.run", "model.set", "provider.set"):
-                self._emit("session.metrics", self._metrics(params["sessionId"]))
+                self._emit("session.metrics", await self._metrics(params["sessionId"]))
         except Exception as exc:  # noqa: BLE001 — el bridge nunca debe caerse
             log.exception("fallo en %s", method)
             self._send(
@@ -283,6 +472,68 @@ class Bridge:
                     "error": {"code": -32000, "message": str(exc)},
                 }
             )
+        finally:
+            watchdog.cancel()
+
+    def _watchdog_fire(
+        self, method: str, params: Any, started: float, baseline: int
+    ) -> tuple[bool, float | None]:
+        """Decide si avisar y cuánto esperar para la próxima comprobación.
+
+        Devuelve ``(avisó, retardo)``; el retardo es ``None`` cuando ya no hace
+        falta seguir vigilando. Corre en el hilo del watchdog y escribe
+        **directo** al stream de protocolo (con el mismo lock que `_writer`):
+        con el event loop congelado la cola `_out` no se drena y el aviso no
+        llegaría nunca a la app.
+
+        "Vivo" = hubo una notificación **del motor** encolada *y* escrita
+        después de arrancar el handler. Hacen falta las dos: con el loop
+        congelado lo encolado no llega a escribirse, y lo emitido antes de
+        arrancar el handler (p. ej. `session.turn.started`, del propio bridge)
+        no demuestra que el motor siga ahí.
+        """
+        session_id = str(params.get("sessionId") or "") if isinstance(params, dict) else ""
+        t_start, t_silence = _watchdog_delays(method)
+        now = time.monotonic()
+
+        if self._flush_seq.get(session_id, 0) <= baseline:
+            # Arranque mudo: el handler no ha llegado a escribir nada.
+            elapsed = now - started
+            if elapsed < t_start:
+                return False, t_start - elapsed
+            self._warn(method, session_id, elapsed)
+            return True, t_start
+
+        # Escribió y se calló: solo avisa si el silencio es prolongado.
+        silent_for = now - self._last_flush.get(session_id, started)
+        if silent_for < t_silence:
+            return False, t_silence - silent_for
+        self._warn(method, session_id, silent_for)
+        return True, t_silence
+
+    def _warn(self, method: str, session_id: str, seconds: float) -> None:
+        log.warning("watchdog: %s en silencio (%.0fs)", method, seconds)
+        line = dump(
+            {
+                "jsonrpc": "2.0",
+                "method": "notify",
+                "params": {
+                    "sessionId": session_id,
+                    "kind": "warn",
+                    "message": (
+                        f"El motor lleva {seconds:.0f} s sin enviar nada ({method}). "
+                        "Si crees que se ha colgado, cancela el turno o reinicia el motor "
+                        "desde Ajustes."
+                    ),
+                },
+            }
+        )
+        try:
+            with self._out_lock:
+                self._out_stream.write(line + "\n")
+                self._out_stream.flush()
+        except Exception:  # noqa: BLE001 — un aviso jamás debe romper el sidecar
+            log.exception("watchdog: no se pudo escribir el aviso")
 
     # ── Helpers ───────────────────────────────────────────────────────────
     async def _perf(self, _params: dict[str, Any]) -> dict[str, Any]:
@@ -304,8 +555,8 @@ class Bridge:
             "uptimeSec": round(time.monotonic() - self._started, 3),
         }
 
-    def _metrics(self, session_key: str) -> dict[str, Any]:
-        repl = self.sessions.get(session_key)
+    async def _metrics(self, session_key: str) -> dict[str, Any]:
+        repl = await self.sessions.get(session_key)
         metrics = repl.session_metrics
         tokens = metrics.total_input_tokens + metrics.total_output_tokens
         return {
@@ -329,7 +580,7 @@ class Bridge:
     async def _initialize(self, _params: dict[str, Any]) -> dict[str, Any]:
         # Recupera la sesión por defecto si el front-end la cerró.
         self._default_session = self.sessions.ensure_any()
-        repl = self.sessions.get(self._default_session)
+        repl = await self.sessions.get(self._default_session)
         visible = engine_visible_tools(repl.engine)
         return {
             "config": {
@@ -354,7 +605,7 @@ class Bridge:
             },
             "defaultSessionId": self._default_session,
             "cwd": os.getcwd(),
-            "metrics": self._metrics(self._default_session),
+            "metrics": await self._metrics(self._default_session),
         }
 
     async def _session_new(self, _params: dict[str, Any]) -> dict[str, Any]:
@@ -404,7 +655,7 @@ class Bridge:
 
     async def _session_open(self, params: dict[str, Any]) -> dict[str, Any]:
         key = self.sessions.create()
-        repl = self.sessions.get(key)
+        repl = await self.sessions.get(key)
         ok = await repl.load_session(params["id"])
         if not ok:
             await self.sessions.close(key)
@@ -435,7 +686,7 @@ class Bridge:
         return {"ok": True, "defaultSessionId": self._default_session}
 
     async def _turn_run(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         for path in params.get("attachments") or []:
             repl._controller.attachments.attach(path)
         outcome = await repl._run_agent(params["text"])
@@ -455,7 +706,7 @@ class Bridge:
         }
 
     async def _turn_cancel(self, params: dict[str, Any]) -> dict[str, Any]:
-        return {"cancelled": self.sessions.get(params["sessionId"]).cancel_current()}
+        return {"cancelled": (await self.sessions.get(params["sessionId"])).cancel_current()}
 
     @staticmethod
     def _history_messages(repl: Any) -> list[Any]:
@@ -467,7 +718,7 @@ class Bridge:
         return [to_jsonable(n.message) for n in path]
 
     async def _session_undo(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         ok, message = repl.undo_last_turn()
         return {
             "ok": ok,
@@ -476,7 +727,7 @@ class Bridge:
         }
 
     async def _session_rewind(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         ok, message = repl.jump_to_user_turn(params["userNodeId"])
         return {
             "ok": ok,
@@ -485,11 +736,11 @@ class Bridge:
         }
 
     async def _session_jump_candidates(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         return {"candidates": [{"userNodeId": nid, "preview": txt} for nid, txt in repl.jump_candidates()]}
 
     async def _session_compact(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         before, after, ok = await repl.compact_context(params.get("profile"))
         return {
             "ok": ok,
@@ -499,17 +750,18 @@ class Bridge:
         }
 
     async def _session_plan_compact(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         return to_jsonable(repl.plan_compaction(params.get("profile")))
 
     async def _model_set(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         await repl.set_model(params["model"], provider=params.get("provider"))
         return {"ok": True, "model": repl.current_model}
 
     async def _provider_set(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         await repl.set_provider(params["provider"])
+        self._invalidate_models()
         return {"ok": True, "provider": repl.config.provider}
 
     async def _models_list(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -518,17 +770,50 @@ class Bridge:
         Reutiliza `list_available_models` del CLI: consulta al proveedor en
         directo y aplica los overrides de `~/.phoson/models.json`. Si la red
         falla, degrada al modelo actual (comportamiento del engine).
+
+        Cacheado por proveedor (`_MODELS_LIST_TTL`) y con single-flight: el
+        picker lo abre a menudo y la respuesta solo cambia cuando cambia el
+        catálogo del proveedor. Un fallo de red NO se cachea (reintenta en la
+        siguiente llamada).
         """
+        repl = await self.sessions.get(params["sessionId"])
+        cfg = repl.config
+        current = {"model": repl.current_model, "provider": cfg.provider}
+        key = f"{cfg.provider}|{getattr(cfg, 'base_url', '') or ''}"
+
+        cached = self._models_cache.get(key)
+        if cached is not None and (time.monotonic() - cached[0]) < _MODELS_LIST_TTL:
+            return {"current": current, "models": cached[1], "cached": True}
+
+        task = self._models_task.get(key)
+        if task is None:
+            task = asyncio.create_task(self._fetch_models(cfg))
+            self._models_task[key] = task
+        try:
+            models, error = await task
+        finally:
+            if self._models_task.get(key) is task:
+                self._models_task.pop(key, None)
+
+        if error is not None:
+            return {"current": current, "models": [], "error": error}
+        self._models_cache[key] = (time.monotonic(), models)
+        return {"current": current, "models": models}
+
+    async def _fetch_models(self, cfg: Any) -> tuple[list, str | None]:
+        """Catálogo del proveedor serializado, o `(None, error)` si falla."""
         from phoson_cli.model_selector import list_available_models
 
-        repl = self.sessions.get(params["sessionId"])
-        current = {"model": repl.current_model, "provider": repl.config.provider}
         try:
-            options = await list_available_models(repl.config)
+            options = await list_available_models(cfg)
         except Exception as exc:  # noqa: BLE001 — la UI nunca debe caerse
             log.warning("models.list falló: %s", exc)
-            return {"current": current, "models": [], "error": str(exc)}
-        return {"current": current, "models": [to_jsonable(o) for o in options]}
+            return [], str(exc)
+        return [to_jsonable(o) for o in options], None
+
+    def _invalidate_models(self) -> None:
+        """El catálogo depende del proveedor/base_url: un cambio los invalida."""
+        self._models_cache.clear()
 
     # ── Configuración ─────────────────────────────────────────────────────
     # Campos que la GUI puede escribir (seguros de persistir).
@@ -599,7 +884,7 @@ class Bridge:
             enabled_providers_from_config,
         )
 
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         cfg = repl.config
         return {
             "provider": cfg.provider,
@@ -622,7 +907,7 @@ class Bridge:
         (write-only: entran, nunca salen)."""
         from phoson_cli.config import save_config
 
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         cfg = repl.config
         patch = params.get("patch") or {}
         secrets = params.get("secrets") or {}
@@ -653,7 +938,9 @@ class Bridge:
             except Exception as exc:  # noqa: BLE001 — guardar no debe fallar por el rebuild
                 log.warning("set_provider tras config.set falló: %s", exc)
 
-        self._emit("session.metrics", self._metrics(params["sessionId"]))
+        self._emit("session.metrics", await self._metrics(params["sessionId"]))
+        # Cambios de proveedor/base_url/clave → el catálogo cacheado ya no sirve.
+        self._invalidate_models()
         return {"ok": True, "path": str(path), "config": await self._config_get(params)}
 
     # ── Explorador de archivos (workspace) ────────────────────────────────
@@ -734,7 +1021,7 @@ class Bridge:
         os.chdir(target)
         # La sesión por defecto aún puede adoptar el nuevo workspace.
         self._default_session = self.sessions.ensure_any()
-        repl = self.sessions.get(self._default_session)
+        repl = await self.sessions.get(self._default_session)
         repl._controller.tree.cwd = str(target)
         self._emit("session.info", {"sessionId": self._default_session, "cwd": str(target)})
         return {"cwd": str(target)}
@@ -931,11 +1218,12 @@ class Bridge:
         }
 
     async def _mcp_get(self, params: dict[str, Any]) -> dict[str, Any]:
-        return self._mcp_summary(self.sessions.get(params["sessionId"]).config)
+        repl = await self.sessions.get(params["sessionId"])
+        return self._mcp_summary(repl.config)
 
     async def _mcp_save(self, params: dict[str, Any]) -> dict[str, Any]:
         """Crea o actualiza un servidor MCP, y recarga los plugins."""
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         cfg = repl.config
         name = str(params["name"]).strip()
         if not name:
@@ -976,7 +1264,7 @@ class Bridge:
         return {"ok": True, "path": path, "mcp": self._mcp_summary(cfg)}
 
     async def _mcp_remove(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         cfg = repl.config
         data = self._mcp_load(cfg)
         servers = dict(self._mcp_servers(data))
@@ -1003,7 +1291,7 @@ class Bridge:
         return out
 
     async def _attachment_list(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         return {"attachments": self._attachment_payload(repl)}
 
     async def _attachment_push(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -1017,7 +1305,7 @@ class Bridge:
         import uuid as _uuid
         from pathlib import Path
 
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         raw = base64.b64decode(params.get("data") or "")
         if not raw:
             raise ValueError("archivo vacío")
@@ -1041,7 +1329,7 @@ class Bridge:
 
         `AttachmentManager` no tiene remove, así que se re-adjunta el resto.
         """
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         manager = repl._controller.attachments
         target = str(params.get("path") or "")
         keep = [str(a.path) for a in manager.list_pending() if str(a.path) != target]
@@ -1060,12 +1348,12 @@ class Bridge:
             log.warning("recarga de plugins falló: %s", exc)
 
     async def _attachment_add(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         repl._controller.attachments.attach(params["path"])
         return {"attachments": to_jsonable(repl._controller.attachments.list_pending())}
 
     async def _attachment_clear(self, params: dict[str, Any]) -> dict[str, Any]:
-        repl = self.sessions.get(params["sessionId"])
+        repl = await self.sessions.get(params["sessionId"])
         repl._controller.attachments.clear()
         return {"attachments": []}
 

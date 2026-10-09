@@ -55,6 +55,43 @@ fn dev_engine_dir() -> PathBuf {
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../phoson-engine-minimal"))
 }
 
+/// cwd con el que arranca el sidecar de un workspace. Es también su
+/// identidad: dos rutas que apuntan a la misma carpeta deben dar el MISMO
+/// sidecar, no dos procesos con engines distintos.
+fn effective_cwd(workspace: Option<&str>) -> PathBuf {
+    match workspace {
+        Some(ws) if !ws.is_empty() && Path::new(ws).is_dir() => PathBuf::from(ws),
+        // Sin workspace: el engine en desarrollo, el cwd del proceso en release
+        // (igual que hace `spawn_bridge` con el sidecar empaquetado).
+        _ => {
+            if cfg!(debug_assertions) {
+                dev_engine_dir()
+            } else {
+                std::env::current_dir().unwrap_or_else(|_| dev_engine_dir())
+            }
+        }
+    }
+}
+
+/// Clave normalizada de un workspace para el mapa de sidecars.
+///
+/// Sin normalizar, la misma carpeta llegaba como claves distintas — la ruta sin
+/// resolver de `main.rs` (`src-tauri/../../phoson-engine-minimal`) y la
+/// resuelta que manda el front (`C:\...\phoson-engine-minimal`) — y se
+/// levantaban dos sidecars: doble `bridge.init`, doble RAM y sesiones que "no
+/// existen" en el otro (`sesión desconocida`).
+pub fn workspace_key(workspace: Option<&str>) -> String {
+    let cwd = effective_cwd(workspace);
+    let canonical = std::fs::canonicalize(&cwd).unwrap_or(cwd);
+    let mut key = canonical.to_string_lossy().to_string();
+    // Windows añade el prefijo `\\?\` al canonicalizar; no debe formar parte de
+    // la clave (rompería la comparación con la ruta "de siempre").
+    if let Some(rest) = key.strip_prefix(r"\\?\") {
+        key = rest.to_string();
+    }
+    key
+}
+
 /// Ruta del intérprete del venv del engine según la plataforma.
 fn dev_python(engine: &Path) -> PathBuf {
     if cfg!(windows) {
@@ -74,16 +111,13 @@ pub fn spawn_bridge(
     workspace: Option<&str>,
 ) -> Result<(Receiver<CommandEvent>, CommandChild), String> {
     // Un workspace inexistente (p. ej. recordado tras mover/borrar la carpeta) no
-    // debe impedir arrancar: cae al sidecar por defecto.
-    let workspace = workspace.filter(|ws| !ws.is_empty() && Path::new(ws).is_dir());
+    // debe impedir arrancar: `effective_cwd` cae al directorio por defecto.
+    let cwd = effective_cwd(workspace);
+    let cwd_str = cwd.to_string_lossy().to_string();
 
     // 1) Sidecar empaquetado (PyInstaller), arrancado en el workspace pedido.
     if let Ok(command) = app.shell().sidecar("phoson-bridge") {
-        let command = match workspace {
-            Some(ws) => command.current_dir(ws),
-            None => command,
-        };
-        if let Ok(pair) = command.spawn() {
+        if let Ok(pair) = command.current_dir(cwd_str.clone()).spawn() {
             return Ok(pair);
         }
     }
@@ -92,18 +126,17 @@ pub fn spawn_bridge(
     let engine = dev_engine_dir();
     let bridge = dev_bridge_dir();
     let python = dev_python(&engine);
-    let cwd = workspace.map(PathBuf::from).unwrap_or(engine);
     eprintln!(
         "[bridge] usando {} (engine: {}, workspace: {})",
         python.display(),
-        dev_engine_dir().display(),
+        engine.display(),
         cwd.display()
     );
     app.shell()
         .command(python.to_string_lossy().to_string())
         .args(["-m", "phoson_bridge"])
         .env("PYTHONPATH", bridge.to_string_lossy().to_string())
-        .current_dir(cwd.to_string_lossy().to_string())
+        .current_dir(cwd_str)
         .spawn()
         .map_err(|e| e.to_string())
 }
@@ -120,7 +153,9 @@ pub async fn rpc(
     params: Option<Value>,
     workspace: Option<String>,
 ) -> Result<Value, String> {
-    let key = workspace.clone().unwrap_or_default();
+    // Clave normalizada: la misma carpeta por dos rutas distintas debe dar el
+    // MISMO sidecar (ver `workspace_key`).
+    let key = workspace_key(workspace.as_deref());
 
     // Spawn on demand del sidecar del workspace, serializado bajo el mismo lock
     // para que dos llamadas concurrentes no arranquen dos procesos.
@@ -183,7 +218,7 @@ pub async fn kill_sidecar(
     state: State<'_, BridgeState>,
     workspace: Option<String>,
 ) -> Result<bool, String> {
-    let key = workspace.unwrap_or_default();
+    let key = workspace_key(workspace.as_deref());
     let child = state.children.lock().unwrap().remove(&key);
     let doomed: Vec<u64> = {
         let pending = state.pending.lock().unwrap();
