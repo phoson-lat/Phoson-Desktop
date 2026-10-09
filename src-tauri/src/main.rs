@@ -25,18 +25,21 @@ fn main() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            // Sidecar por defecto (workspace ""). Los demás se arrancan bajo
-            // demanda, uno por proyecto, en `bridge::rpc`.
+            // Sidecar por defecto. Los demás se arrancan bajo demanda, uno por
+            // proyecto, en `bridge::rpc`. La clave es la MISMA que usaría `rpc`
+            // para ese workspace: si no, el front que pida esa carpeta por su
+            // ruta levantaría un segundo sidecar para el mismo proyecto.
+            let key = bridge::workspace_key(None);
             let (rx, child) = bridge::spawn_bridge(&handle, None).expect(
                 "no se pudo lanzar el bridge (ni sidecar ni python). \
                  Define PHOSON_ENGINE_DIR si tu engine no está en ../phoson-engine-minimal",
             );
             {
                 let state = handle.state::<BridgeState>();
-                state.children.lock().unwrap().insert(String::new(), child);
+                state.children.lock().unwrap().insert(key.clone(), child);
             }
             tauri::async_runtime::spawn(async move {
-                bridge::pump(handle, rx, String::new()).await;
+                bridge::pump(handle, rx, key).await;
             });
             Ok(())
         })
