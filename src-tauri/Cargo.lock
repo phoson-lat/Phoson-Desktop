@@ -2721,7 +2721,7 @@ dependencies = [
 
 [[package]]
 name = "phoson-desktop"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "serde",
  "serde_json",
