@@ -25,6 +25,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useTurnNotifications } from "@/hooks/use-notifications";
 import { syncCloseToTray } from "@/lib/desktop";
+import { logAction, logError, setLogContext } from "@/lib/log";
 import { checkForUpdates } from "@/lib/updater";
 import { DEMO_USER } from "@/lib/demo-content";
 import { mark, record, uptime } from "@/lib/perf";
@@ -92,6 +93,7 @@ export default function App() {  const {
     if (ready && !bootRecorded.current) {
       bootRecorded.current = true;
       record("app:ready", uptime());
+      logAction("app.ready", { ms: Math.round(uptime()) });
     }
   }, [ready]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -105,6 +107,11 @@ export default function App() {  const {
   // El workspace mostrado en la cabecera es el de la **sesión activa**, no un
   // `cwd` global que puede quedar desfasado al cambiar de sesión/proyecto.
   const workspacePath = view?.workspace || cwd;
+
+  // Mantiene el contexto de logging (sesión/workspace activos) al día.
+  useEffect(() => {
+    setLogContext({ session: activeKey ?? null, workspace: view?.workspace ?? cwd ?? null });
+  }, [activeKey, view?.workspace, cwd]);
 
   useEffect(() => {
     void init();
@@ -169,6 +176,7 @@ export default function App() {  const {
 
   useEffect(() => {
     setVisited((current) => (current[section] ? current : { ...current, [section]: true }));
+    logAction("ui.section", { section });
   }, [section]);
 
   useEffect(() => {
@@ -189,6 +197,7 @@ export default function App() {  const {
           ? `Se reiniciará al volver a usarlo: ${basename(workspace)}`
           : "Se reiniciará al volver a usarlo.",
       });
+      logError("engine.terminated", "sidecar detenido", { workspace });
     }).then((fn) => {
       dispose = fn;
     });
@@ -288,7 +297,10 @@ export default function App() {  const {
     e.preventDefault();
     setDragOver(false);
     const files = Array.from(e.dataTransfer.files ?? []);
-    if (files.length) void addFiles(files);
+    if (files.length) {
+      logAction("attach.drop", { count: files.length });
+      void addFiles(files);
+    }
   };
 
   return (

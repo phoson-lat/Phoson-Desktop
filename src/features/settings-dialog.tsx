@@ -3,6 +3,7 @@ import {
   Check,
   Cpu,
   ExternalLink,
+  FolderOpen,
   Info,
   KeyRound,
   Loader2,
@@ -41,6 +42,7 @@ import { Switch } from "@/components/ui/switch";
 import { REASONING_EFFORTS, effortLabel } from "@/lib/reasoning";
 import { PROVIDER_META, providerLabel } from "@/lib/providers";
 import { hideToTray, isCloseToTrayEnabled, setCloseToTrayPref } from "@/lib/desktop";
+import { logPath, openLogFolder } from "@/lib/log";
 import { checkForUpdates, currentVersion, installPendingUpdate, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 
@@ -145,6 +147,7 @@ export function SettingsDialog({
   const [urlDrafts, setUrlDrafts] = useState<Record<string, string>>({});
   const [mcp, setMcp] = useState<McpState | null>(null);
   const [version, setVersion] = useState("0.0.0");
+  const [logFilePath, setLogFilePath] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [upToDate, setUpToDate] = useState(false);
@@ -155,6 +158,7 @@ export function SettingsDialog({
 
   useEffect(() => {
     void currentVersion().then(setVersion);
+    void logPath().then(setLogFilePath);
   }, []);
 
   const runUpdateCheck = async () => {
@@ -838,6 +842,31 @@ export function SettingsDialog({
                       />
                       <Row label="Versión instalada" hint="Phoson Desktop">
                         <span className="font-mono text-xs text-muted-foreground">v{version}</span>
+                      </Row>
+
+                      <Row
+                        label="Registro de acciones"
+                        hint="Diagnóstico local: cada acción, RPC y error (JSONL rotativo). Nada sale de tu equipo."
+                      >
+                        <div className="flex items-center gap-2">
+                          {logFilePath && (
+                            <span
+                              className="max-w-[16rem] truncate font-mono text-[0.68rem] text-muted-foreground"
+                              title={logFilePath}
+                            >
+                              {logFilePath}
+                            </span>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={!isTauri()}
+                            onClick={() => void openLogFolder()}
+                          >
+                            <FolderOpen className="size-3.5" />
+                            Abrir carpeta
+                          </Button>
+                        </div>
                       </Row>
 
                       <Separator />
