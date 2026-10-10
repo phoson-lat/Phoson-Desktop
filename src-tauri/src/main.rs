@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod bridge;
+mod logging;
 mod native;
 
 use bridge::BridgeState;
@@ -21,6 +22,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             bridge::rpc,
             bridge::kill_sidecar,
+            logging::log_append,
+            logging::log_path,
+            logging::log_open_dir,
             native::app_info,
             native::open_path,
             native::open_url,

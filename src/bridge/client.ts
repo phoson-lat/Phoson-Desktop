@@ -14,6 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { record } from "@/lib/perf";
+import { logEvent } from "@/lib/log";
 
 import type {
   Attachment,
@@ -65,10 +66,48 @@ export async function openPath(path: string): Promise<void> {
 class TauriBridge implements Bridge {
   async rpc<T = Json>(method: string, params?: Json, workspace?: string | null): Promise<T> {
     // Punto único de paso de todas las acciones del frontend al sidecar: aquí
-    // se mide “tiempo de cada acción”. `phosonPerf.summary()` lo agrega.
+    // se mide “tiempo de cada acción” y se registra cada RPC para analizar
+    // calidad (latencia, errores). `phosonPerf.summary()` lo agrega.
     const start = performance.now();
+    const p = (params ?? {}) as Record<string, unknown>;
+    const sessionId =
+      (p.sessionId as string | undefined) ?? (p.session_id as string | undefined) ?? null;
     try {
-      return await invoke<T>("rpc", { method, params: params ?? {}, workspace: workspace ?? null });
+      const out = await invoke<T>("rpc", {
+        method,
+        params: params ?? {},
+        workspace: workspace ?? null,
+      });
+      logEvent(
+        "rpc",
+        {
+          method,
+          workspace: workspace ?? null,
+          sessionId,
+          ms: Math.round(performance.now() - start),
+          ok: true,
+          params: p,
+        },
+        "info",
+        "rpc",
+      );
+      return out;
+    } catch (error) {
+      logEvent(
+        "rpc",
+        {
+          method,
+          workspace: workspace ?? null,
+          sessionId,
+          ms: Math.round(performance.now() - start),
+          ok: false,
+          params: p,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "error",
+        "rpc",
+      );
+      throw error;
     } finally {
       record(`rpc:${method}`, performance.now() - start);
     }

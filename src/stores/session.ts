@@ -10,6 +10,7 @@
 import { create } from "zustand";
 
 import { phoson, bindSessionWorkspace, unbindSessionWorkspace, setCurrentWorkspace, getCurrentWorkspace } from "../bridge/client";
+import { logAction, logError, logEvent } from "../lib/log";
 import { isImageFile } from "../lib/files";
 import type {
   AgentEvent,
@@ -274,6 +275,11 @@ const pending = new Map<string, PendingChunk>();
 const FLUSH_MS = 32;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Instante de inicio del turno en curso, por sesión (para medir su duración). */
+const turnStart = new Map<string, number>();
+/** Herramientas invocadas en el turno en curso, por sesión (para el resumen). */
+const turnTools = new Map<string, string[]>();
+
 /** Apende texto a las partes sin cruzar tool calls. */
 const appendTextToParts = (parts: MessagePart[], chunk: string): MessagePart[] => {
   const out = [...parts];
@@ -413,6 +419,10 @@ export const useSession = create<SessionState>((set, get) => {
         };
         // Se añade como parte: mantiene el orden respecto al texto del stream.
         patchLastAssistant(key, (m) => ({ ...m, parts: [...m.parts, { kind: "tool", tool: card }] }));
+        const tools = turnTools.get(key) ?? [];
+        tools.push(card.name);
+        turnTools.set(key, tools);
+        logEvent("tool.start", { sessionId: key, tool: card.name, args: event.args }, "info", "engine");
         break;
       }
       case "AgentToolDoneEvent":
@@ -432,6 +442,18 @@ export const useSession = create<SessionState>((set, get) => {
               : part,
           ),
         }));
+        logEvent(
+          "tool.done",
+          {
+            sessionId: key,
+            toolCallId: event.tool_call_id,
+            ok: !event.error,
+            error: event.error,
+            resultChars: typeof event.result === "string" ? event.result.length : undefined,
+          },
+          event.error ? "warn" : "info",
+          "engine",
+        );
         break;
       case "AgentErrorEvent":
         patchLastAssistant(key, (m) => ({
@@ -439,6 +461,7 @@ export const useSession = create<SessionState>((set, get) => {
           status: "error",
           parts: mergeTextParts([...m.parts, { kind: "text", text: String(event.message ?? "Error") }]),
         }));
+        logError("turn.error", String(event.message ?? "Error"), { sessionId: key });
         break;
       default:
         break;
@@ -495,6 +518,20 @@ export const useSession = create<SessionState>((set, get) => {
               status === "done" ? "done" : status === "cancelled" ? "cancelled" : "error",
           }));
           patchView(key, (v) => ({ ...v, sending: false }));
+          const started = turnStart.get(key);
+          turnStart.delete(key);
+          logEvent(
+            "turn.done",
+            {
+              sessionId: key,
+              status,
+              ms: started ? Date.now() - started : undefined,
+              tools: turnTools.get(key) ?? [],
+            },
+            status === "done" ? "info" : "warn",
+            "engine",
+          );
+          turnTools.delete(key);
           break;
         }
         case "session.history":
@@ -512,18 +549,34 @@ export const useSession = create<SessionState>((set, get) => {
           if (key) patchView(key, (v) => ({ ...v, attachments: [] }));
           break;
         case "notify":
-          if (key)
+          if (key) {
             patchView(key, (v) => ({
               ...v,
               notifications: [...v.notifications, envelope.params as NotifyMessage],
             }));
+            const n = envelope.params as NotifyMessage;
+            logEvent(
+              "engine.notify",
+              { sessionId: key, kind: n?.kind, message: n?.message },
+              n?.kind === "error" ? "warn" : "info",
+              "engine",
+            );
+          }
           break;
         case "confirm.request":
-          if (key)
+          if (key) {
             patchView(key, (v) => ({
               ...v,
               confirmations: [...v.confirmations, envelope.params as ConfirmRequest],
             }));
+            const c = envelope.params as ConfirmRequest;
+            logEvent(
+              "confirm.request",
+              { sessionId: key, requestId: c?.requestId, kind: c?.kind },
+              "info",
+              "engine",
+            );
+          }
           break;
         case "subagent.progress": {
           if (!key) break;
@@ -561,6 +614,7 @@ export const useSession = create<SessionState>((set, get) => {
           break;
         }
         default:
+          logEvent("engine.event", { sessionId: key, method: envelope.method }, "debug", "engine");
           break;
       }
     });
@@ -607,6 +661,7 @@ export const useSession = create<SessionState>((set, get) => {
           }
           if (!info) {
             set({ ready: false, bootError: lastError || "no se pudo inicializar el engine" });
+            logError("engine.init", lastError || "no se pudo inicializar el engine");
             return;
           }
           const key = info.defaultSessionId;
@@ -633,10 +688,22 @@ export const useSession = create<SessionState>((set, get) => {
               [key]: { ...emptyView(key), metrics: info.metrics, workspace },
             },
           }));
+          logEvent(
+            "engine.ready",
+            {
+              sessionId: key,
+              workspace,
+              onboardingNeeded: Boolean(info.onboarding?.needed) && !dismissed,
+              tools: info.tools?.visible?.length ?? 0,
+            },
+            "info",
+            "engine",
+          );
         } catch (e) {
           // Cualquier fallo (p. ej. `attach` rechazando) deja el estado listo
           // para reintentar, en vez de una promesa rechazada sin manejar.
           set({ ready: false, bootError: String(e) });
+          logError("engine.init", e);
         } finally {
           if (!get().ready) bootPromise = null;
         }
@@ -668,11 +735,15 @@ export const useSession = create<SessionState>((set, get) => {
         ],
       }));
       try {
+        logAction("turn.send", { sessionId: key, chars: text.length, uploads: uploads.length });
+        turnStart.set(key, Date.now());
+        turnTools.set(key, []);
         await phoson.runTurn(key, outgoing);
       } catch (e) {
         // Si la RPC falla (sidecar caído, error del bridge) no podemos dejar la
         // sesión "enviando" y el mensaje "streaming" para siempre.
         const message = String(e).replace(/^Error:\s*/, "");
+        logError("turn.send", e, { sessionId: key });
         patchLastAssistant(key, (m) => ({
           ...m,
           status: "error",
@@ -691,7 +762,10 @@ export const useSession = create<SessionState>((set, get) => {
 
     cancel: async () => {
       const key = get().activeKey;
-      if (key) await phoson.cancelTurn(key);
+      if (key) {
+        logAction("turn.cancel", { sessionId: key });
+        await phoson.cancelTurn(key);
+      }
     },
 
     undoLastTurn: async () => {
@@ -743,6 +817,7 @@ export const useSession = create<SessionState>((set, get) => {
         ? [...view.messages].reverse().find((m) => m.role === "user")
         : undefined;
       if (!lastUser) return;
+      logAction("turn.regenerate", { sessionId: key });
       if (!(await get().undoLastTurn())) {
         patchView(key, (v) => ({
           ...v,
@@ -782,6 +857,7 @@ export const useSession = create<SessionState>((set, get) => {
           },
         },
       }));
+      logAction("session.new", { sessionId, workspace: effective || routeKey });
     },
 
     openSession: async (engineId, workspace) => {
@@ -820,10 +896,12 @@ export const useSession = create<SessionState>((set, get) => {
           },
         };
       });
+      logAction("session.open", { sessionId, engineId, workspace: effective || routeKey });
     },
 
     closeSession: async (key: string) => {
       await phoson.closeSession(key);
+      logAction("session.close", { sessionId: key });
       unbindSessionWorkspace(key);
       // Sin esto, un flush pendiente resucitaría la vista cerrada (upsert).
       pending.delete(key);
@@ -841,14 +919,16 @@ export const useSession = create<SessionState>((set, get) => {
       if (get().order.length === 0) await get().newSession();
     },
 
-    setActive: (key) =>
+    setActive: (key) => {
+      logAction("session.activate", { sessionId: key });
       set((s) => ({
         activeKey: key,
         // El `cwd` mostrado es el del sidecar de la sesión **activa**, no el
         // último usado: al cambiar de sesión entre workspaces, la etiqueta debe
         // seguirla (si no, muestra un proyecto distinto al que realmente corre).
         cwd: s.sessions[key]?.workspace || s.cwd,
-      })),
+      }));
+    },
 
     respondConfirm: async (requestId, decision) => {
       const key = get().activeKey;
@@ -858,6 +938,7 @@ export const useSession = create<SessionState>((set, get) => {
         confirmations: v.confirmations.filter((c) => c.requestId !== requestId),
       }));
       await phoson.respondConfirm(key, requestId, decision);
+      logAction("confirm.respond", { sessionId: key, requestId, decision });
     },
 
     respondInteraction: async (requestId, payload) => {
@@ -868,6 +949,7 @@ export const useSession = create<SessionState>((set, get) => {
         confirmations: v.confirmations.filter((c) => c.requestId !== requestId),
       }));
       await phoson.respondInteraction(key, requestId, payload);
+      logAction("interaction.respond", { sessionId: key, requestId, keys: Object.keys(payload) });
     },
 
     loadAttachments: async () => {
@@ -884,6 +966,7 @@ export const useSession = create<SessionState>((set, get) => {
     addFiles: async (files) => {
       const key = get().activeKey;
       if (!key || files.length === 0) return;
+      logAction("attach.add", { sessionId: key, count: files.length, names: files.map((f) => f.name) });
       const notify = (message: string, kind: "warn" | "error" = "warn") =>
         patchView(key, (v) => ({
           ...v,
@@ -949,6 +1032,7 @@ export const useSession = create<SessionState>((set, get) => {
     setWorkspace: async (path) => {
       // Un workspace nuevo = su propio sidecar (su propio cwd de proceso).
       // Abrimos una sesión ahí para dejarlo activo sin pisar las demás.
+      logAction("workspace.set", { path });
       setCurrentWorkspace(path);
       rememberWorkspace(path);
       set({ cwd: path });
@@ -963,6 +1047,7 @@ export const useSession = create<SessionState>((set, get) => {
         /* almacenamiento no disponible */
       }
       set({ onboardingNeeded: true });
+      logAction("onboarding.start");
     },
 
     finishOnboarding: () => {
@@ -972,6 +1057,7 @@ export const useSession = create<SessionState>((set, get) => {
         /* almacenamiento no disponible */
       }
       set({ onboardingNeeded: false });
+      logAction("onboarding.finish");
     },
   };
 });

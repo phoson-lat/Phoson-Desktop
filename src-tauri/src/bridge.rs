@@ -27,6 +27,8 @@ use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::oneshot;
 
+use crate::logging;
+
 #[derive(Default)]
 pub struct BridgeState {
     /// Un sidecar por workspace. Clave = ruta del workspace; `""` = el sidecar
@@ -118,6 +120,13 @@ pub fn spawn_bridge(
     // 1) Sidecar empaquetado (PyInstaller), arrancado en el workspace pedido.
     if let Ok(command) = app.shell().sidecar("phoson-bridge") {
         if let Ok(pair) = command.current_dir(cwd_str.clone()).spawn() {
+            logging::event(
+                app,
+                "info",
+                "engine",
+                "engine.spawn",
+                json!({ "workspace": cwd_str, "mode": "sidecar" }),
+            );
             return Ok(pair);
         }
     }
@@ -132,13 +141,30 @@ pub fn spawn_bridge(
         engine.display(),
         cwd.display()
     );
-    app.shell()
+    let spawned = app
+        .shell()
         .command(python.to_string_lossy().to_string())
         .args(["-m", "phoson_bridge"])
         .env("PYTHONPATH", bridge.to_string_lossy().to_string())
-        .current_dir(cwd_str)
-        .spawn()
-        .map_err(|e| e.to_string())
+        .current_dir(cwd_str.clone())
+        .spawn();
+    match &spawned {
+        Ok(_) => logging::event(
+            app,
+            "info",
+            "engine",
+            "engine.spawn",
+            json!({ "workspace": cwd_str, "mode": "python", "python": python.to_string_lossy() }),
+        ),
+        Err(e) => logging::event(
+            app,
+            "error",
+            "engine",
+            "engine.spawn",
+            json!({ "workspace": cwd_str, "mode": "python", "error": e.to_string() }),
+        ),
+    }
+    spawned.map_err(|e| e.to_string())
 }
 
 /// Comando expuesto al frontend: `invoke('rpc', { method, params, workspace })`.
@@ -284,10 +310,25 @@ pub async fn pump(
                 }
             }
             CommandEvent::Stderr(chunk) => {
-                eprintln!("[bridge {workspace}] {}", String::from_utf8_lossy(&chunk));
+                let text = String::from_utf8_lossy(&chunk).to_string();
+                eprintln!("[bridge {workspace}] {text}");
+                logging::event(
+                    &app,
+                    "warn",
+                    "engine",
+                    "engine.stderr",
+                    json!({ "workspace": workspace, "text": text.trim() }),
+                );
             }
             CommandEvent::Error(err) => {
                 eprintln!("[bridge {workspace}] error del proceso: {err}");
+                logging::event(
+                    &app,
+                    "error",
+                    "engine",
+                    "engine.process-error",
+                    json!({ "workspace": workspace, "error": err }),
+                );
             }
             CommandEvent::Terminated(payload) => {
                 let state = app.state::<BridgeState>();
@@ -316,6 +357,13 @@ pub async fn pump(
                 }
                 let _ = app.emit(
                     "phoson://terminated",
+                    json!({ "workspace": workspace, "code": payload.code }),
+                );
+                logging::event(
+                    &app,
+                    "error",
+                    "engine",
+                    "engine.terminated",
                     json!({ "workspace": workspace, "code": payload.code }),
                 );
                 break;
