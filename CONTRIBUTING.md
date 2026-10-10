@@ -37,6 +37,8 @@ CI (`.github/workflows/ci.yml`) runs these on every push/PR.
 - Match the surrounding code; comments in **Spanish** (codebase convention).
 - Keep commits focused; reference the area in the subject
   (e.g. `fix(ui):`, `feat(perf):`, `chore(release):`).
+- Write commit messages and PR titles/descriptions in **English** (issue
+  discussion and code comments stay in Spanish).
 - Don't commit secrets or signing keys (`.gitignore` already excludes `*.key`).
 
 ## Releasing
