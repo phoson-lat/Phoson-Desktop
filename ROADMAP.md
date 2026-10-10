@@ -45,7 +45,7 @@ después *ampliar* (distribución y producto).
 |---|---|---|---|---|
 | 4.1 | **Integrar `peers`**: el engine ya permite agentes con nombre que se mensajean entre ventanas (`peer_ask`/`peer_send`) → chat entre sesiones/proyectos. Feature distintiva | P1 | M | app |
 | 4.2 | **Swarms de agentes**: sigue en «Próximamente» hasta que el engine exponga G1–G3 (grafo/rutas/mensajería directa) | P2 | L | app+engine |
-| 4.3 | **Tray + notificaciones nativas** para los *wakes* (turnos autónomos) y **keychain** para secretos | P2 | M | app |
+| 4.3 | **Tray + notificaciones nativas** para los *wakes* (turnos autónomos) y **keychain** para secretos. **Parcial hecho**: bandeja del sistema en Windows + avisos nativos al terminar turnos/pedir confirmación; falta keychain y el aviso de los *wakes* | P2 | S (resto) | app |
 
 ## 5. Pulido
 

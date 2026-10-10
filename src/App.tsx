@@ -11,6 +11,8 @@ import { Composer } from "@/features/composer";
 import { CodeViewer } from "@/features/code-viewer";
 import { ContextMeter } from "@/features/context-meter";
 import { FileExplorer } from "@/features/file-explorer";
+import { InteractionCard } from "@/features/questions-card";
+import { PluginBlocks } from "@/features/plugin-blocks";
 import { MessageRow } from "@/features/message";
 import { Onboarding } from "@/features/onboarding";
 import { SettingsDialog } from "@/features/settings-dialog";
@@ -21,6 +23,8 @@ import { Welcome } from "@/features/welcome";
 import { ComingSoon } from "@/features/coming-soon";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { useTurnNotifications } from "@/hooks/use-notifications";
+import { syncCloseToTray } from "@/lib/desktop";
 import { checkForUpdates } from "@/lib/updater";
 import { DEMO_USER } from "@/lib/demo-content";
 import { mark, record, uptime } from "@/lib/perf";
@@ -43,6 +47,7 @@ export default function App() {  const {
     closeSession,
     setActive,
     respondConfirm,
+    respondInteraction,
     onboardingNeeded,
     bootError,
     startOnboarding,
@@ -220,6 +225,14 @@ export default function App() {  const {
   }, [view?.title, messages]);
 
   // El título de la ventana sigue a la conversación (barra de tareas, alt-tab).
+  /** Preferencia «cerrar a la bandeja» → shell nativa (Windows). */
+  useEffect(() => {
+    syncCloseToTray();
+  }, []);
+
+  // Avisos del sistema al terminar turnos (en cualquier sesión, no solo la activa).
+  useTurnNotifications(sessions, activeKey);
+
   useEffect(() => {
     const label = `${title} · Phoson`;
     document.title = label;
@@ -400,7 +413,23 @@ export default function App() {  const {
 
           <SubagentPanel tasks={view?.subagents ?? []} />
 
-          {view?.confirmations.map((c) => (
+          {/* Bloques de UI vivos de plugins (todo/progress/kv/notice). */}
+          <PluginBlocks blocks={Object.values(view?.pluginBlocks ?? {})} />
+
+          {/* Interacciones de plugins (tool `questions` y su fallback select/form):
+              el agente espera la respuesta para continuar el turno. */}
+          {view?.confirmations
+            .filter((c) => (c.kind ?? "bash") !== "bash")
+            .map((c) => (
+              <InteractionCard
+                key={c.requestId}
+                request={c}
+                onAnswer={(requestId, payload) => void respondInteraction(requestId, payload)}
+                onCancel={(requestId) => void respondInteraction(requestId, { cancelled: true })}
+              />
+            ))}
+
+          {view?.confirmations.filter((c) => (c.kind ?? "bash") === "bash").map((c) => (
             <div
               key={c.requestId}
               role="alertdialog"
@@ -412,7 +441,7 @@ export default function App() {  const {
                 <Sparkles className="size-3.5 text-violet" /> ¿Ejecutar comando?
               </div>
               <pre className="mb-3 overflow-x-auto rounded-md border border-dashboard-border-soft bg-black/20 p-2 text-[0.75rem]">
-                {c.command}
+                {c.command ?? ""}
               </pre>
               <div className="flex flex-wrap gap-2">
                 <button

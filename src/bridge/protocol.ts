@@ -61,10 +61,84 @@ export interface SessionMeta {
 export interface ConfirmRequest {
   sessionId: string;
   requestId: string;
-  kind: "bash";
-  command: string;
-  actions: Array<"yes" | "always" | "no">;
+  /**
+   * Qué pide la interacción: `bash` (confirmación de comando) · `questions`
+   * (tool `questions` del plugin, 1–4 preguntas de opción múltiple) ·
+   * `select`/`form` (fallback de los primitivos del `PluginUiService`).
+   */
+  kind: "bash" | "questions" | "select" | "form";
+  /** kind `bash`. */
+  command?: string;
+  actions?: Array<"yes" | "always" | "no">;
+  /** kinds `questions` | `select` | `form`. */
+  title?: string;
+  message?: string;
+  questions?: Question[];
+  choices?: Choice[];
+  fields?: FormField[];
 }
+
+/** Opción de una pregunta (`QuestionOption` del engine serializada). */
+export interface QuestionOption {
+  id: string;
+  label: string;
+  description?: string | null;
+}
+
+/** Pregunta de opción múltiple (`Question` del engine serializada). */
+export interface Question {
+  id: string;
+  header: string;
+  question: string;
+  options: QuestionOption[];
+  /** true = se puede elegir más de una opción. */
+  multi_select?: boolean;
+  /** true = se ofrece respuesta libre ("Otro"). */
+  allow_other?: boolean;
+}
+
+/** Elección de un `select` (`Choice` del engine serializada). */
+export interface Choice {
+  id: string;
+  label: string;
+  detail?: string | null;
+}
+
+/** Campo de un `form` (`FormField` del engine serializado). */
+export interface FormField {
+  id: string;
+  label: string;
+  kind?: "text" | "password" | "integer";
+  required?: boolean;
+  default?: string | null;
+  help?: string | null;
+}
+
+/** Item de un `TodoListBlock` de plugin (`TodoItem` del engine serializado). */
+export interface PluginTodoItem {
+  id: string;
+  title: string;
+  completed?: boolean;
+  detail?: string | null;
+}
+
+/**
+ * Bloque de UI publicado por un plugin (`UiBlock` del engine serializado, con
+ * `type` = nombre de la dataclass). La UI los pinta como bloque nativo y se
+ * actualizan en sitio (`replace`) o desaparecen (`plugin.block.remove`).
+ */
+export type PluginBlock =
+  | { type: "NoticeBlock"; id: string; kind: "info" | "warn" | "error"; message: string }
+  | { type: "KeyValueBlock"; id: string; title: string; items: Array<[string, string]> }
+  | { type: "TodoListBlock"; id: string; title: string; items: PluginTodoItem[] }
+  | {
+      type: "ProgressBlock";
+      id: string;
+      label: string;
+      completed?: number | null;
+      total?: number | null;
+      detail?: string | null;
+    };
 
 export interface NotifyMessage {
   sessionId: string;
@@ -239,5 +313,6 @@ export interface McpState {
   reasoning_effort?: string | null;
   safe_mode?: boolean;
   theme?: string;
-  notify_on_completion?: boolean;
+  /** `"off" | "bell" | "desktop"` (string, como lo guarda el engine). */
+  notify_on_completion?: string;
 }

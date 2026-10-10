@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   Check,
   Cpu,
   ExternalLink,
@@ -20,7 +21,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useState, type ComponentType } from "react";
 import { toast } from "sonner";
 
-import { phoson } from "@/bridge/client";
+import { isTauri, phoson } from "@/bridge/client";
 import type { ConfigView, McpState } from "@/bridge/protocol";
 import { ProviderLogo } from "@/components/provider-logo";
 import { McpLogo } from "@/components/mcp-logo";
@@ -39,6 +40,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { REASONING_EFFORTS, effortLabel } from "@/lib/reasoning";
 import { PROVIDER_META, providerLabel } from "@/lib/providers";
+import { hideToTray, isCloseToTrayEnabled, setCloseToTrayPref } from "@/lib/desktop";
 import { checkForUpdates, currentVersion, installPendingUpdate, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 
@@ -48,7 +50,15 @@ const SOURCE_LABEL: Record<string, string> = {
   default: "sin configurar",
 };
 
-type SectionId = "models" | "providers" | "local" | "mcp" | "agent" | "appearance" | "about";
+type SectionId =
+  | "models"
+  | "providers"
+  | "local"
+  | "mcp"
+  | "agent"
+  | "desktop"
+  | "appearance"
+  | "about";
 
 const SECTIONS: { id: SectionId; label: string; icon: ComponentType<{ className?: string }> }[] = [
   { id: "models", label: "Modelos", icon: Cpu },
@@ -56,6 +66,7 @@ const SECTIONS: { id: SectionId; label: string; icon: ComponentType<{ className?
   { id: "local", label: "Servidores locales", icon: Server },
   { id: "mcp", label: "MCP", icon: Plug },
   { id: "agent", label: "Agente y sesiones", icon: ShieldCheck },
+  { id: "desktop", label: "Escritorio", icon: AppWindow },
   { id: "appearance", label: "Apariencia", icon: Palette },
   { id: "about", label: "Acerca de", icon: Info },
 ];
@@ -104,6 +115,13 @@ const MCP_PRESETS = [
   },
 ];
 
+/** Opciones de "Notificar al terminar" (mismos valores que `notify_on_completion`). */
+const NOTIFY_MODES: { value: string; label: string }[] = [
+  { value: "desktop", label: "Notificación del sistema" },
+  { value: "bell", label: "Sonido" },
+  { value: "off", label: "Sin aviso" },
+];
+
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -132,6 +150,8 @@ export function SettingsDialog({
   const [upToDate, setUpToDate] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [progress, setProgress] = useState(0);
+  /** Preferencia local «cerrar a la bandeja» (no va en config.toml). */
+  const [closeToTray, setCloseToTray] = useState(() => isCloseToTrayEnabled());
 
   useEffect(() => {
     void currentVersion().then(setVersion);
@@ -693,23 +713,6 @@ export function SettingsDialog({
                           onCheckedChange={(v) => patch({ safeMode: v })}
                         />
                       </Row>
-                      <Row label="Notificar al terminar" hint="Aviso cuando un run acaba.">
-                        <Select
-                          value={config.notifyOnCompletion || "off"}
-                          onValueChange={(v) => patch({ notifyOnCompletion: v })}
-                        >
-                          <SelectTrigger className="h-8 w-28 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {["off", "bell", "desktop"].map((n) => (
-                              <SelectItem key={n} value={n} className="text-xs">
-                                {n}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </Row>
                       <Separator />
                       <div className="space-y-1.5">
                         <Label className="text-xs">Carpeta de sesiones</Label>
@@ -719,6 +722,63 @@ export function SettingsDialog({
                           readOnly
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {/* Escritorio: notificaciones del sistema y bandeja (tray). */}
+                  {section === "desktop" && (
+                    <div className="space-y-5">
+                      <SectionTitle
+                        title="Escritorio"
+                        hint="Avisos del sistema y bandeja del sistema (Windows)."
+                      />
+                      <Row
+                        label="Notificar al terminar"
+                        hint="Cómo avisar cuando un turno termina (o pide confirmación) en segundo plano."
+                      >
+                        <Select
+                          value={config.notifyOnCompletion || "desktop"}
+                          onValueChange={(v) => patch({ notifyOnCompletion: v })}
+                        >
+                          <SelectTrigger className="h-8 w-40 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {NOTIFY_MODES.map((n) => (
+                              <SelectItem key={n.value} value={n.value} className="text-xs">
+                                {n.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Row>
+                      <Row
+                        label="Cerrar a la bandeja"
+                        hint="Al cerrar la ventana la app sigue viva en la bandeja del sistema. Salir por su menú."
+                      >
+                        <Switch
+                          checked={closeToTray}
+                          onCheckedChange={(v) => {
+                            setCloseToTray(v);
+                            setCloseToTrayPref(v);
+                          }}
+                        />
+                      </Row>
+                      {isTauri() && (
+                        <Row
+                          label="Enviar a la bandeja ahora"
+                          hint="Oculta la ventana; el agente y los turnos siguen ejecutándose."
+                        >
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="gap-1.5"
+                            onClick={() => void hideToTray()}
+                          >
+                            <AppWindow className="size-3.5" /> Enviar
+                          </Button>
+                        </Row>
+                      )}
                     </div>
                   )}
 

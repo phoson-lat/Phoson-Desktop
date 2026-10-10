@@ -6,6 +6,7 @@ import {
   History,
   Layers,
   MessageSquare,
+  Minimize2,
   Monitor,
   Moon,
   Plus,
@@ -21,6 +22,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { isTauri, killSidecar, phoson } from "@/bridge/client";
+import { hideToTray } from "@/lib/desktop";
 import type { SessionMeta } from "@/bridge/protocol";
 import {
   CommandDialog,
@@ -228,6 +230,14 @@ export function CommandPalette({
           <CommandItem value="explorador archivos files" onSelect={() => run(onToggleExplorer)}>
             <FolderOpen /> Explorador de archivos
           </CommandItem>
+          {isTauri() && (
+            <CommandItem
+              value="bandeja tray ocultar minimizar hide system tray"
+              onSelect={() => run(() => void hideToTray())}
+            >
+              <Minimize2 /> Enviar a la bandeja
+            </CommandItem>
+          )}
           <CommandItem value="ajustes settings config" onSelect={() => run(onOpenSettings)}>
             <Settings /> Abrir ajustes
           </CommandItem>
