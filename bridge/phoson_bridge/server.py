@@ -44,6 +44,7 @@ from phoson_cli.session_utils import engine_masked_count, engine_visible_tools
 from .sink import GuiSink
 from .protocol import dump, to_jsonable
 from .confirmation import GuiConfirmation
+from .plugin_ui import install as install_plugin_ui
 from .stt import SttManager
 
 log = logging.getLogger("phoson_bridge")
@@ -149,6 +150,14 @@ class SessionManager:
         sesiones esperaron 7.7 s detrás de un solo `bridge.init`. Las RPC
         concurrentes comparten la construcción en curso en vez de duplicarla.
         """
+        repl = await self._get(key)
+        # `_rebuild_engine` (cambio de modelo/config) inyecta el
+        # `SinkPluginUiService` del engine, que renderiza los UiBlock a Rich:
+        # reponemos el nuestro (idempotente y barato) antes de cualquier uso.
+        install_plugin_ui(repl)
+        return repl
+
+    async def _get(self, key: str) -> PhosonRepl:
         repl = self._repls.get(key)
         if repl is not None:
             return repl

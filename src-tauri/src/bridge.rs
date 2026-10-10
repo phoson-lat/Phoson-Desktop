@@ -242,6 +242,27 @@ pub async fn kill_sidecar(
     }
 }
 
+/// Mata **todos** los sidecars y falla sus RPC en vuelo. Se llama al salir de la
+/// app (cualquier vía: bandeja, cerrar ventana, relaunch del updater): sin esto
+/// los procesos Python quedarían huérfanos en Windows.
+pub fn kill_all(app: &AppHandle) {
+    let state = app.state::<BridgeState>();
+    let children: Vec<CommandChild> = {
+        let mut guard = state.children.lock().unwrap();
+        guard.drain().map(|(_, child)| child).collect()
+    };
+    let doomed: Vec<oneshot::Sender<Result<Value, String>>> = {
+        let mut pending = state.pending.lock().unwrap();
+        pending.drain().map(|(_, (_, tx))| tx).collect()
+    };
+    for tx in doomed {
+        let _ = tx.send(Err("la aplicación se cerró".to_string()));
+    }
+    for child in children {
+        let _ = child.kill();
+    }
+}
+
 /// Bucle de lectura del stdout de un sidecar. Llama una vez por proceso.
 pub async fn pump(
     app: AppHandle,

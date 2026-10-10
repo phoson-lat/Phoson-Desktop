@@ -679,4 +679,14 @@ export const phoson = {
     call<{ cancelled: boolean }>("turn.cancel", { sessionId }),
   respondConfirm: (sessionId: string, requestId: string, decision: "yes" | "always" | "no") =>
     call("confirm.respond", { sessionId, requestId, decision }),
+  /**
+   * Responde una interacción de plugin (`questions`/`select`/`form`): el payload
+   * va tal cual al Future que espera `GuiConfirmation` (p. ej. `{ selections,
+   * other }` para questions, `{ choice }` para select, `{ values }` para form).
+   */
+  respondInteraction: (
+    sessionId: string,
+    requestId: string,
+    payload: Record<string, Json>,
+  ) => call("confirm.respond", { sessionId, requestId, ...payload }),
 };

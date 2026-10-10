@@ -17,6 +17,7 @@ import type {
   InitResult,
   ConfirmRequest,
   NotifyMessage,
+  PluginBlock,
   RunMetrics,
   SubagentTask,
   UploadedFile,
@@ -92,6 +93,11 @@ export interface SessionView {
   workspace: string;
   /** Subtareas (subagentes) en curso o finalizadas de este turno. */
   subagents: SubagentTask[];
+  /**
+   * Bloques de UI vivos publicados por plugins (`UiBlock`), por `blockId`:
+   * se actualizan en sitio y se limpian al empezar un turno nuevo.
+   */
+  pluginBlocks: Record<string, PluginBlock>;
   /** Archivos no nativos subidos al workspace (se referencian en el prompt). */
   uploads: UploadedFile[];
 }
@@ -121,6 +127,11 @@ interface SessionState {
   closeSession: (key: string) => Promise<void>;
   setActive: (key: string) => void;
   respondConfirm: (requestId: string, decision: "yes" | "always" | "no") => Promise<void>;
+  /**
+   * Responde una interacción de plugin (`questions`/`select`/`form`); el payload
+   * se interpreta en `GuiConfirmation` según el `kind` de la petición.
+   */
+  respondInteraction: (requestId: string, payload: Record<string, unknown>) => Promise<void>;
   /** Adjuntos: pegar, arrastrar o elegir archivos. */
   loadAttachments: () => Promise<void>;
   addFiles: (files: File[]) => Promise<void>;
@@ -165,6 +176,7 @@ const emptyView = (key: string): SessionView => ({
   sending: false,
   workspace: "",
   subagents: [],
+  pluginBlocks: {},
   uploads: [],
 });
 
@@ -486,8 +498,14 @@ export const useSession = create<SessionState>((set, get) => {
           break;
         }
         case "session.history":
-          // Replay al cargar una sesión previa.
-          if (key) patchView(key, (v) => ({ ...v, messages: historyToMessages(params) }));
+          // Replay al cargar una sesión previa (sin bloques de plugins: son de
+          // la ejecución, no del historial).
+          if (key)
+            patchView(key, (v) => ({
+              ...v,
+              messages: historyToMessages(params),
+              pluginBlocks: {},
+            }));
           break;
         case "attachments.changed":
           // El controller los volcó en el turno: ya no están pendientes.
@@ -512,6 +530,34 @@ export const useSession = create<SessionState>((set, get) => {
           // El sidecar manda `null` al terminar; `tasks` vacío limpia el panel.
           const progress = params.progress as { tasks?: SubagentTask[] } | null;
           patchView(key, (v) => ({ ...v, subagents: progress?.tasks ?? [] }));
+          break;
+        }
+        case "session.user_message":
+          // Los bloques de plugins son UI efímera del turno: al empezar uno
+          // nuevo se limpian (los de este turno reaparecen por `plugin.block`).
+          if (key) patchView(key, (v) => ({ ...v, pluginBlocks: {} }));
+          break;
+        case "plugin.block": {
+          // Publicado (`replace: false`) o actualizado en sitio (`replace: true`).
+          if (!key) break;
+          const block = params.block as PluginBlock | undefined;
+          const blockId = String(params.blockId ?? block?.id ?? "");
+          if (!block || !blockId) break;
+          patchView(key, (v) => ({
+            ...v,
+            pluginBlocks: { ...v.pluginBlocks, [blockId]: block },
+          }));
+          break;
+        }
+        case "plugin.block.remove": {
+          if (!key) break;
+          const blockId = String(params.blockId ?? "");
+          if (!blockId) break;
+          patchView(key, (v) => {
+            const rest = { ...v.pluginBlocks };
+            delete rest[blockId];
+            return { ...v, pluginBlocks: rest };
+          });
           break;
         }
         default:
@@ -812,6 +858,16 @@ export const useSession = create<SessionState>((set, get) => {
         confirmations: v.confirmations.filter((c) => c.requestId !== requestId),
       }));
       await phoson.respondConfirm(key, requestId, decision);
+    },
+
+    respondInteraction: async (requestId, payload) => {
+      const key = get().activeKey;
+      if (!key) return;
+      patchView(key, (v) => ({
+        ...v,
+        confirmations: v.confirmations.filter((c) => c.requestId !== requestId),
+      }));
+      await phoson.respondInteraction(key, requestId, payload);
     },
 
     loadAttachments: async () => {

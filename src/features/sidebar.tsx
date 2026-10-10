@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, Search, PanelLeft, MessageSquare, Settings, Trash2, Users, X, SquarePen } from "lucide-react";
+import { AlertTriangle, Bot, Loader2, Search, PanelLeft, MessageSquare, Settings, Trash2, Users, X, SquarePen } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { toast } from "sonner";
 
@@ -114,6 +114,15 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Indicador de sesión «running»: el agente está generando respuesta. */
+function RunningDot() {
+  return (
+    <span title="Generando respuesta…" className="shrink-0 text-violet">
+      <Loader2 className="size-3 animate-spin" />
+    </span>
+  );
+}
+
 /* ── Barra lateral ─────────────────────────────────────────────────────── */
 
 export function Sidebar({
@@ -206,6 +215,17 @@ export function Sidebar({
     for (const key of order) {
       const view = sessions[key];
       if (view?.engineId && view.title?.trim()) map.set(view.engineId, view.title.trim());
+    }
+    return map;
+  }, [order, sessions]);
+
+  // Sesiones abiertas indexadas por id de engine: de ahí sale el indicador
+  // «running» de las guardadas (p. ej. un turno lanzado y luego navegado).
+  const liveById = useMemo(() => {
+    const map = new Map<string, SessionView>();
+    for (const key of order) {
+      const view = sessions[key];
+      if (view?.engineId) map.set(view.engineId, view);
     }
     return map;
   }, [order, sessions]);
@@ -362,6 +382,7 @@ export function Sidebar({
                           onClick={() => onSelect(key)}
                           trailing={
                             <span className="flex shrink-0 items-center gap-1.5">
+                              {sessions[key]?.sending && <RunningDot />}
                               {(sessions[key]?.subagents.length ?? 0) > 0 && (
                                 <span
                                   title={`Subagentes en curso (${sessions[key]?.subagents.length})`}
@@ -375,7 +396,7 @@ export function Sidebar({
                               )}
                               {(sessions[key]?.confirmations.length ?? 0) > 0 && (
                                 <span
-                                  title="Esta sesión espera una confirmación"
+                                  title="Esta sesión espera tu respuesta"
                                   className="text-amber-500"
                                 >
                                   <AlertTriangle className="size-3" />
@@ -447,6 +468,7 @@ export function Sidebar({
                               </span>
                             ) : (
                               <span className="flex shrink-0 items-center gap-1.5">
+                                {liveById.get(s.id)?.sending && <RunningDot />}
                                 <span className="text-[0.65rem] text-muted-foreground">
                                   {s.message_count}
                                 </span>

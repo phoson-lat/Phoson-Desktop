@@ -11,6 +11,7 @@ sink, no un fork.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any, Callable
 
 from phoson_agent import AgentReasoningEvent
@@ -19,6 +20,16 @@ from .protocol import to_jsonable
 
 #: (método_notificación, params) -> encolado, síncrono y no bloqueante.
 Emit = Callable[[str, dict[str, Any]], None]
+
+
+def _is_ui_block(block: Any) -> bool:
+    """True si *block* es una dataclass ``UiBlock`` del engine (no un Rich renderable)."""
+    return dataclasses.is_dataclass(block) and not isinstance(block, type) and type(block).__name__ in {
+        "NoticeBlock",
+        "KeyValueBlock",
+        "TodoListBlock",
+        "ProgressBlock",
+    }
 
 
 class GuiSink:
@@ -102,6 +113,32 @@ class GuiSink:
 
     def on_subagent_progress(self, progress: object | None) -> None:
         self._notify("subagent.progress", {"progress": self._subagent_snapshot(progress)})
+
+    # -- bloques de plugins (PluginUiService) ---------------------------------
+    #
+    # Los hooks llevan el nombre que el `SinkPluginUiService` del engine busca
+    # por duck-typing. `GuiPluginUiService` los llama con el bloque NEUTRO (la
+    # dataclass); si alguien llegara con un renderizado Rich (el camino heredado
+    # del engine), degradamos a texto como hasta ahora en vez de romper.
+
+    def publish_plugin_block(self, block_id: str, block: Any) -> None:
+        self._plugin_block(block_id, block, replace=False)
+
+    def replace_plugin_block(self, block_id: str, block: Any) -> None:
+        self._plugin_block(block_id, block, replace=True)
+
+    def remove_plugin_block(self, block_id: str) -> None:
+        self._notify("plugin.block.remove", {"blockId": block_id})
+
+    def _plugin_block(self, block_id: str, block: Any, *, replace: bool) -> None:
+        if not _is_ui_block(block):
+            # Camino heredado: el engine pasó un renderable Rich.
+            self.notify("info", str(block))
+            return
+        self._notify(
+            "plugin.block",
+            {"blockId": block_id, "block": to_jsonable(block), "replace": replace},
+        )
 
     @staticmethod
     def _subagent_snapshot(progress: object | None) -> Any:
