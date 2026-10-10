@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: phoson-lat/phoson-engine-minimal
-          ref: v0.50.0
+          ref: v0.50.1
           path: engine
 
       - name: setup node
