@@ -11,7 +11,7 @@ import { create } from "zustand";
 
 import { phoson, bindSessionWorkspace, unbindSessionWorkspace, setCurrentWorkspace, getCurrentWorkspace } from "../bridge/client";
 import { logAction, logError, logEvent } from "../lib/log";
-import { isImageFile } from "../lib/files";
+import { fileUrlToPath, isImageFile } from "../lib/files";
 import { cleanSessionTitle } from "../lib/session-title";
 import type {
   AgentEvent,
@@ -73,6 +73,11 @@ export interface ChatMessage {
   reasoning?: string;
   /** Archivos subidos al workspace referenciados en este turno (mensajes de usuario). */
   uploads?: UploadedFile[];
+  /**
+   * Imágenes adjuntadas por el usuario en este turno (rutas locales del engine).
+   * Se previsualizan como miniaturas en el mensaje.
+   */
+  images?: string[];
   status: "streaming" | "done" | "error" | "cancelled";
 }
 
@@ -232,9 +237,29 @@ function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
         .filter((b) => b.type === "TextBlock" && typeof b.text === "string")
         .map((b) => b.text as string)
         .join("");
-      if (text.trim()) {
+      // Las imágenes del turno viajan como `ImageBlock` con `source: file://…`
+      // (adjuntos nativos y `@menciones`): se recuperan para poder
+      // previsualizarlas también al reabrir una sesión. Se descartan las que no
+      // apunten a un archivo local (p. ej. data URLs ya resueltas).
+      const images = blocks
+        .filter(
+          (b) =>
+            (b.type === "ImageBlock" || b.type === "Image") &&
+            typeof b.source === "string" &&
+            (b.source as string).startsWith("file://"),
+        )
+        .map((b) => fileUrlToPath(b.source as string))
+        .filter((p) => p.length > 0);
+      if (text.trim() || images.length > 0) {
         flush();
-        out.push({ id: uid(), role: "user", text, parts: [], status: "done" });
+        out.push({
+          id: uid(),
+          role: "user",
+          text,
+          parts: [],
+          status: "done",
+          images: images.length > 0 ? images : undefined,
+        });
       }
       continue;
     }
@@ -718,6 +743,13 @@ export const useSession = create<SessionState>((set, get) => {
       if (!key) return;
       const view = get().sessions[key];
       const uploads = view?.uploads ?? [];
+      // Los adjuntos pendientes se los lleva el engine al arrancar el turno
+      // (deja de estar "pendientes" vía `attachments.changed`), así que las
+      // rutas de las imágenes se guardan en el mensaje para poder pintarlas.
+      const images = (view?.attachments ?? [])
+        .filter((a) => a.kind === "image" || isImageFile(a.name))
+        .map((a) => a.path)
+        .filter((p) => typeof p === "string" && p.length > 0);
       // El agente recibe una nota (en inglés) con las rutas; la UI muestra el
       // texto limpio + un componente con los archivos subidos.
       const reference = uploads.length
@@ -732,12 +764,25 @@ export const useSession = create<SessionState>((set, get) => {
         uploads: [], // ya van referenciados en este turno
         messages: [
           ...v.messages,
-          { id: uid(), role: "user", text, parts: [], status: "done", uploads },
+          {
+            id: uid(),
+            role: "user",
+            text,
+            parts: [],
+            status: "done",
+            uploads,
+            images: images.length > 0 ? images : undefined,
+          },
           { id: uid(), role: "assistant", text: "", parts: [], status: "streaming" },
         ],
       }));
       try {
-        logAction("turn.send", { sessionId: key, chars: text.length, uploads: uploads.length });
+        logAction("turn.send", {
+          sessionId: key,
+          chars: text.length,
+          uploads: uploads.length,
+          images: images.length,
+        });
         turnStart.set(key, Date.now());
         turnTools.set(key, []);
         await phoson.runTurn(key, outgoing);

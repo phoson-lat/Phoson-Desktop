@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { Attachment, UploadedFile } from "@/bridge/protocol";
 import { AudioBars } from "@/components/audio-bars";
+import { ImageThumb } from "@/components/image-grid";
 import { UploadedFiles } from "@/components/uploads-block";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -179,7 +180,11 @@ export function Composer({
                   key={a.path}
                   className="flex max-w-[14rem] items-center gap-1.5 rounded-lg bg-[var(--phoson-surface-2)] px-2 py-1 text-[0.68rem]"
                 >
-                  <Icon className="size-3 shrink-0 text-violet" />
+                  {a.kind === "image" ? (
+                    <ImageThumb path={a.path} className="size-5 rounded" />
+                  ) : (
+                    <Icon className="size-3 shrink-0 text-violet" />
+                  )}
                   <span className="truncate" title={a.path}>
                     {a.name}
                   </span>

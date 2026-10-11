@@ -224,6 +224,24 @@ class MockBridge implements Bridge {
       case "fs.write":
         MOCK_FILES[String(p.path)] = String(p.text ?? "");
         return { ok: true, path: p.path } as unknown as T;
+      case "fs.readImage": {
+        // Modo demo: no hay sistema de archivos, se devuelve un SVG generado
+        // (así las previsualizaciones tienen algo que pintar).
+        const path = String(p.path);
+        const name = (path.split(/[\\/]/).pop() ?? "imagen").replace(/[^\x20-\x7E]/g, "?");
+        const svg =
+          `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240">` +
+          `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+          `<stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#22d3ee"/>` +
+          `</linearGradient></defs><rect width="320" height="240" fill="url(#g)"/>` +
+          `<text x="16" y="224" font-family="sans-serif" font-size="14" fill="#fff">${name}</text></svg>`;
+        return {
+          path,
+          mediaType: "image/svg+xml",
+          size: svg.length,
+          base64: btoa(svg),
+        } as unknown as T;
+      }
       case "upload.file": {
         // Modo demo: simula la subida al workspace.
         const name = String(p.name ?? "archivo");

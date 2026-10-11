@@ -2,6 +2,7 @@ import { Wrench, Loader2, Check, AlertTriangle, ChevronRight, Copy, RotateCcw } 
 import { memo, useMemo, useState } from "react";
 
 import { DiffView } from "@/components/diff-view";
+import { ImageGrid } from "@/components/image-grid";
 import { ImagePreview } from "@/components/image-preview";
 import { UploadedFiles } from "@/components/uploads-block";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
@@ -119,10 +120,15 @@ function MessageRowView({
   if (message.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1">
+        {message.images && message.images.length > 0 && (
+          <ImageGrid paths={message.images} className="justify-end" />
+        )}
         {message.uploads && message.uploads.length > 0 && (
           <UploadedFiles files={message.uploads} />
         )}
-        <div className="chat-bubble-user max-w-[76%] whitespace-pre-wrap">{message.text}</div>
+        {message.text.trim() ? (
+          <div className="chat-bubble-user max-w-[76%] whitespace-pre-wrap">{message.text}</div>
+        ) : null}
       </div>
     );
   }

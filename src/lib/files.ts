@@ -38,3 +38,26 @@ export const kindOf = (name: string): FileKind => {
 };
 
 export const isImageFile = (name: string): boolean => kindOf(name) === "image";
+
+/** Último segmento de una ruta: el nombre del archivo. */
+export const basenameOf = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+
+/**
+ * Convierte el `source` de un `ImageBlock` del engine en una ruta local.
+ *
+ * El engine adjunta medios como `file://<ruta absoluta>` (con `%20` en los
+ * espacios); `fs.readImage` necesita la ruta sin esquema, así que se quita el
+ * prefijo, se decodifica y —en Windows— se elimina la barra previa a la unidad
+ * (`/C:/dir/foto.png` → `C:/dir/foto.png`).
+ */
+export const fileUrlToPath = (source: string): string => {
+  const raw = source.trim();
+  if (!raw.startsWith("file://")) return raw;
+  let path = raw.slice("file://".length);
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    /* se queda tal cual */
+  }
+  return /^\/[A-Za-z]:[\\/]/.test(path) ? path.slice(1) : path;
+};
