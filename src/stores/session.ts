@@ -12,6 +12,7 @@ import { create } from "zustand";
 import { phoson, bindSessionWorkspace, unbindSessionWorkspace, setCurrentWorkspace, getCurrentWorkspace } from "../bridge/client";
 import { logAction, logError, logEvent } from "../lib/log";
 import { isImageFile } from "../lib/files";
+import { cleanSessionTitle } from "../lib/session-title";
 import type {
   AgentEvent,
   Attachment,
@@ -502,9 +503,10 @@ export const useSession = create<SessionState>((set, get) => {
         case "session.title": {
           // Título generado por el engine (heurístico tras el primer turno y,
           // en background, del modelo) — mismo comportamiento que el CLI.
-          if (key && typeof params.title === "string" && params.title.trim()) {
-            patchView(key, (v) => ({ ...v, title: (params.title as string).trim() }));
-          }
+          // Los banners que el engine inyecta como mensajes `user` (p. ej. el
+          // resumen de compactación) se descartan: no son títulos.
+          const clean = typeof params.title === "string" ? cleanSessionTitle(params.title) : "";
+          if (key && clean) patchView(key, (v) => ({ ...v, title: clean }));
           break;
         }
         case "session.assistant.done": {

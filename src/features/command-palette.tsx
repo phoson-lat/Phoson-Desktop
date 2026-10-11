@@ -34,6 +34,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { isModalOpen } from "@/lib/platform";
+import { cleanSessionTitle } from "@/lib/session-title";
 import { useSession, messageText } from "@/stores/session";
 
 interface CommandPaletteProps {
@@ -284,7 +285,9 @@ export function CommandPalette({
             <CommandSeparator />
             <CommandGroup heading="Abiertas">
               {openRows.map((key) => {
-                const title = sessions[key]?.messages.find((m) => m.role === "user")?.text;
+                const title = cleanSessionTitle(
+                  sessions[key]?.messages.find((m) => m.role === "user")?.text,
+                );
                 return (
                   <CommandItem
                     key={key}
@@ -306,10 +309,10 @@ export function CommandPalette({
               {savedRows.slice(0, 30).map((s) => (
                 <CommandItem
                   key={s.id}
-                  value={`${s.title} ${s.id}`}
+                  value={`${cleanSessionTitle(s.title)} ${s.id}`}
                   onSelect={() => run(() => void openSession(s.id, s.cwd || undefined))}
                 >
-                  <History /> {s.title || s.id.slice(0, 8)}
+                  <History /> {cleanSessionTitle(s.title) || s.id.slice(0, 8)}
                 </CommandItem>
               ))}
             </CommandGroup>

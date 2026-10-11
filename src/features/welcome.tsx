@@ -5,6 +5,7 @@ import { phoson } from "@/bridge/client";
 import { PhosonLogo } from "@/components/phoson-logo";
 import type { SessionMeta } from "@/bridge/protocol";
 import { DEMO_USER } from "@/lib/demo-content";
+import { cleanSessionTitle } from "@/lib/session-title";
 
 const SUGGESTIONS = [
   DEMO_USER,
@@ -60,11 +61,11 @@ export function Welcome({ onPick, onOpenSession }: WelcomeProps) {
               <button
                 key={s.id}
                 onClick={() => onOpenSession(s.id, s.cwd || undefined)}
-                title={s.title || s.id}
+                title={cleanSessionTitle(s.title) || s.id}
                 className="dashboard-panel flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 <MessageSquare className="size-3.5 shrink-0 text-violet" />
-                <span className="truncate">{s.title || s.id.slice(0, 8)}</span>
+                <span className="truncate">{cleanSessionTitle(s.title) || s.id.slice(0, 8)}</span>
               </button>
             ))}
           </div>

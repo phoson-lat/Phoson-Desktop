@@ -8,6 +8,7 @@
 import { useEffect, useRef } from "react";
 
 import { phoson } from "@/bridge/client";
+import { cleanSessionTitle } from "@/lib/session-title";
 import { messageText, type SessionView } from "@/stores/session";
 import { notifyTurnEnd, type NotifyMode } from "@/lib/desktop";
 
@@ -45,7 +46,7 @@ export function useTurnNotifications(
   useEffect(() => {
     for (const [key, view] of Object.entries(sessions)) {
       const before = prev.current[key] ?? { sending: false, confirms: 0 };
-      const title = view.title?.trim() || "Phoson";
+      const title = cleanSessionTitle(view.title) || "Phoson";
 
       // Fin de turno: sending pasa de true a false.
       if (before.sending && !view.sending) {
