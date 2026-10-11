@@ -1,11 +1,13 @@
 import { Wrench, Loader2, Check, AlertTriangle, ChevronRight, Copy, RotateCcw } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 
+import { DiffView } from "@/components/diff-view";
 import { ImagePreview } from "@/components/image-preview";
 import { UploadedFiles } from "@/components/uploads-block";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ui/reasoning";
 import { ThinkingIndicator } from "@/components/thinking-indicator";
+import { additionsRows, unifiedDiffRows } from "@/lib/diff";
 import { cn } from "@/lib/utils";
 import { messageText, type ChatMessage, type ToolCard } from "@/stores/session";
 
@@ -13,13 +15,41 @@ import { messageText, type ChatMessage, type ToolCard } from "@/stores/session";
 function ToolRow({ tool }: { tool: ToolCard }) {
   const [open, setOpen] = useState(false);
   const Icon = tool.status === "running" ? Loader2 : tool.status === "error" ? AlertTriangle : Check;
+  const args = (tool.args ?? {}) as Record<string, unknown>;
+  const filePath = typeof args.path === "string" ? args.path : undefined;
   // `view_image` recibe la ruta en los args (el resultado de la tool solo lleva
   // texto), así que la previsualización se resuelve desde aquí.
-  const imagePath =
-    tool.name === "view_image" &&
-    typeof (tool.args as { path?: unknown } | undefined)?.path === "string"
-      ? (tool.args as { path: string }).path
-      : undefined;
+  const imagePath = tool.name === "view_image" ? filePath : undefined;
+
+  /**
+   * Diff para las tools de edición, reconstruido desde sus argumentos —
+   * `patch_file` trae el bloque viejo y el nuevo, así que el diff es exacto;
+   * `write_file` reescribe el archivo entero, así que se muestra como
+   * adiciones (con el verbo creado/actualizado del resultado).
+   *
+   * Solo cuando la tool terminó: los args llegan incompletos mientras el
+   * modelo los redacta (`AgentToolComposingEvent`).
+   */
+  const diff = useMemo(() => {
+    if (tool.status === "running") return null;
+    if (tool.name === "patch_file") {
+      const oldContent = args.old_content;
+      const newContent = args.new_content;
+      if (typeof oldContent !== "string" || typeof newContent !== "string") return null;
+      const rows = unifiedDiffRows(oldContent, newContent);
+      return rows.length > 0 ? { rows, note: undefined } : null;
+    }
+    if (tool.name === "write_file" && typeof args.content === "string") {
+      const rows = additionsRows(args.content);
+      if (rows.length === 0) return null;
+      const verb = tool.result?.trim().toLowerCase().startsWith("updated")
+        ? "actualizado"
+        : "creado";
+      return { rows, note: `${verb} · archivo completo` };
+    }
+    return null;
+  }, [args, tool.name, tool.status, tool.result]);
+
   return (
     <div className="my-1">
       <button
@@ -42,7 +72,10 @@ function ToolRow({ tool }: { tool: ToolCard }) {
         />
       </button>
       {open && imagePath ? <ImagePreview path={imagePath} className="px-2" /> : null}
-      {open && (tool.result || tool.error) ? (
+      {open && diff && !tool.error ? (
+        <DiffView rows={diff.rows} path={filePath} note={diff.note} className="px-2" />
+      ) : null}
+      {open && !(diff && !tool.error) && (tool.result || tool.error) ? (
         <pre className="mt-1 max-h-56 overflow-auto rounded-lg border border-[var(--dashboard-border)] bg-[var(--muted)] px-3 py-2 font-mono text-[0.72rem] text-muted-foreground">
           {tool.error ?? tool.result}
         </pre>
