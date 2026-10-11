@@ -19,7 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { toast } from "sonner";
 
 import { isTauri, phoson } from "@/bridge/client";
@@ -300,6 +300,24 @@ export function SettingsDialog({
   const keyProviders = config?.providers.filter((p) => p.supportsKey !== false) ?? [];
   const localProviders = config?.providers.filter((p) => p.supportsBaseUrl) ?? [];
 
+  /**
+   * Proveedores que el selector de "Proveedor activo" puede ofrecer: los que
+   * tienen credencial (clave configurada o `base_url` local vista por el
+   * engine), los que funcionan sin credencial (Ollama/LM Studio/Bedrock) y el
+   * activo actual — que siempre debe aparecer para no dejar el `Select` vacío.
+   */
+  const activeProviders = useMemo(() => {
+    if (!config) return [];
+    const enabled = new Set(config.enabledProviders ?? []);
+    return config.providers.filter(
+      (p) =>
+        p.id === config.provider ||
+        p.hasKey ||
+        p.supportsKey === false ||
+        enabled.has(p.id),
+    );
+  }, [config]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl gap-0 overflow-hidden p-0 sm:max-w-3xl">
@@ -361,7 +379,7 @@ export function SettingsDialog({
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {config.providers.map((p) => (
+                            {activeProviders.map((p) => (
                               <SelectItem key={p.id} value={p.id} className="text-xs">
                                 <span className="flex items-center gap-2">
                                   <ProviderLogo id={p.id} size={14} />
@@ -371,6 +389,19 @@ export function SettingsDialog({
                             ))}
                           </SelectContent>
                         </Select>
+                        {config.providers.length > activeProviders.length && (
+                          <p className="text-[0.68rem] text-muted-foreground">
+                            {activeProviders.length} de {config.providers.length} proveedores: solo
+                            los que tienen credencial.
+                            <button
+                              type="button"
+                              onClick={() => setSection("providers")}
+                              className="ml-1 text-violet underline-offset-2 hover:underline"
+                            >
+                              Añadir claves
+                            </button>
+                          </p>
+                        )}
                       </div>
 
                       <div className="space-y-1.5">
