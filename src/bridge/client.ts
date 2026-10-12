@@ -15,6 +15,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { record } from "@/lib/perf";
 import { logEvent } from "@/lib/log";
+import { basenameOf } from "@/lib/files";
 
 import type {
   Attachment,
@@ -224,6 +225,24 @@ class MockBridge implements Bridge {
       case "fs.write":
         MOCK_FILES[String(p.path)] = String(p.text ?? "");
         return { ok: true, path: p.path } as unknown as T;
+      case "fs.readImage": {
+        // Modo demo: no hay sistema de archivos, se devuelve un SVG generado
+        // (así las previsualizaciones tienen algo que pintar).
+        const path = String(p.path);
+        const name = (path.split(/[\\/]/).pop() ?? "imagen").replace(/[^\x20-\x7E]/g, "?");
+        const svg =
+          `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240">` +
+          `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+          `<stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#22d3ee"/>` +
+          `</linearGradient></defs><rect width="320" height="240" fill="url(#g)"/>` +
+          `<text x="16" y="224" font-family="sans-serif" font-size="14" fill="#fff">${name}</text></svg>`;
+        return {
+          path,
+          mediaType: "image/svg+xml",
+          size: svg.length,
+          base64: btoa(svg),
+        } as unknown as T;
+      }
       case "upload.file": {
         // Modo demo: simula la subida al workspace.
         const name = String(p.name ?? "archivo");
@@ -254,18 +273,24 @@ class MockBridge implements Bridge {
         return MOCK_MCP as unknown as T;
       case "attachment.list":
         return { attachments: MOCK_ATTACHMENTS } as unknown as T;
+      case "attachment.add": {
+        // El mock guarda los adjuntos ya normalizados (como `attachment.push`);
+        // el cliente acepta ambas formas, así que aquí basta con añadirlo.
+        const path = String(p.path ?? "");
+        if (!MOCK_ATTACHMENTS.some((a) => a.path === path)) {
+          const name = basenameOf(path);
+          MOCK_ATTACHMENTS = [
+            ...MOCK_ATTACHMENTS,
+            { path, name, kind: attachmentKindOf(name) ?? "file" },
+          ];
+        }
+        return { attachments: MOCK_ATTACHMENTS } as unknown as T;
+      }
       case "attachment.push": {
         const name = String(p.name ?? "archivo");
-        const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-        const allowed: Record<string, string[]> = {
-          image: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"],
-          audio: ["mp3", "wav", "ogg", "flac", "m4a", "aac"],
-          video: ["mp4", "webm", "mov", "mkv", "avi"],
-          document: ["pdf"],
-        };
         // Igual que el engine: rechaza tipos no soportados.
-        const kind = Object.keys(allowed).find((k) => allowed[k].includes(ext));
-        if (p.data && !kind) throw new Error(`Unsupported file type '.${ext}'.`);
+        const kind = attachmentKindOf(name);
+        if (p.data && !kind) throw new Error(`Unsupported file type '.${name.split(".").pop()}'.`);
         MOCK_ATTACHMENTS = [
           ...MOCK_ATTACHMENTS,
           { path: `/home/me/.phoson/attachments/${name}`, name, kind: kind ?? "file" },
@@ -470,6 +495,20 @@ const MOCK_FS: Record<string, Array<{ name: string; dir: boolean; size?: number;
 };
 let MOCK_ATTACHMENTS: Attachment[] = [];
 
+/** Extensiones que el engine acepta como adjunto nativo, por tipo. */
+const MOCK_ATTACHMENT_EXTS: Record<string, string[]> = {
+  image: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"],
+  audio: ["mp3", "wav", "ogg", "flac", "m4a", "aac"],
+  video: ["mp4", "webm", "mov", "mkv", "avi"],
+  document: ["pdf"],
+};
+
+/** Tipo de adjunto de un archivo por su extensión (`null` si no es nativo). */
+const attachmentKindOf = (name: string): string | null => {
+  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+  return Object.keys(MOCK_ATTACHMENT_EXTS).find((k) => MOCK_ATTACHMENT_EXTS[k].includes(ext)) ?? null;
+};
+
 let MOCK_CWD = "/home/me/proyecto";
 
 /** Contenido de archivos para el visor en modo demo. */
@@ -620,6 +659,33 @@ const call = <T = Json,>(method: string, params?: Json): Promise<T> => {
 const callIn = <T = Json,>(workspace: string | null, method: string, params?: Json): Promise<T> =>
   bridge.rpc<T>(method, params, workspace);
 
+// ── Adjuntos ──────────────────────────────────────────────────────────────
+
+/**
+ * Adjunto del engine sin normalizar: `attachment.add` responde con el
+ * dataclass tal cual (`{ path, block }`), sin nombre ni tipo.
+ */
+export interface RawAttachment {
+  path?: unknown;
+  block?: { type?: unknown } | null;
+  /** Presentes solo si el sidecar ya lo normalizó (`attachment.list`). */
+  name?: string;
+  kind?: string;
+}
+
+/**
+ * Normaliza un adjunto a la vista que consume la UI.
+ *
+ * El tipo se deduce del nombre del bloque (`ImageBlock` → `image`), igual que
+ * hace `_attachment_payload` en el sidecar; si ya viene normalizado se respeta.
+ */
+export function normalizeAttachment(raw: RawAttachment): Attachment {
+  const path = String(raw.path ?? "");
+  const blockType = typeof raw.block?.type === "string" ? raw.block.type : "";
+  const derived = blockType ? blockType.replace(/Block$/, "").toLowerCase() : "file";
+  return { path, name: raw.name || basenameOf(path), kind: raw.kind || derived };
+}
+
 // ── Atajos tipados (lo que consume el store) ──────────────────────────────
 export const phoson = {
   rpc: call,
@@ -711,6 +777,19 @@ export const phoson = {
     call<{ ok: boolean; attachments: Attachment[] }>("attachment.remove", {
       sessionId,
       path,
+    }),
+  /**
+   * Adjunta al turno pendiente una ruta que ya existe en disco (sin reenviar
+   * bytes). Se usa al regenerar: el engine consume los adjuntos al enviar el
+   * turno, así que hay que volver a añadirlos antes del siguiente.
+   *
+   * Devuelve el adjunto recién añadido (el último de la lista pendiente), o
+   * `null` si el engine no devolvió ninguno.
+   */
+  attachmentAdd: (sessionId: string, path: string) =>
+    call<{ attachments: RawAttachment[] }>("attachment.add", { sessionId, path }).then((res) => {
+      const list = Array.isArray(res.attachments) ? res.attachments : [];
+      return list.length > 0 ? normalizeAttachment(list[list.length - 1]) : null;
     }),
   runTurn: (sessionId: string, text: string) =>
     call("turn.run", { sessionId, text }),

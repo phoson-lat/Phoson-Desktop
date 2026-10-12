@@ -29,6 +29,7 @@ const MAP = {
   xai: "grok",
   groq: "groq",
   deepseek: "deepseek",
+  alibaba: "alibabacloud",
   together: "together",
   perplexity: "perplexity",
   lmstudio: "lmstudio",

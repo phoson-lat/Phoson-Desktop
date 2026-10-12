@@ -9,6 +9,7 @@ import { phoson } from "@/bridge/client";
 import type { SessionMeta } from "@/bridge/protocol";
 import { cn } from "@/lib/utils";
 import type { SessionView } from "@/stores/session";
+import { cleanSessionTitle, truncateTitle } from "@/lib/session-title";
 
 interface SidebarProps {
   activeKey: string | null;
@@ -38,10 +39,10 @@ interface SidebarProps {
 }
 
 function titleOf(view: SessionView | undefined): string {
-  const stored = view?.title?.trim();
-  if (stored) return stored.length > 34 ? stored.slice(0, 34) + "…" : stored;
-  const first = view?.messages.find((m) => m.role === "user")?.text;
-  if (first) return first.length > 34 ? first.slice(0, 34) + "…" : first;
+  const stored = cleanSessionTitle(view?.title);
+  if (stored) return truncateTitle(stored);
+  const first = cleanSessionTitle(view?.messages.find((m) => m.role === "user")?.text);
+  if (first) return truncateTitle(first);
   return view?.engineId ? `Sesión ${view.engineId.slice(0, 6)}` : "Nueva sesión";
 }
 
@@ -214,7 +215,9 @@ export function Sidebar({
     const map = new Map<string, string>();
     for (const key of order) {
       const view = sessions[key];
-      if (view?.engineId && view.title?.trim()) map.set(view.engineId, view.title.trim());
+      if (view?.engineId && cleanSessionTitle(view.title)) {
+        map.set(view.engineId, cleanSessionTitle(view.title));
+      }
     }
     return map;
   }, [order, sessions]);
@@ -425,7 +428,7 @@ export function Sidebar({
                         <Row
                           key={s.id}
                           icon={MessageSquare}
-                          label={liveTitles.get(s.id) || s.title || s.id.slice(0, 8)}
+                          label={liveTitles.get(s.id) || cleanSessionTitle(s.title) || s.id.slice(0, 8)}
                           onClick={() => onOpen(s.id, s.cwd || undefined)}
                           trailing={
                             confirmId === s.id ? (

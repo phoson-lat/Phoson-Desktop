@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { Attachment, UploadedFile } from "@/bridge/protocol";
 import { AudioBars } from "@/components/audio-bars";
+import { ImageThumb } from "@/components/image-grid";
 import { UploadedFiles } from "@/components/uploads-block";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -132,7 +133,9 @@ export function Composer({
   }, [notice]);
 
   const submit = (text?: string) => {
-    if (!(text ?? value).trim() || disabled) return;
+    const body = (text ?? value).trim();
+    // Un adjunto sin texto ya es un mensaje completo: solo se bloquea el vacío total.
+    if (disabled || (!body && attachments.length === 0)) return;
     // Reenvía el texto del DOM cuando lo tenemos: puede ir por delante del
     // estado de React (tecleo rápido / IME) y no debe perderse.
     onSend(text);
@@ -179,7 +182,11 @@ export function Composer({
                   key={a.path}
                   className="flex max-w-[14rem] items-center gap-1.5 rounded-lg bg-[var(--phoson-surface-2)] px-2 py-1 text-[0.68rem]"
                 >
-                  <Icon className="size-3 shrink-0 text-violet" />
+                  {a.kind === "image" ? (
+                    <ImageThumb path={a.path} className="size-5 rounded" />
+                  ) : (
+                    <Icon className="size-3 shrink-0 text-violet" />
+                  )}
                   <span className="truncate" title={a.path}>
                     {a.name}
                   </span>
@@ -337,7 +344,7 @@ export function Composer({
                 size="icon"
                 className="size-8 shrink-0 rounded-full bg-violet text-white hover:bg-violet/90"
                 onClick={() => submit()}
-                disabled={!value.trim()}
+                disabled={!value.trim() && attachments.length === 0}
               >
                 <ArrowUp className="size-4" />
               </Button>

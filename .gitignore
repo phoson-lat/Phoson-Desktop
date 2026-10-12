@@ -3,6 +3,11 @@ node_modules/
 dist/
 .vite/
 
+# Salida de tsc suelta dentro de src/ (Vite resolvería .js antes que .ts
+# y taparía los fuentes; los commits solo llevan .ts/.tsx)
+src/**/*.js
+src/**/*.js.map
+
 # Rust / Tauri
 src-tauri/target/
 src-tauri/gen/

@@ -120,8 +120,9 @@ Ya implementada en `.github/workflows/`:
 - **`ci.yml`** — en cada push/PR: typecheck + build del frontend, `cargo check`
   de `src-tauri` y `py_compile` del bridge.
 - **`release.yml`** — en push de un tag `v*` (o a mano): matrix
-  `ubuntu-22.04` / `windows-latest` / `macos-13` / `macos-14`; en cada runner
-  clona el engine (`v0.49.1`), crea su venv, compila **su** sidecar y corre
+  `ubuntu-22.04` / `windows-latest` / `macos-14`; en cada runner
+  clona el engine (`v0.52.0`, el mismo que fija `bridge/pyproject.toml`), crea su
+  venv, compila **su** sidecar y corre
   `tauri-action` (build de release firmado + release con bundles y `latest.json`).
 
 Para publicar un alpha:

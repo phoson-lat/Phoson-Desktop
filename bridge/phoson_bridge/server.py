@@ -849,6 +849,7 @@ class Bridge:
         "xai": {"key": "xai_api_key"},
         "groq": {"key": "groq_api_key"},
         "deepseek": {"key": "deepseek_api_key"},
+        "alibaba": {"key": "alibaba_api_key"},
         "together": {"key": "together_api_key"},
         "perplexity": {"key": "perplexity_api_key"},
         "lmstudio": {"base_url": "lmstudio_base_url"},

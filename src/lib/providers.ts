@@ -30,6 +30,11 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   xai: { label: "Grok (X.AI)", keysUrl: "https://console.x.ai" },
   groq: { label: "Groq", keysUrl: "https://console.groq.com/keys" },
   deepseek: { label: "DeepSeek", keysUrl: "https://platform.deepseek.com/api_keys" },
+  alibaba: {
+    label: "Alibaba Cloud (DashScope)",
+    keysUrl: "https://modelstudio.console.alibabacloud.com/",
+    hint: "Usa una clave de DashScope / Model Studio (Qwen)",
+  },
   together: { label: "Together AI", keysUrl: "https://api.together.ai/settings/api-keys" },
   perplexity: { label: "Perplexity", keysUrl: "https://www.perplexity.ai/settings/api" },
   lmstudio: { label: "LM Studio", hint: "Local: no necesita clave" },

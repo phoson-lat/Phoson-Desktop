@@ -29,6 +29,7 @@ import { logAction, logError, setLogContext } from "@/lib/log";
 import { checkForUpdates } from "@/lib/updater";
 import { DEMO_USER } from "@/lib/demo-content";
 import { mark, record, uptime } from "@/lib/perf";
+import { cleanSessionTitle } from "@/lib/session-title";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/stores/session";
 
@@ -226,10 +227,11 @@ export default function App() {  const {
 
   const title = useMemo(() => {
     // Prefiere el título del engine (heurístico → del modelo) y cae al primer
-    // mensaje del usuario como respaldo inmediato.
-    const stored = view?.title?.trim();
+    // mensaje del usuario como respaldo inmediato. Los banners internos que el
+    // engine inyecta (p. ej. el resumen de compactación) no son títulos.
+    const stored = cleanSessionTitle(view?.title);
     if (stored) return stored;
-    const first = messages.find((m) => m.role === "user")?.text;
+    const first = cleanSessionTitle(messages.find((m) => m.role === "user")?.text);
     return first ? (first.length > 60 ? first.slice(0, 60) + "…" : first) : "Nueva sesión";
   }, [view?.title, messages]);
 
@@ -250,7 +252,9 @@ export default function App() {  const {
 
   const submit = (text?: string) => {
     const value = (text ?? draft).trim();
-    if (!value || view?.sending) return;
+    // Un adjunto pendiente (imagen) basta para enviar: el turno puede ir solo
+    // con la imagen, sin texto.
+    if ((!value && !(view?.attachments.length ?? 0)) || view?.sending) return;
     setDraft("");
     void send(value);
   };

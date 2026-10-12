@@ -11,7 +11,8 @@ import { create } from "zustand";
 
 import { phoson, bindSessionWorkspace, unbindSessionWorkspace, setCurrentWorkspace, getCurrentWorkspace } from "../bridge/client";
 import { logAction, logError, logEvent } from "../lib/log";
-import { isImageFile } from "../lib/files";
+import { basenameOf, fileUrlToPath, isImageFile, isInlineSource } from "../lib/files";
+import { cleanSessionTitle } from "../lib/session-title";
 import type {
   AgentEvent,
   Attachment,
@@ -72,6 +73,19 @@ export interface ChatMessage {
   reasoning?: string;
   /** Archivos subidos al workspace referenciados en este turno (mensajes de usuario). */
   uploads?: UploadedFile[];
+  /**
+   * Imágenes adjuntadas por el usuario en este turno (rutas locales del engine).
+   * Se previsualizan como miniaturas en el mensaje.
+   */
+  images?: string[];
+  /**
+   * Tool que el modelo está redactando en este momento
+   * (`AgentToolComposingEvent`): se muestra «escribiendo archivo…» mientras
+   * llegan los argumentos, antes de que la tool exista como tarjeta.
+   */
+  composingTool?: string;
+  /** Índice del slot de la llamada en redacción (el modelo puede redactar dos). */
+  composingIndex?: number;
   status: "streaming" | "done" | "error" | "cancelled";
 }
 
@@ -113,7 +127,11 @@ interface SessionState {
   /** Cuántas tools quedaron enmascaradas: si >0, `availableTools` está recortada. */
   maskedTools: number;
   init: () => Promise<void>;
-  send: (text: string) => Promise<void>;
+  /**
+   * Envía un turno. `reattach` son rutas de imágenes que hay que volver a
+   * adjuntar antes de arrancarlo (al regenerar, el engine ya las consumió).
+   */
+  send: (text: string, reattach?: string[]) => Promise<void>;
   cancel: () => Promise<void>;
   /** Repite el último turno de usuario (undo en el engine + reenvío). */
   regenerate: () => Promise<void>;
@@ -198,6 +216,9 @@ const fileToBase64 = (file: File) =>
 function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
   const out: ChatMessage[] = [];
   let assistant: ChatMessage | null = null;
+  /** El mensaje anterior era un `ToolResultBlock`: las imágenes que vengan
+   * justo después las añadió una tool, no el usuario (ver más abajo). */
+  let afterToolResult = false;
 
   const flush = () => {
     if (assistant && assistant.parts.length > 0)
@@ -231,10 +252,36 @@ function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
         .filter((b) => b.type === "TextBlock" && typeof b.text === "string")
         .map((b) => b.text as string)
         .join("");
-      if (text.trim()) {
+      // Las imágenes del turno viajan como `ImageBlock` con `source: file://…`
+      // (adjuntos nativos y `@menciones`) o ya resueltas (`data:`, `http…`), y
+      // se recuperan para poder previsualizarlas también al reabrir una sesión.
+      // La tool que devuelve una imagen (`view_image`) la manda en su propio
+      // mensaje de usuario justo después del `ToolResultBlock`; ese no es un
+      // adjunto del usuario y se omite para no pintarlo como suyo.
+      const toolImage = afterToolResult && text.trim().length === 0;
+      const images = toolImage
+        ? []
+        : blocks
+            .filter(
+              (b) =>
+                (b.type === "ImageBlock" || b.type === "Image") && typeof b.source === "string",
+            )
+            .map((b) => fileUrlToPath(b.source as string))
+            .filter((p) => p.length > 0);
+      if (text.trim() || images.length > 0) {
         flush();
-        out.push({ id: uid(), role: "user", text, parts: [], status: "done" });
+        out.push({
+          id: uid(),
+          role: "user",
+          text,
+          parts: [],
+          status: "done",
+          images: images.length > 0 ? images : undefined,
+        });
       }
+      afterToolResult = blocks.some(
+        (b) => typeof b.type === "string" && b.type.includes("ToolResult"),
+      );
       continue;
     }
 
@@ -256,6 +303,7 @@ function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
         });
       }
     }
+    afterToolResult = false;
   }
   flush();
   return out;
@@ -279,6 +327,10 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null;
 const turnStart = new Map<string, number>();
 /** Herramientas invocadas en el turno en curso, por sesión (para el resumen). */
 const turnTools = new Map<string, string[]>();
+
+/** Índice del slot de tool del evento: el engine emite uno por llamada. */
+const toolIndex = (event: AgentEvent): number =>
+  typeof event.index === "number" ? event.index : 0;
 
 /** Apende texto a las partes sin cruzar tool calls. */
 const appendTextToParts = (parts: MessagePart[], chunk: string): MessagePart[] => {
@@ -410,6 +462,23 @@ export const useSession = create<SessionState>((set, get) => {
         chunkOf(key).reasoning += String(event.content ?? "");
         scheduleFlush();
         break;
+      case "AgentToolComposingEvent": {
+        // El modelo aún está redactando los argumentos (I-128): el engine emite
+        // el nombre en cuanto lo conoce (throttle ~4/s), y con él la UI muestra
+        // «escribiendo archivo…» en vez de quedarse muda hasta que la tool
+        // arranque. El nombre puede faltar en los primeros deltas.
+        const name = String(event.tool_name ?? "").trim();
+        if (!name) break;
+        // Se guarda también el índice: la etiqueta es un único slot y con dos
+        // llamadas en paralelo debe seguir a la última anunciada.
+        const composing = toolIndex(event);
+        patchLastAssistant(key, (m) =>
+          m.composingTool === name && m.composingIndex === composing
+            ? m
+            : { ...m, composingTool: name, composingIndex: composing },
+        );
+        break;
+      }
       case "AgentToolStartEvent": {
         const card: ToolCard = {
           id: String(event.tool_call_id ?? uid()),
@@ -418,7 +487,16 @@ export const useSession = create<SessionState>((set, get) => {
           status: "running",
         };
         // Se añade como parte: mantiene el orden respecto al texto del stream.
-        patchLastAssistant(key, (m) => ({ ...m, parts: [...m.parts, { kind: "tool", tool: card }] }));
+        // La tarjeta sustituye a la etiqueta de "componiendo" **de ese índice**:
+        // arrancar la primera de dos tools en paralelo no debe borrar el «…» de
+        // la segunda.
+        const started = toolIndex(event);
+        patchLastAssistant(key, (m) => ({
+          ...m,
+          composingTool: m.composingIndex === started ? undefined : m.composingTool,
+          composingIndex: m.composingIndex === started ? undefined : m.composingIndex,
+          parts: [...m.parts, { kind: "tool", tool: card }],
+        }));
         const tools = turnTools.get(key) ?? [];
         tools.push(card.name);
         turnTools.set(key, tools);
@@ -459,6 +537,8 @@ export const useSession = create<SessionState>((set, get) => {
         patchLastAssistant(key, (m) => ({
           ...m,
           status: "error",
+          composingTool: undefined,
+          composingIndex: undefined,
           parts: mergeTextParts([...m.parts, { kind: "text", text: String(event.message ?? "Error") }]),
         }));
         logError("turn.error", String(event.message ?? "Error"), { sessionId: key });
@@ -502,9 +582,10 @@ export const useSession = create<SessionState>((set, get) => {
         case "session.title": {
           // Título generado por el engine (heurístico tras el primer turno y,
           // en background, del modelo) — mismo comportamiento que el CLI.
-          if (key && typeof params.title === "string" && params.title.trim()) {
-            patchView(key, (v) => ({ ...v, title: (params.title as string).trim() }));
-          }
+          // Los banners que el engine inyecta como mensajes `user` (p. ej. el
+          // resumen de compactación) se descartan: no son títulos.
+          const clean = typeof params.title === "string" ? cleanSessionTitle(params.title) : "";
+          if (key && clean) patchView(key, (v) => ({ ...v, title: clean }));
           break;
         }
         case "session.assistant.done": {
@@ -514,6 +595,9 @@ export const useSession = create<SessionState>((set, get) => {
           const status = String(params.status);
           patchLastAssistant(key, (m) => ({
             ...m,
+            // El turno terminó: ya no queda ninguna tool en redacción.
+            composingTool: undefined,
+            composingIndex: undefined,
             status:
               status === "done" ? "done" : status === "cancelled" ? "cancelled" : "error",
           }));
@@ -711,11 +795,33 @@ export const useSession = create<SessionState>((set, get) => {
       return bootPromise;
     },
 
-    send: async (text: string) => {
+    send: async (text: string, reattach?: string[]) => {
       const key = get().activeKey;
       if (!key) return;
       const view = get().sessions[key];
       const uploads = view?.uploads ?? [];
+      // Los adjuntos pendientes se los lleva el engine al arrancar el turno
+      // (deja de estar "pendientes" vía `attachments.changed`), así que las
+      // rutas de las imágenes se guardan en el mensaje para poder pintarlas.
+      const images = (view?.attachments ?? [])
+        .filter((a) => a.kind === "image" || isImageFile(a.name))
+        .map((a) => a.path)
+        .filter((p) => typeof p === "string" && p.length > 0);
+      // Al regenerar hay que re-adjuntar las imágenes del turno anterior: el
+      // engine las consumió al enviarlo. Best-effort: una ruta borrada o no
+      // soportada no puede reventar el turno, se envía sin esa imagen.
+      const failed: string[] = [];
+      for (const path of reattach ?? []) {
+        // Las fuentes inline (`data:`, `http…`) no son rutas del engine: no hay
+        // nada que re-adjuntar.
+        if (images.includes(path) || isInlineSource(path)) continue;
+        try {
+          await phoson.attachmentAdd(key, path);
+          images.push(path);
+        } catch {
+          failed.push(basenameOf(path));
+        }
+      }
       // El agente recibe una nota (en inglés) con las rutas; la UI muestra el
       // texto limpio + un componente con los archivos subidos.
       const reference = uploads.length
@@ -728,14 +834,37 @@ export const useSession = create<SessionState>((set, get) => {
         ...v,
         sending: true,
         uploads: [], // ya van referenciados en este turno
+        notifications: failed.length
+          ? [
+              ...v.notifications,
+              {
+                sessionId: key,
+                kind: "warn" as const,
+                message: `No se pudieron adjuntar: ${failed.join(", ")}`,
+              },
+            ]
+          : v.notifications,
         messages: [
           ...v.messages,
-          { id: uid(), role: "user", text, parts: [], status: "done", uploads },
+          {
+            id: uid(),
+            role: "user",
+            text,
+            parts: [],
+            status: "done",
+            uploads,
+            images: images.length > 0 ? images : undefined,
+          },
           { id: uid(), role: "assistant", text: "", parts: [], status: "streaming" },
         ],
       }));
       try {
-        logAction("turn.send", { sessionId: key, chars: text.length, uploads: uploads.length });
+        logAction("turn.send", {
+          sessionId: key,
+          chars: text.length,
+          uploads: uploads.length,
+          images: images.length,
+        });
         turnStart.set(key, Date.now());
         turnTools.set(key, []);
         await phoson.runTurn(key, outgoing);
@@ -747,6 +876,8 @@ export const useSession = create<SessionState>((set, get) => {
         patchLastAssistant(key, (m) => ({
           ...m,
           status: "error",
+          composingTool: undefined,
+          composingIndex: undefined,
           parts: mergeTextParts([...m.parts, { kind: "text", text: `Error: ${message}` }]),
         }));
         patchView(key, (v) => ({
@@ -828,7 +959,7 @@ export const useSession = create<SessionState>((set, get) => {
         }));
         return;
       }
-      await get().send(lastUser.text);
+      await get().send(lastUser.text, lastUser.images);
     },
 
     newSession: async (workspace) => {
