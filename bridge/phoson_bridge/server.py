@@ -63,6 +63,15 @@ _SESSION_MUTATING = frozenset(
 #: (~430 ms); el picker lo abre al instante y un turno no debe pagarlo.
 _MODELS_LIST_TTL = 300.0
 
+#: Ventana de coalescido de tokens (segundos). El motor emite un evento
+#: `agent.event` POR TOKEN (cientos por segundo), y cada notificación es un
+#: JSON serializado + IPC al WebView + despacho en Tauri. Acumular 30 ms y
+#: volcarlos juntos en una sola notificación es imperceptible para el usuario
+#: y colapsa el flujo a ~33 líneas/segundo. Solo aplica a los eventos de
+#: contenido aditivo (texto/razonamiento); el resto conserva su orden.
+_TOKEN_BATCH_SECONDS = 0.03
+_TOKEN_EVENT_TYPES = frozenset({"AgentTokenEvent", "AgentReasoningEvent"})
+
 #: Umbrales del watchdog (segundos). Dos situaciones distintas:
 #:  * arranque mudo: el handler no llega a escribir **nada** — el motor está
 #:    congelado (el bug de Windows: un `git` bloqueando el event loop);
@@ -315,6 +324,11 @@ class Bridge:
         # empatan, lo que hacía fallar la comparación por tiempos.
         self._last_flush: dict[str, float] = {}
         self._flush_seq: dict[str, int] = {}
+        # Coalescado de tokens (ver `_TOKEN_BATCH_SECONDS`): contenido acumulado
+        # por sesión y el temporizador que programa el volcado.
+        self._loop = asyncio.get_running_loop()
+        self._token_batch: dict[str, dict[str, str]] = {}
+        self._token_timer: dict[str, asyncio.TimerHandle] = {}
         # Serializa las escrituras al stream de protocolo: el writer del loop y
         # el hilo del watchdog pueden escribir a la vez.
         self._out_lock = threading.Lock()
@@ -378,7 +392,55 @@ class Bridge:
         bridge (p. ej. `session.turn.started`): no demuestran que el motor esté
         vivo y no deben silenciar al watchdog."""
         session_id = str(params.get("sessionId") or "")
+        # Coalescado de tokens: el evento se acumula y se vuelca al vencer la
+        # ventana `_TOKEN_BATCH_SECONDS`. Cualquier otra notificación de la
+        # MISMA sesión vuelva antes el buffer: los tokens deben llegar a la UI
+        # antes que los eventos que los cierran (`session.assistant.done`) o los
+        # rodean (`ui.flush`), o el texto quedaría desordenado.
+        if method == "agent.event":
+            event = params.get("event")
+            etype = event.get("type") if isinstance(event, dict) else None
+            if etype in _TOKEN_EVENT_TYPES:
+                self._buffer_token(session_id, etype, str(event.get("content") or ""))
+                return
+            self._flush_tokens(session_id)
+        elif session_id:
+            self._flush_tokens(session_id)
         self._out.put_nowait((session_id if life else "-", dump({"jsonrpc": "2.0", "method": method, "params": params})))
+
+    def _buffer_token(self, session_id: str, etype: str, content: str) -> None:
+        """Acumula un token en el batch de su sesión y programa el volcado."""
+        if not content:
+            return
+        batch = self._token_batch.setdefault(session_id, {})
+        batch[etype] = batch.get(etype, "") + content
+        if session_id not in self._token_timer:
+            self._token_timer[session_id] = self._loop.call_later(
+                _TOKEN_BATCH_SECONDS, self._flush_tokens, session_id
+            )
+
+    def _flush_tokens(self, session_id: str) -> None:
+        """Vuelca el batch de tokens pendiente de una sesión (timer o evento)."""
+        handle = self._token_timer.pop(session_id, None)
+        if handle is not None:
+            handle.cancel()
+        batch = self._token_batch.pop(session_id, None)
+        if not batch:
+            return
+        for etype, content in batch.items():
+            line = dump(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "agent.event",
+                    "params": {
+                        "sessionId": session_id,
+                        "event": {"type": etype, "content": content},
+                    },
+                }
+            )
+            # Vida del motor: son salida real del agente (la UI depende de ellas
+            # para el "Pensando…").
+            self._out.put_nowait((session_id, line))
 
     def _send(self, message: dict[str, Any]) -> None:
         # `"-"` = sin sesión: una respuesta RPC no cuenta como vida de ninguna.
@@ -1043,16 +1105,25 @@ class Bridge:
         """Lee un archivo de texto para el visor. Detecta binarios por NUL o
         por fallo de decodificación UTF-8."""
         from pathlib import Path
+        import codecs
 
         target = Path(params["path"]).expanduser().resolve()
         if not target.is_file():
             raise ValueError(f"no es un archivo: {target}")
         size = target.stat().st_size
-        raw = target.read_bytes()[: self._MAX_READ]
+        # Solo los primeros `_MAX_READ` bytes: `read_bytes()` cargaría el
+        # archivo COMPLETO en memoria antes de rebanar (un log de 2 GB
+        # congelaría el sidecar aunque la respuesta fuera pequeña).
+        with target.open("rb") as fh:
+            raw = fh.read(self._MAX_READ)
         if b"\x00" in raw[:8192]:
             return {"path": str(target), "binary": True, "text": "", "size": size, "truncated": False}
+        # Decodificador incremental: si el corte cae a mitad de un carácter
+        # UTF-8, el resto parcial se descarta en vez de fallar (un archivo
+        # truncado no debe reportarse como binario). Bytes inválidos reales
+        # sí lanzan y caen al binario.
         try:
-            text = raw.decode("utf-8")
+            text = codecs.getincrementaldecoder("utf-8")(errors="strict").decode(raw)
         except UnicodeDecodeError:
             return {"path": str(target), "binary": True, "text": "", "size": size, "truncated": False}
         return {
