@@ -78,6 +78,14 @@ export interface ChatMessage {
    * Se previsualizan como miniaturas en el mensaje.
    */
   images?: string[];
+  /**
+   * Tool que el modelo está redactando en este momento
+   * (`AgentToolComposingEvent`): se muestra «escribiendo archivo…» mientras
+   * llegan los argumentos, antes de que la tool exista como tarjeta.
+   */
+  composingTool?: string;
+  /** Índice del slot de la llamada en redacción (el modelo puede redactar dos). */
+  composingIndex?: number;
   status: "streaming" | "done" | "error" | "cancelled";
 }
 
@@ -320,6 +328,10 @@ const turnStart = new Map<string, number>();
 /** Herramientas invocadas en el turno en curso, por sesión (para el resumen). */
 const turnTools = new Map<string, string[]>();
 
+/** Índice del slot de tool del evento: el engine emite uno por llamada. */
+const toolIndex = (event: AgentEvent): number =>
+  typeof event.index === "number" ? event.index : 0;
+
 /** Apende texto a las partes sin cruzar tool calls. */
 const appendTextToParts = (parts: MessagePart[], chunk: string): MessagePart[] => {
   const out = [...parts];
@@ -450,6 +462,23 @@ export const useSession = create<SessionState>((set, get) => {
         chunkOf(key).reasoning += String(event.content ?? "");
         scheduleFlush();
         break;
+      case "AgentToolComposingEvent": {
+        // El modelo aún está redactando los argumentos (I-128): el engine emite
+        // el nombre en cuanto lo conoce (throttle ~4/s), y con él la UI muestra
+        // «escribiendo archivo…» en vez de quedarse muda hasta que la tool
+        // arranque. El nombre puede faltar en los primeros deltas.
+        const name = String(event.tool_name ?? "").trim();
+        if (!name) break;
+        // Se guarda también el índice: la etiqueta es un único slot y con dos
+        // llamadas en paralelo debe seguir a la última anunciada.
+        const composing = toolIndex(event);
+        patchLastAssistant(key, (m) =>
+          m.composingTool === name && m.composingIndex === composing
+            ? m
+            : { ...m, composingTool: name, composingIndex: composing },
+        );
+        break;
+      }
       case "AgentToolStartEvent": {
         const card: ToolCard = {
           id: String(event.tool_call_id ?? uid()),
@@ -458,7 +487,16 @@ export const useSession = create<SessionState>((set, get) => {
           status: "running",
         };
         // Se añade como parte: mantiene el orden respecto al texto del stream.
-        patchLastAssistant(key, (m) => ({ ...m, parts: [...m.parts, { kind: "tool", tool: card }] }));
+        // La tarjeta sustituye a la etiqueta de "componiendo" **de ese índice**:
+        // arrancar la primera de dos tools en paralelo no debe borrar el «…» de
+        // la segunda.
+        const started = toolIndex(event);
+        patchLastAssistant(key, (m) => ({
+          ...m,
+          composingTool: m.composingIndex === started ? undefined : m.composingTool,
+          composingIndex: m.composingIndex === started ? undefined : m.composingIndex,
+          parts: [...m.parts, { kind: "tool", tool: card }],
+        }));
         const tools = turnTools.get(key) ?? [];
         tools.push(card.name);
         turnTools.set(key, tools);
@@ -499,6 +537,8 @@ export const useSession = create<SessionState>((set, get) => {
         patchLastAssistant(key, (m) => ({
           ...m,
           status: "error",
+          composingTool: undefined,
+          composingIndex: undefined,
           parts: mergeTextParts([...m.parts, { kind: "text", text: String(event.message ?? "Error") }]),
         }));
         logError("turn.error", String(event.message ?? "Error"), { sessionId: key });
@@ -555,6 +595,9 @@ export const useSession = create<SessionState>((set, get) => {
           const status = String(params.status);
           patchLastAssistant(key, (m) => ({
             ...m,
+            // El turno terminó: ya no queda ninguna tool en redacción.
+            composingTool: undefined,
+            composingIndex: undefined,
             status:
               status === "done" ? "done" : status === "cancelled" ? "cancelled" : "error",
           }));
@@ -833,6 +876,8 @@ export const useSession = create<SessionState>((set, get) => {
         patchLastAssistant(key, (m) => ({
           ...m,
           status: "error",
+          composingTool: undefined,
+          composingIndex: undefined,
           parts: mergeTextParts([...m.parts, { kind: "text", text: `Error: ${message}` }]),
         }));
         patchView(key, (v) => ({
