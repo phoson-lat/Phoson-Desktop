@@ -26,6 +26,10 @@ src-tauri/binaries/
 # Misc
 .DS_Store
 
+# Logs de depuración de una instancia lanzada a mano (stdout/stderr redirigidos)
+.dev-stdout.log
+.dev-stderr.log
+
 # Entorno (secretos locales)
 .env
 .env.local

@@ -144,9 +144,51 @@ Medido aparte: `list_session_metas` sobre los 144 ficheros (48 252 líneas) = **
 - ✅ `session.list`: caché + single-flight (bridge) → de ~3.2 s × N a ~0 salvo la
   primera lectura.
 - ✅ `stt.status`: cacheado.
+- ✅ `models.list`: caché por proveedor + single-flight (5 min; los fallos de red
+  no se cachean).
+- ✅ Coalescido de tokens (bridge): el motor emitía un `agent.event` POR token
+  (cientos de IPC/segundo); ahora se acumulan 30 ms por sesión y salen como una
+  sola notificación (`_TOKEN_BATCH_SECONDS`, pruebas en
+  `bridge/tests/test_token_batch.py`). El orden se conserva: cualquier evento
+  no-token de la misma sesión vuelca el buffer antes de sí mismo.
+- ✅ Code-splitting de ventanas/dialogos (`SettingsDialog`, `CodeViewer`,
+  `FileExplorer`, `Onboarding` con `React.lazy`): la entrada baja de ~1.41 MB a
+  ~1.33 MB (min) y shiki core/temas dejan de ser críticos. `CommandPalette`
+  queda eager: registra el atajo Ctrl+K aunque esté cerrado.
+- ✅ `fs.read` parcial: antes cargaba el archivo COMPLETO en memoria antes de
+  rebanar a 512 KB (un log de 2 GB congelaba el sidecar); ahora lee solo los
+  primeros bytes y el corte a mitad de un carácter UTF-8 ya no marca el archivo
+  como binario (decodificador incremental).
+- ✅ Reaper de sidecars inactivos (Rust): cierra el sidecar de un workspace sin
+  actividad 30 min (`PHOSON_BRIDGE_IDLE_SECS`), salvo el más recientemente
+  usado y los que tienen RPC en vuelo. Terminación silenciosa (`idle: true` en
+  `phoson://terminated`): el sidecar se respawnea al volver a usarlo.
+  **Verificado en vivo** (release, `PHOSON_BRIDGE_IDLE_SECS=180`): expulsión
+  del sidecar idle a los 235 s, nivel `info` en los tres logs (reaper, pump,
+  front), sin toast; el sidecar activo sobrevivió un `turn.run` de 8.9 min.
+  Frente a la build instalada (sin reaper): esta retiene ~3 sidecars
+  (~230 MB de Python) para siempre; con reaper queda solo el activo.
+- ✅ Logger sin `setInterval`: el volcado es perezoso (timer solo cuando hay
+  eventos pendientes) + `visibilitychange`.
 - ⏳ Root fix engine-side del listado (`.meta.json` por sesión) — pendiente.
-- ⏳ `models.list` (red): cachear por proveedor — pendiente.
-- ⏳ Code-splitting de vistas pesadas (entrada ~1.35 MB) — pendiente.
+- ⏳ `manualChunks` para vendor — pendiente.
+
+### 5.c Mediciones release vs instalada (2026-10-12, misma sesión)
+
+| Métrica | Instalada (29/09) | Nueva (repo) |
+|---|---|---|
+| Main exe (Rust) | 58.5 MB | **30.5 MB** |
+| Renderer webview | 257.8 MB (2h25m de uso) | **137.7 MB** (11 min) |
+| Sidecars vivos (2 workspaces + default) | 3 árboles, ~230 MB retenidos | **1 árbol** tras expulsión del idle |
+| Entry chunk | 1,414.94 kB (gzip 443.74) | **1,332.47 kB** (gzip 418.96) |
+| `initialize` (bridge, arranque) | — | 3.9–4.2 s (venv dev; empaquetado difiere) |
+| Cold start a página cargada | — | < 0.4 s (assets embebidos) |
+
+> Ojo al medir: `cargo build` a secas produce un binario **dev** que pide
+> `localhost:1420` (ERR_CONNECTION_REFUSED). Para probar release fuera del CLI
+> hay que compilar con `--features tauri/custom-protocol` y el `dist/` recién
+> construido; mejor aún `pnpm tauri build`.
+
 
 ---
 
