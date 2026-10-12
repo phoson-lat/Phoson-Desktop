@@ -72,7 +72,6 @@ const memory: LogEvent[] = [];
 let pending: string[] = [];
 
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
-let intervalTimer: ReturnType<typeof setInterval> | null = null;
 
 const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -306,10 +305,10 @@ export function installLogger(): void {
   document.addEventListener("keydown", onKeyCapture, true);
   document.addEventListener("change", onChangeCapture, true);
 
-  // Volcado periódico y al cerrar/ocultar la app.
-  intervalTimer = setInterval(() => {
-    if (pending.length) void flush();
-  }, FLUSH_INTERVAL_MS);
+  // Volcado perezoso (nada de `setInterval`: no despertar la webview cuando
+  // no hay nada pendiente) y al cerrar/ocultar la app. `scheduleFlush` ya
+  // programa el volcado 1.5 s después del primer evento pendiente, y los
+  // errores se vuelcan de inmediato.
   window.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") void flush();
   });
@@ -399,9 +398,7 @@ export function uninstallLogger(): void {
   if (!started) return;
   started = false;
   if (flushTimer != null) clearTimeout(flushTimer);
-  if (intervalTimer != null) clearInterval(intervalTimer);
   flushTimer = null;
-  intervalTimer = null;
   document.removeEventListener("click", onClickCapture, true);
   document.removeEventListener("keydown", onKeyCapture, true);
   document.removeEventListener("change", onChangeCapture, true);
