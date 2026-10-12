@@ -104,5 +104,11 @@ jobs:
           releaseName: "Phoson Desktop v__VERSION__"
           releaseBody: "Alpha. Descarga el bundle de tu plataforma."
           releaseDraft: true
-          prerelease: true
+          # NO marcar como *prerelease*: el updater lee
+          # `releases/latest/download/latest.json` y `/releases/latest` excluye
+          # los prereleases, así que el release quedaría invisible para la app
+          # (sin error visible: seguiría ofreciendo la versión anterior) hasta
+          # que alguien lo marcara a mano. La versión `0.1.0-alpha.N` ya indica
+          # que es un alpha. Ver DISTRIBUTION.md §3.
+          prerelease: false
           args: "--config src-tauri/tauri.release.conf.json"

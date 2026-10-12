@@ -86,6 +86,16 @@ Configuración: `src-tauri/tauri.conf.json` → `plugins.updater.endpoints`.
 >   release como normal** (no marcar *Pre-release*) para que el updater lo vea.
 >   La versión puede seguir siendo `0.1.0-alpha.1`; la marca de prerelease en
 >   GitHub es cosmética y solo afecta a este endpoint.
+> - El fallo es **silencioso**: si el release sale marcado como prerelease, el
+>   endpoint sigue sirviendo la versión anterior con HTTP 200 y el updater
+>   responde "no hay actualizaciones". Se comprueba con:
+>
+>   ```bash
+>   curl -sL https://github.com/phoson-lat/Phoson-Desktop/releases/latest/download/latest.json
+>   ```
+>
+>   Para blindarlo, `release.yml` fija `prerelease: false` y deja la release en
+>   *draft* hasta que la publiques a mano.
 
 El `latest.json` lo **genera y fusiona `tauri-action`** por plataforma al crear el
 release; no hay que escribirlo a mano. Ejemplo de formato:
@@ -132,5 +142,6 @@ git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1
 ```
 
 Requiere los secretos `TAURI_SIGNING_PRIVATE_KEY` y
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (ver §2). El release sale como **draft +
-prerelease**: revísalo y publícalo para que el updater (`releases/latest`) lo vea.
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (ver §2). El release sale como **draft**
+(**sin** la marca *Pre-release*, ver §3): revísalo, publícalo desde la UI y el
+updater (`releases/latest`) lo verá sin ningún paso extra.
