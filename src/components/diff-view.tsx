@@ -7,7 +7,11 @@ interface DiffViewProps {
   path?: string;
   /** Nota corta a la derecha de la cabecera (p. ej. «archivo completo»). */
   note?: string;
-  /** Máximo de líneas renderizadas; el resto se resume en el pie. */
+  /**
+   * Máximo de filas renderizadas (cabeceras `@@ … @@` incluidas); el corte cae
+   * en frontera de hunk y el resto se resume en el pie, contando solo líneas de
+   * contenido (ctx/add/del).
+   */
   maxLines?: number;
   className?: string;
 }
@@ -22,6 +26,21 @@ const ROW_CLASS: Record<DiffRow["kind"], string> = {
 
 const SIGN: Record<DiffRow["kind"], string> = { add: "+", del: "−", ctx: " ", hunk: "" };
 
+/** Filas con contenido del diff (las cabeceras `@@ … @@` no cuentan). */
+const isBodyRow = (row: DiffRow): boolean => row.kind !== "hunk";
+
+/**
+ * Índice de corte para `maxLines` respetando la frontera de hunk: si el corte
+ * caería dejando la cabecera `@@ … @@` de un hunk sin cuerpo, se retrocede al
+ * inicio de ese hunk (la cabecera huérfana desaparece con él).
+ */
+function hunkAlignedCut(rows: DiffRow[], maxLines: number): number {
+  if (rows.length <= maxLines) return rows.length;
+  let cut = Math.max(0, maxLines);
+  while (cut > 0 && !isBodyRow(rows[cut - 1])) cut--;
+  return cut;
+}
+
 /**
  * Vista de diff unificado para los tool cards de edición (`patch_file`,
  * `write_file`): numeración doble, líneas añadidas/borradas con fondo y
@@ -30,8 +49,9 @@ const SIGN: Record<DiffRow["kind"], string> = { add: "+", del: "−", ctx: " ", 
 export function DiffView({ rows, path, note, maxLines = 300, className }: DiffViewProps) {
   if (rows.length === 0) return null;
 
-  const shown = rows.slice(0, maxLines);
-  const hidden = rows.length - shown.length;
+  const shown = rows.slice(0, hunkAlignedCut(rows, maxLines));
+  // Solo cuentan las filas ctx/add/del: las cabeceras de hunk no son «líneas».
+  const hidden = rows.slice(shown.length).filter(isBodyRow).length;
   const { adds, dels } = diffStats(rows);
 
   return (

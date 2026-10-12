@@ -25,6 +25,14 @@ type Op = { kind: "ctx" | "add" | "del"; text: string };
 /** Tope de celdas del LCS (n·m) antes de degradar a bloque completo. */
 const MAX_CELLS = 4_000_000;
 
+/**
+ * Rango de un hunk con el formato exacto de `difflib._format_range_unified`
+ * (lo que emite el CLI vía `unified_diff`): `,1` se omite, y una longitud de 0
+ * se ancla a la línea anterior (`<inicio-1>,0`). `start` es 1-based.
+ */
+const fmtRange = (start: number, count: number): string =>
+  count === 1 ? `${start}` : count === 0 ? `${Math.max(0, start - 1)},0` : `${start},${count}`;
+
 /** Líneas de un texto, normalizando CRLF/CR y sin la vacía final. */
 export const splitLines = (text: string): string[] => {
   const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -91,14 +99,30 @@ function diffOps(oldLines: string[], newLines: string[]): Op[] {
     for (const line of a) ops.push({ kind: "del", text: line });
     for (const line of b) ops.push({ kind: "add", text: line });
   } else {
-    ops.push(...lcsOps(a, b));
+    // Bucle en vez de `ops.push(...lcsOps(a, b))`: el spread pasa cada elemento
+    // como argumento, y a partir de ~125.000 ops revienta con `RangeError:
+    // Maximum call stack size exceeded` (un archivo de 1-30 líneas frente a
+    // ~150.000 se queda por debajo de MAX_CELLS, así que el guardia no lo tapa).
+    for (const op of lcsOps(a, b)) ops.push(op);
   }
 
   for (let i = endOld; i < n; i++) ops.push({ kind: "ctx", text: oldLines[i] });
   return ops;
 }
 
-/** Filas de un diff unificado; `[]` cuando no hay cambios. */
+/**
+ * Filas de un diff unificado; `[]` cuando no hay cambios.
+ *
+ * Caso «solo cambian finales de línea» (hallazgo #4): si `oldText !== newText`
+ * pero el diff sale vacío —solo cambian CRLF↔LF o el salto final, que
+ * `splitLines` normaliza y descarta— la UI no puede distinguirlo y cae al
+ * `<pre>` en crudo. NO se hace aquí porque no hay forma de exponerlo sin tocar
+ * la API pública: esta función devuelve solo el array de filas (no un objeto
+ * con `note`) y `diffStats` recibe únicamente las filas, sin los textos. Queda
+ * documentado: lo limpio sería que el consumidor (src/features/message.tsx)
+ * detecte `oldText !== newText && rows.length === 0` y pase al prop `note` de
+ * `DiffView` un «solo cambian finales de línea», sin cambios en este módulo.
+ */
 export function unifiedDiffRows(
   oldText: string,
   newText: string,
@@ -156,7 +180,10 @@ export function unifiedDiffRows(
     if (!oldStart) oldStart = (raw[i - 1]?.oldLine ?? 0) + 1;
     if (!newStart) newStart = (raw[i - 1]?.newLine ?? 0) + 1;
 
-    rows.push({ kind: "hunk", text: `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@` });
+    rows.push({
+      kind: "hunk",
+      text: `@@ -${fmtRange(oldStart, oldCount)} +${fmtRange(newStart, newCount)} @@`,
+    });
     for (let k = i; k <= end; k++) rows.push(raw[k]);
     i = end + 1;
   }
