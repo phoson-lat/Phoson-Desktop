@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { isTauri, openPath } from "@/bridge/client";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useImageUrl, useOnScreen } from "@/hooks/use-image-url";
-import { basenameOf } from "@/lib/files";
+import { basenameOf, isInlineSource } from "@/lib/files";
 import { cn } from "@/lib/utils";
 
 /** Miniatura no interactiva (chips del composer). */
@@ -34,7 +34,7 @@ function ImageTile({ path, onZoom }: { path: string; onZoom: () => void }) {
   // La lectura se pospone hasta que la miniatura entra en pantalla: al abrir una
   // sesión con muchas imágenes no se piden todas a la vez.
   const { ref, seen } = useOnScreen<HTMLButtonElement>();
-  const { url, error, loading } = useImageUrl(path, seen);
+  const { url, error, loading, deferred } = useImageUrl(path, seen);
   const name = basenameOf(path);
   return (
     <button
@@ -49,10 +49,16 @@ function ImageTile({ path, onZoom }: { path: string; onZoom: () => void }) {
         <img src={url} alt={name} className="size-full object-cover" />
       ) : loading ? (
         <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      ) : deferred ? (
+        // La lectura aún no se ha pedido (la miniatura no está en pantalla).
+        <span className="size-full bg-black/5 dark:bg-white/5" />
       ) : (
-        <span className="flex flex-col items-center gap-1 px-2 text-center text-[0.62rem] text-muted-foreground">
+        <span
+          className="flex flex-col items-center gap-1 px-2 text-center text-[0.62rem] text-muted-foreground"
+          title={error ?? undefined}
+        >
           <ImageOff className="size-4" />
-          <span className="line-clamp-2">{error ?? "No se pudo cargar"}</span>
+          <span className="line-clamp-2">No se pudo cargar la imagen</span>
         </span>
       )}
       {url && (
@@ -80,8 +86,9 @@ export function ImageGrid({ paths, className }: { paths?: string[]; className?: 
   return (
     <>
       <div className={cn("flex flex-wrap gap-2", className)}>
-        {paths.map((p) => (
-          <ImageTile key={p} path={p} onZoom={() => setZoom(p)} />
+        {paths.map((p, i) => (
+          // La misma ruta puede repetirse: el índice evita claves duplicadas.
+          <ImageTile key={`${p}-${i}`} path={p} onZoom={() => setZoom(p)} />
         ))}
       </div>
       <Dialog open={zoom !== null} onOpenChange={(open) => !open && setZoom(null)}>
@@ -103,7 +110,7 @@ export function ImageGrid({ paths, className }: { paths?: string[]; className?: 
               </div>
             )}
           </div>
-          {zoom && isTauri() && (
+          {zoom && isTauri() && !isInlineSource(zoom) && (
             <button
               onClick={() =>
                 void openPath(zoom).catch((e) =>

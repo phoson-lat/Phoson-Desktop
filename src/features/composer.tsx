@@ -133,7 +133,9 @@ export function Composer({
   }, [notice]);
 
   const submit = (text?: string) => {
-    if (!(text ?? value).trim() || disabled) return;
+    const body = (text ?? value).trim();
+    // Un adjunto sin texto ya es un mensaje completo: solo se bloquea el vacío total.
+    if (disabled || (!body && attachments.length === 0)) return;
     // Reenvía el texto del DOM cuando lo tenemos: puede ir por delante del
     // estado de React (tecleo rápido / IME) y no debe perderse.
     onSend(text);
@@ -342,7 +344,7 @@ export function Composer({
                 size="icon"
                 className="size-8 shrink-0 rounded-full bg-violet text-white hover:bg-violet/90"
                 onClick={() => submit()}
-                disabled={!value.trim()}
+                disabled={!value.trim() && attachments.length === 0}
               >
                 <ArrowUp className="size-4" />
               </Button>

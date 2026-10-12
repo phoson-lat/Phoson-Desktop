@@ -70,7 +70,8 @@ export function SwarmChatComposer({ agents, active }: { agents: SwarmAgent[]; ac
 
   const submit = async (text?: string) => {
     const value = (text ?? draft).trim();
-    if (!value) return;
+    // Como en el chat principal: una imagen adjunta permite enviar sin texto.
+    if (!value && !(view?.attachments.length ?? 0)) return;
     if (!ready) {
       toast.error("Sin conexión con el engine", { description: "El maestro no puede recibir el mensaje." });
       return;

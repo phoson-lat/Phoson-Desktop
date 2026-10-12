@@ -11,7 +11,7 @@ import { create } from "zustand";
 
 import { phoson, bindSessionWorkspace, unbindSessionWorkspace, setCurrentWorkspace, getCurrentWorkspace } from "../bridge/client";
 import { logAction, logError, logEvent } from "../lib/log";
-import { fileUrlToPath, isImageFile } from "../lib/files";
+import { basenameOf, fileUrlToPath, isImageFile, isInlineSource } from "../lib/files";
 import { cleanSessionTitle } from "../lib/session-title";
 import type {
   AgentEvent,
@@ -119,7 +119,11 @@ interface SessionState {
   /** Cuántas tools quedaron enmascaradas: si >0, `availableTools` está recortada. */
   maskedTools: number;
   init: () => Promise<void>;
-  send: (text: string) => Promise<void>;
+  /**
+   * Envía un turno. `reattach` son rutas de imágenes que hay que volver a
+   * adjuntar antes de arrancarlo (al regenerar, el engine ya las consumió).
+   */
+  send: (text: string, reattach?: string[]) => Promise<void>;
   cancel: () => Promise<void>;
   /** Repite el último turno de usuario (undo en el engine + reenvío). */
   regenerate: () => Promise<void>;
@@ -204,6 +208,9 @@ const fileToBase64 = (file: File) =>
 function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
   const out: ChatMessage[] = [];
   let assistant: ChatMessage | null = null;
+  /** El mensaje anterior era un `ToolResultBlock`: las imágenes que vengan
+   * justo después las añadió una tool, no el usuario (ver más abajo). */
+  let afterToolResult = false;
 
   const flush = () => {
     if (assistant && assistant.parts.length > 0)
@@ -238,18 +245,21 @@ function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
         .map((b) => b.text as string)
         .join("");
       // Las imágenes del turno viajan como `ImageBlock` con `source: file://…`
-      // (adjuntos nativos y `@menciones`): se recuperan para poder
-      // previsualizarlas también al reabrir una sesión. Se descartan las que no
-      // apunten a un archivo local (p. ej. data URLs ya resueltas).
-      const images = blocks
-        .filter(
-          (b) =>
-            (b.type === "ImageBlock" || b.type === "Image") &&
-            typeof b.source === "string" &&
-            (b.source as string).startsWith("file://"),
-        )
-        .map((b) => fileUrlToPath(b.source as string))
-        .filter((p) => p.length > 0);
+      // (adjuntos nativos y `@menciones`) o ya resueltas (`data:`, `http…`), y
+      // se recuperan para poder previsualizarlas también al reabrir una sesión.
+      // La tool que devuelve una imagen (`view_image`) la manda en su propio
+      // mensaje de usuario justo después del `ToolResultBlock`; ese no es un
+      // adjunto del usuario y se omite para no pintarlo como suyo.
+      const toolImage = afterToolResult && text.trim().length === 0;
+      const images = toolImage
+        ? []
+        : blocks
+            .filter(
+              (b) =>
+                (b.type === "ImageBlock" || b.type === "Image") && typeof b.source === "string",
+            )
+            .map((b) => fileUrlToPath(b.source as string))
+            .filter((p) => p.length > 0);
       if (text.trim() || images.length > 0) {
         flush();
         out.push({
@@ -261,6 +271,9 @@ function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
           images: images.length > 0 ? images : undefined,
         });
       }
+      afterToolResult = blocks.some(
+        (b) => typeof b.type === "string" && b.type.includes("ToolResult"),
+      );
       continue;
     }
 
@@ -282,6 +295,7 @@ function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
         });
       }
     }
+    afterToolResult = false;
   }
   flush();
   return out;
@@ -738,7 +752,7 @@ export const useSession = create<SessionState>((set, get) => {
       return bootPromise;
     },
 
-    send: async (text: string) => {
+    send: async (text: string, reattach?: string[]) => {
       const key = get().activeKey;
       if (!key) return;
       const view = get().sessions[key];
@@ -750,6 +764,21 @@ export const useSession = create<SessionState>((set, get) => {
         .filter((a) => a.kind === "image" || isImageFile(a.name))
         .map((a) => a.path)
         .filter((p) => typeof p === "string" && p.length > 0);
+      // Al regenerar hay que re-adjuntar las imágenes del turno anterior: el
+      // engine las consumió al enviarlo. Best-effort: una ruta borrada o no
+      // soportada no puede reventar el turno, se envía sin esa imagen.
+      const failed: string[] = [];
+      for (const path of reattach ?? []) {
+        // Las fuentes inline (`data:`, `http…`) no son rutas del engine: no hay
+        // nada que re-adjuntar.
+        if (images.includes(path) || isInlineSource(path)) continue;
+        try {
+          await phoson.attachmentAdd(key, path);
+          images.push(path);
+        } catch {
+          failed.push(basenameOf(path));
+        }
+      }
       // El agente recibe una nota (en inglés) con las rutas; la UI muestra el
       // texto limpio + un componente con los archivos subidos.
       const reference = uploads.length
@@ -762,6 +791,16 @@ export const useSession = create<SessionState>((set, get) => {
         ...v,
         sending: true,
         uploads: [], // ya van referenciados en este turno
+        notifications: failed.length
+          ? [
+              ...v.notifications,
+              {
+                sessionId: key,
+                kind: "warn" as const,
+                message: `No se pudieron adjuntar: ${failed.join(", ")}`,
+              },
+            ]
+          : v.notifications,
         messages: [
           ...v.messages,
           {
@@ -875,7 +914,7 @@ export const useSession = create<SessionState>((set, get) => {
         }));
         return;
       }
-      await get().send(lastUser.text);
+      await get().send(lastUser.text, lastUser.images);
     },
 
     newSession: async (workspace) => {

@@ -252,7 +252,9 @@ export default function App() {  const {
 
   const submit = (text?: string) => {
     const value = (text ?? draft).trim();
-    if (!value || view?.sending) return;
+    // Un adjunto pendiente (imagen) basta para enviar: el turno puede ir solo
+    // con la imagen, sin texto.
+    if ((!value && !(view?.attachments.length ?? 0)) || view?.sending) return;
     setDraft("");
     void send(value);
   };

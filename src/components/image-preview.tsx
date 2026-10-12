@@ -6,6 +6,9 @@ import { useImageUrl } from "@/hooks/use-image-url";
 import { basenameOf } from "@/lib/files";
 import { cn } from "@/lib/utils";
 
+/** El visor del sistema solo entiende rutas locales absolutas (ver `native.rs`). */
+const isSystemPath = (p: string): boolean => /^(?:[A-Za-z]:[\\/]|[\\/])/.test(p);
+
 /**
  * Previsualiza una imagen local mostrada por el agente (`view_image`).
  *
@@ -13,7 +16,10 @@ import { cn } from "@/lib/utils";
  * contenido en base64 (`fs.readImage`) y aquí se pinta como data URL.
  */
 export function ImagePreview({ path, className }: { path: string; className?: string }) {
-  const { url, error, loading } = useImageUrl(path);
+  const { url, error, loading, deferred } = useImageUrl(path);
+
+  // Lectura pospuesta (aún fuera de pantalla): ni spinner ni error.
+  if (deferred) return null;
 
   if (loading) {
     return (
@@ -42,7 +48,7 @@ export function ImagePreview({ path, className }: { path: string; className?: st
         <span className="truncate" title={path}>
           {basenameOf(path)}
         </span>
-        {isTauri() && (
+        {isTauri() && isSystemPath(path) && (
           <button
             onClick={() =>
               void openPath(path).catch((e) =>
