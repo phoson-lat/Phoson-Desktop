@@ -1,5 +1,5 @@
 import { Folder, Menu, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -8,14 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Composer } from "@/features/composer";
-import { CodeViewer } from "@/features/code-viewer";
 import { ContextMeter } from "@/features/context-meter";
-import { FileExplorer } from "@/features/file-explorer";
 import { InteractionCard } from "@/features/questions-card";
 import { PluginBlocks } from "@/features/plugin-blocks";
 import { MessageRow } from "@/features/message";
-import { Onboarding } from "@/features/onboarding";
-import { SettingsDialog } from "@/features/settings-dialog";
 import { CommandPalette } from "@/features/command-palette";
 import { SubagentPanel } from "@/features/subagent-panel";
 import { Sidebar } from "@/features/sidebar";
@@ -34,6 +30,22 @@ import { cn } from "@/lib/utils";
 import { useSession } from "@/stores/session";
 
 const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
+
+/* Ventanas/dialogos que no se ven al arrancar: se cargan (chunk aparte) en su
+   primera apertura. `CommandPalette` queda eager porque registra el atajo
+   Ctrl+K aunque esté cerrado, y el resto del chat es la ruta crítica. */
+const SettingsDialog = lazy(() =>
+  import("@/features/settings-dialog").then((m) => ({ default: m.SettingsDialog })),
+);
+const CodeViewer = lazy(() =>
+  import("@/features/code-viewer").then((m) => ({ default: m.CodeViewer })),
+);
+const FileExplorer = lazy(() =>
+  import("@/features/file-explorer").then((m) => ({ default: m.FileExplorer })),
+);
+const Onboarding = lazy(() =>
+  import("@/features/onboarding").then((m) => ({ default: m.Onboarding })),
+);
 
 export default function App() {  const {
     ready,
@@ -73,6 +85,13 @@ export default function App() {  const {
     () => typeof localStorage !== "undefined" && localStorage.getItem("phoson.nav") === "collapsed",
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** El dialog de ajustes se monta en su primera apertura (chunk perezoso) y a
+   * partir de ahí se queda montado: su estado interno (sección, borradores de
+   * claves) sobrevive a cerrarlo y volver a abrirlo. */
+  const [settingsMounted, setSettingsMounted] = useState(false);
+  useEffect(() => {
+    if (settingsOpen) setSettingsMounted(true);
+  }, [settingsOpen]);
   const [explorerOpen, setExplorerOpen] = useState(false);
   /** Sección visible en el área de contenido: la conversación o los swarms. */
   const [section, setSection] = useState<"chat" | "swarm">("chat");
@@ -189,10 +208,16 @@ export default function App() {  const {
   }, [collapsed]);
 
   // Si el motor de un workspace se cae, avisamos: sus sesiones en memoria se
-  // pierden y el sidecar se respawnea al volver a usarlo.
+  // pierden y el sidecar se respawnea al volver a usarlo. Las expulsiones por
+  // inactividad (`idle: true`, el recolector de Rust) son silenciosas: son
+  // mantenimiento, no un fallo.
   useEffect(() => {
     let dispose: (() => void) | undefined;
-    void onTerminated(({ workspace }) => {
+    void onTerminated(({ workspace, idle }) => {
+      if (idle) {
+        logAction("engine.idle-evicted", { workspace });
+        return;
+      }
       toast.error("El motor de un espacio de trabajo se detuvo", {
         description: workspace
           ? `Se reiniciará al volver a usarlo: ${basename(workspace)}`
@@ -506,13 +531,15 @@ export default function App() {  const {
         </main>
 
           {explorerOpen && (
-            <FileExplorer
-              cwd={cwd}
-              onClose={() => setExplorerOpen(false)}
-              onSetCwd={(p) => void applyWorkspace(p)}
-              onOpenFile={setOpenFile}
-              overlay={narrow}
-            />
+            <Suspense fallback={null}>
+              <FileExplorer
+                cwd={cwd}
+                onClose={() => setExplorerOpen(false)}
+                onSetCwd={(p) => void applyWorkspace(p)}
+                onOpenFile={setOpenFile}
+                overlay={narrow}
+              />
+            </Suspense>
           )}
           </div>
 
@@ -537,23 +564,33 @@ export default function App() {  const {
         </div>
       </div>
 
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        sessionId={activeKey}
-        onRestartOnboarding={() => {
-          setSettingsOpen(false);
-          startOnboarding();
-        }}
-      />
-      <CodeViewer path={openFile} onClose={() => setOpenFile(null)} />
+      {settingsMounted && (
+        <Suspense fallback={null}>
+          <SettingsDialog
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            sessionId={activeKey}
+            onRestartOnboarding={() => {
+              setSettingsOpen(false);
+              startOnboarding();
+            }}
+          />
+        </Suspense>
+      )}
+      {openFile && (
+        <Suspense fallback={null}>
+          <CodeViewer path={openFile} onClose={() => setOpenFile(null)} />
+        </Suspense>
+      )}
       <CommandPalette
         onOpenSettings={() => setSettingsOpen(true)}
         onToggleExplorer={() => setExplorerOpen((v) => !v)}
         onOpenSwarm={() => setSection("swarm")}
       />
       {ready && onboardingNeeded && (
-        <Onboarding sessionId={activeKey} onDone={finishOnboarding} />
+        <Suspense fallback={null}>
+          <Onboarding sessionId={activeKey} onDone={finishOnboarding} />
+        </Suspense>
       )}
       <Toaster position="bottom-right" />
     </TooltipProvider>

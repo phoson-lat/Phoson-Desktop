@@ -67,6 +67,13 @@ fn main() {
             tauri::async_runtime::spawn(async move {
                 bridge::pump(handle, rx, key).await;
             });
+
+            // Recolector de sidecars inactivos: cierra los de workspaces que
+            // nadie usa (la app puede vivir en la bandeja durante horas).
+            let reaper = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                bridge::idle_reaper(reaper).await;
+            });
             Ok(())
         })
         .build(tauri::generate_context!())

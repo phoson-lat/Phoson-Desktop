@@ -14,10 +14,11 @@
 //! escribe con `CommandChild::write(&mut self, &[u8])` (API verificada de
 //! tauri-plugin-shell 2.3).
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -41,6 +42,36 @@ pub struct BridgeState {
     /// El `Err` viaja como rechazo del `invoke` en el frontend.
     pub pending: Mutex<HashMap<u64, (String, oneshot::Sender<Result<Value, String>>)>>,
     pub next_id: AtomicU64,
+    /// Última actividad (RPC o notificación) por workspace. La usa el
+    /// recolector de sidecars inactivos (`idle_reaper`).
+    pub last_seen: Mutex<HashMap<String, Instant>>,
+    /// Workspaces cerrados por inactividad: `pump` debe reportar su
+    /// `terminated` como algo esperado (silencioso) y no como un fallo.
+    pub idle_evicted: Mutex<HashSet<String>>,
+}
+
+/// Segundos de inactividad antes de cerrar el sidecar de un workspace
+/// (por defecto, 30 min). Un sidecar del engine cuesta cientos de MB, y con
+/// la app en la bandeja podían acumularse uno por proyecto visitado. El
+/// workspace con la actividad MÁS RECIENTE (proxy del activo) nunca se
+/// expulsa, ni tampoco uno con RPC en vuelo: se respawnea al volver a usarlo.
+/// `PHOSON_BRIDGE_IDLE_SECS=0` lo desactiva.
+const DEFAULT_IDLE_SECS: u64 = 1800;
+
+fn idle_secs() -> u64 {
+    std::env::var("PHOSON_BRIDGE_IDLE_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_IDLE_SECS)
+}
+
+/// Registra actividad en un workspace (RPC o línea del sidecar).
+fn touch(state: &BridgeState, key: &str) {
+    state
+        .last_seen
+        .lock()
+        .unwrap()
+        .insert(key.to_string(), Instant::now());
 }
 
 /// Directorio del sidecar Python en el repo (`<repo>/bridge`).
@@ -182,6 +213,7 @@ pub async fn rpc(
     // Clave normalizada: la misma carpeta por dos rutas distintas debe dar el
     // MISMO sidecar (ver `workspace_key`).
     let key = workspace_key(workspace.as_deref());
+    touch(&state, &key);
 
     // Spawn on demand del sidecar del workspace, serializado bajo el mismo lock
     // para que dos llamadas concurrentes no arranquen dos procesos.
@@ -246,6 +278,8 @@ pub async fn kill_sidecar(
 ) -> Result<bool, String> {
     let key = workspace_key(workspace.as_deref());
     let child = state.children.lock().unwrap().remove(&key);
+    state.last_seen.lock().unwrap().remove(&key);
+    state.idle_evicted.lock().unwrap().remove(&key);
     let doomed: Vec<u64> = {
         let pending = state.pending.lock().unwrap();
         pending
@@ -265,6 +299,76 @@ pub async fn kill_sidecar(
             Ok(true)
         }
         None => Ok(false),
+    }
+}
+
+/// Recolector de sidecars inactivos (ver `DEFAULT_IDLE_SECS`).
+///
+/// Corre cada minuto. Expulsa (cierra) el sidecar de un workspace que lleva
+/// más del TTL sin actividad —RPC o notificaciones— salvo que:
+///  * sea el workspace con la actividad más reciente (proxy del activo: la
+///    sesión que el usuario está leyendo no puede morir por leer despacio), o
+///  * tenga RPC en vuelo (un turno en curso).
+///
+/// La expulsión es **silenciosa**: se marca en `idle_evicted` para que `pump`
+/// emita el `phoson://terminated` con `idle: true` (el front no enseña error).
+/// La próxima RPC del workspace lo respawnea.
+pub async fn idle_reaper(app: AppHandle) {
+    let mut ticker = tokio::time::interval(Duration::from_secs(60));
+    loop {
+        ticker.tick().await;
+        let ttl = idle_secs();
+        if ttl == 0 {
+            continue;
+        }
+        let state = app.state::<BridgeState>();
+        // Sidecars vivos con su última actividad (los recién spawneados sin
+        // actividad registrada cuentan como "ahora": acabamos de pagarlos).
+        let now = Instant::now();
+        let live: Vec<(String, Instant)> = {
+            let children = state.children.lock().unwrap();
+            let seen = state.last_seen.lock().unwrap();
+            children
+                .keys()
+                .map(|k| (k.clone(), seen.get(k).copied().unwrap_or(now)))
+                .collect()
+        };
+        // El más reciente es el candidato a "activo": intocable.
+        let Some(active) = live.iter().max_by_key(|(_, t)| *t).map(|(k, _)| k.clone()) else {
+            continue;
+        };
+        for (key, last) in live {
+            if key == active {
+                continue;
+            }
+            let idle_for = now.duration_since(last);
+            if idle_for < Duration::from_secs(ttl) {
+                continue;
+            }
+            // RPC en vuelo (p. ej. un turno largo): no tocar.
+            let busy = state
+                .pending
+                .lock()
+                .unwrap()
+                .values()
+                .any(|(ws, _)| ws == &key);
+            if busy {
+                continue;
+            }
+            state.idle_evicted.lock().unwrap().insert(key.clone());
+            let child = state.children.lock().unwrap().remove(&key);
+            state.last_seen.lock().unwrap().remove(&key);
+            if let Some(child) = child {
+                let _ = child.kill();
+                logging::event(
+                    &app,
+                    "info",
+                    "engine",
+                    "engine.idle-evicted",
+                    json!({ "workspace": key, "idleSecs": idle_for.as_secs() }),
+                );
+            }
+        }
     }
 }
 
@@ -332,10 +436,14 @@ pub async fn pump(
             }
             CommandEvent::Terminated(payload) => {
                 let state = app.state::<BridgeState>();
+                // ¿Fue una expulsión por inactividad? Entonces no es un fallo:
+                // el evento va marcado para que el front no enseñe error.
+                let idle = state.idle_evicted.lock().unwrap().remove(&workspace);
                 // 1) Quita el child muerto: la próxima `rpc` de este workspace lo
                 //    respawnea (si no, todas las siguientes escribirían a un stdin
                 //    muerto y el workspace quedaría inservible hasta reiniciar).
                 state.children.lock().unwrap().remove(&workspace);
+                state.last_seen.lock().unwrap().remove(&workspace);
                 // 2) Falla SOLO las RPC en vuelo de este workspace (no las de otros)
                 //    para que no queden colgadas esperando una respuesta que no
                 //    llegará.
@@ -357,15 +465,25 @@ pub async fn pump(
                 }
                 let _ = app.emit(
                     "phoson://terminated",
-                    json!({ "workspace": workspace, "code": payload.code }),
+                    json!({ "workspace": workspace, "code": payload.code, "idle": idle }),
                 );
-                logging::event(
-                    &app,
-                    "error",
-                    "engine",
-                    "engine.terminated",
-                    json!({ "workspace": workspace, "code": payload.code }),
-                );
+                if idle {
+                    logging::event(
+                        &app,
+                        "info",
+                        "engine",
+                        "engine.idle-evicted",
+                        json!({ "workspace": workspace, "code": payload.code }),
+                    );
+                } else {
+                    logging::event(
+                        &app,
+                        "error",
+                        "engine",
+                        "engine.terminated",
+                        json!({ "workspace": workspace, "code": payload.code }),
+                    );
+                }
                 break;
             }
             _ => {}
@@ -374,6 +492,12 @@ pub async fn pump(
 }
 
 fn dispatch_line(app: &AppHandle, line: &str, workspace: &str) {
+    // Toda línea del sidecar (respuesta o notificación) es actividad: la usa
+    // el recolector de inactividad.
+    {
+        let state = app.state::<BridgeState>();
+        touch(&state, workspace);
+    }
     let Ok(message) = serde_json::from_str::<RpcMessage>(line) else {
         eprintln!("[bridge] JSON inválido: {line}");
         return;

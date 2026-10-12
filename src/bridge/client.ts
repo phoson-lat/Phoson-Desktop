@@ -639,14 +639,17 @@ export const killSidecar = async (workspace?: string | null): Promise<boolean> =
 
 /**
  * Aviso de que un sidecar terminó (evento `phoson://terminated` de Rust).
+ * `idle: true` = expulsión programada por inactividad: no es un fallo, el
+ * sidecar se respawnea al volver a usarlo (la UI lo trata en silencio).
  * Fuera de Tauri no hay proceso que pueda morir: no-op.
  */
 export const onTerminated = (
-  handler: (payload: { workspace: string; code: number | null }) => void,
+  handler: (payload: { workspace: string; code: number | null; idle?: boolean }) => void,
 ): Promise<UnlistenFn> => {
   if (!isTauri()) return Promise.resolve(() => {});
-  return listen<{ workspace: string; code: number | null }>("phoson://terminated", (e) =>
-    handler(e.payload),
+  return listen<{ workspace: string; code: number | null; idle?: boolean }>(
+    "phoson://terminated",
+    (e) => handler(e.payload),
   );
 };
 
