@@ -107,7 +107,7 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [value]);
 
-  const { supported, listening, error, toggle } = useVoiceInput({
+  const { supported, listening, error, status, checking, engine, toggle } = useVoiceInput({
     sessionId,
     onText: (text, final) => {
       if (final) {
@@ -316,8 +316,12 @@ export function Composer({
                 supported
                   ? listening
                     ? "Detener dictado"
-                    : "Dictado por voz"
-                  : "El dictado no está soportado en este sistema"
+                    : engine
+                      ? `Dictado por voz (${["Moonshine", engine.model ?? "modelo por defecto", engine.language].filter(Boolean).join(" · ")})`
+                      : "Dictado por voz (navegador)"
+                  : checking
+                    ? "Comprobando el motor de dictado…"
+                    : "El dictado no está soportado en este sistema"
               }
               className={cn(
                 "relative grid shrink-0 place-items-center rounded-md transition-all",
@@ -353,14 +357,17 @@ export function Composer({
         </div>
       </div>
 
-      {(!dense || error || shownNotice) && (
+      {(!dense || error || status || shownNotice) && (
         <p
           className={cn(
             "mt-2 text-center text-[0.7rem]",
-            error || shownNotice ? "text-amber-500" : "text-muted-foreground",
+            error || status || shownNotice ? "text-amber-500" : "text-muted-foreground",
           )}
         >
-          {error ?? shownNotice ?? "El agente puede ejecutar herramientas. Revisa las acciones sensibles."}
+          {error ??
+            status ??
+            shownNotice ??
+            "El agente puede ejecutar herramientas. Revisa las acciones sensibles."}
         </p>
       )}
     </div>

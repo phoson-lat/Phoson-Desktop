@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { phoson } from "@/bridge/client";
+import { isTauri, phoson } from "@/bridge/client";
+import type { SttStatus } from "@/bridge/protocol";
 
 /** Subconjunto de la Web Speech API que usamos. */
 interface SpeechRecognitionLike {
@@ -25,6 +26,32 @@ const getCtor = (): (new () => SpeechRecognitionLike) | null => {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 };
 
+/**
+ * Idioma del dictado: el del sistema, si el motor lo admite.
+ *
+ * `null` significa "que decida el sidecar" (su `config.toml` /
+ * `PHOSON_STT_LANGUAGE`, o `es`): forzar un idioma que Moonshine no conoce es
+ * peor que respetar el configurado. Coincide `es-MX` → `es` y `en-GB` → `en`.
+ */
+export const pickSttLanguage = (supported: string[]): string | null => {
+  if (supported.length === 0) return null;
+  const nav = (typeof navigator === "undefined" ? "" : navigator.language || "").toLowerCase();
+  if (!nav) return null;
+  const codes = supported.map((code) => [code, code.toLowerCase()] as const);
+  const exact = codes.find(([, key]) => key === nav);
+  if (exact) return exact[0];
+  const base = nav.split("-")[0];
+  const prefixed = codes.find(([, key]) => key === base || nav.startsWith(`${key}-`));
+  return prefixed ? prefixed[0] : null;
+};
+
+/** Qué usa el sidecar para dictar, para mostrarlo en el botón. */
+export interface VoiceEngine {
+  language: string | null;
+  /** Modelo de Moonshine en uso; `null` = el default de la librería. */
+  model: string | null;
+}
+
 interface VoiceInputOptions {
   /** `final: false` → texto provisional (interino). */
   onText: (text: string, final: boolean) => void;
@@ -35,23 +62,37 @@ interface VoiceInputOptions {
 /**
  * Dictado por voz con dos motores, elegidos por disponibilidad:
  *
- *  1. **Web Speech API** cuando existe (Chromium/WebView2).
- *  2. **Motor STT del engine** vía el sidecar cuando no (WebKitGTK en Linux,
- *     WKWebView en macOS, donde la Web Speech API no está implementada). El
- *     sidecar captura el micrófono en el host y reemite interino/final con el
- *     mismo contrato, así que la UI es idéntica.
+ *  1. **Motor STT del engine** vía el sidecar (Moonshine, *on-device*): el
+ *     **preferido** dentro de la app de escritorio. Captura el micrófono en el
+ *     host y reemite interino/final con el mismo contrato que la Web Speech API,
+ *     así que la UI es idéntica. Aplica también en WebKitGTK (Linux) y WKWebView
+ *     (macOS), donde la Web Speech API no existe.
+ *  2. **Web Speech API** como *fallback*: modo demo en navegador, o cuando el
+ *     sidecar no la soporta.
+ *
+ * El orden importa: en WebView2 el constructor `webkitSpeechRecognition` **sí
+ * está definido** —Chromium lo exporta— pero la captura falla al iniciar (Edge
+ * no trae el servicio de voz de Google: `language not supported` /
+ * `not-allowed`). Guiarse por su existencia elegía un motor roto y el modelo
+ * local nunca llegaba a sonar; por eso se sondea el sidecar primero.
  *
  * Mientras se sondea el motor del sidecar, `supported` es false y el botón se
- * deshabilita; al resolverse, se habilita o se explica el motivo en `error`.
+ * deshabilita un instante; al resolverse, se habilita o se explica el motivo en
+ * `error`. `status` trae avisos transitorios del sidecar (p. ej. la descarga
+ * inicial del modelo, que tarda ~15 s y ocurre sin salidas visibles).
  */
 export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   const webCtor = useRef<(new () => SpeechRecognitionLike) | null>(getCtor());
-  /** null = sondeando el motor del sidecar. */
-  const [engineSupported, setEngineSupported] = useState<boolean | null>(
-    webCtor.current ? true : null,
-  );
+  /** null = sin sonda (o sondeando) el motor del sidecar. */
+  const [engineSupported, setEngineSupported] = useState<boolean | null>(null);
+  /** Motor/idioma elegidos por el sidecar (para el título del botón). */
+  const [engine, setEngine] = useState<VoiceEngine | null>(null);
+  /** Idioma que se mandará en `stt.start` (null = que decida el sidecar). */
+  const languageRef = useRef<string | null>(null);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Aviso transitorio del sidecar (descarga/carga del modelo). */
+  const [status, setStatus] = useState<string | null>(null);
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   /** Baja de la suscripción a las notificaciones `stt.*` del sidecar. */
   const unsubRef = useRef<(() => void) | null>(null);
@@ -63,27 +104,40 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
     unsubRef.current = null;
   };
 
-  const supported = webCtor.current !== null || engineSupported === true;
+  /** El sidecar solo existe dentro de la app de escritorio. */
+  const hasSidecar = isTauri() && Boolean(sessionId);
+  /** Sondeando el motor del sidecar (un instante: `stt.status` está cacheado). */
+  const checking = hasSidecar && engineSupported === null;
+  const supported =
+    !checking && (engineSupported === true || webCtor.current !== null);
 
-  // Sondea el motor del sidecar solo si falta la Web Speech API.
+  // Sondea el motor del sidecar SIEMPRE que exista: es el preferido. La
+  // presencia de `webkitSpeechRecognition` no basta para elegir motor (en
+  // WebView2 existe y falla), así que ya no se usa para saltarse la sonda.
   useEffect(() => {
-    if (webCtor.current || !sessionId) return;
+    if (!hasSidecar) return;
     let cancelled = false;
+    setEngineSupported(null);
     phoson
       .sttStatus()
-      .then((status) => {
+      .then((probe: SttStatus) => {
         if (cancelled) return;
-        setEngineSupported(status.supported);
-        if (!status.supported && status.reason) setError(status.reason);
+        setEngineSupported(probe.supported);
+        const language = pickSttLanguage(probe.languages);
+        languageRef.current = language;
+        setEngine({ language: language ?? probe.language ?? null, model: probe.modelName ?? null });
+        if (probe.supported) setError(null);
+        else if (probe.reason) setError(probe.reason);
       })
       .catch((e) => {
-        if (!cancelled) setEngineSupported(false);
-        if (!cancelled) setError(String(e));
+        if (cancelled) return;
+        setEngineSupported(false);
+        setError(String(e));
       });
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [hasSidecar, sessionId]);
 
   // ── Web Speech API ─────────────────────────────────────────────────────
   const stopWeb = useCallback(() => {
@@ -142,21 +196,31 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
       const params = envelope.params as { sessionId?: string; text?: string; final?: boolean; message?: string };
       if (params.sessionId !== sessionId) return;
       if (envelope.method === "stt.partial") {
+        setStatus(null);
         textRef.current(String(params.text ?? ""), Boolean(params.final));
+      } else if (envelope.method === "stt.progress") {
+        setStatus(params.message ?? null);
       } else if (envelope.method === "stt.error") {
         setError(params.message ?? "Fallo de dictado");
+        setStatus(null);
         setListening(false);
         detach();
       } else if (envelope.method === "stt.done") {
         setListening(false);
+        setStatus(null);
         detach();
       }
     });
-    const result = await phoson.sttStart(sessionId);
+    const result = await phoson.sttStart(sessionId, languageRef.current ?? undefined);
     if (!result.ok) {
       setError(result.reason ?? "No se pudo iniciar el dictado");
+      setStatus(null);
       detach();
       return;
+    }
+    // El sidecar confirma el idioma que aceptó (el pedido, o el suyo si no mandamos).
+    if (result.language) {
+      setEngine((prev) => (prev ? { ...prev, language: result.language! } : prev));
     }
     setError(null);
     setListening(true);
@@ -165,6 +229,7 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   const stopEngine = useCallback(async () => {
     detach();
     setListening(false);
+    setStatus(null);
     if (sessionId) {
       try {
         await phoson.sttStop(sessionId);
@@ -181,17 +246,22 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   }, [stopWeb, stopEngine]);
 
   const start = useCallback(() => {
-    const Ctor = webCtor.current;
-    if (Ctor) {
-      startWeb(Ctor);
+    // El motor del sidecar manda cuando está disponible: en WebView2 el ctor de
+    // Web Speech existe pero la captura no funciona.
+    if (engineSupported === true) {
+      void startEngine();
       return;
     }
-    if (!engineSupported) {
-      setError("Este sistema no soporta dictado por voz");
+    if (webCtor.current) {
+      startWeb(webCtor.current);
       return;
     }
-    void startEngine();
-  }, [engineSupported, startWeb, startEngine]);
+    setError(
+      checking
+        ? "Comprobando el motor de dictado…"
+        : "Este sistema no soporta dictado por voz",
+    );
+  }, [engineSupported, checking, startWeb, startEngine]);
 
   useEffect(
     () => () => {
@@ -205,9 +275,15 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
     supported,
     listening,
     error,
+    status,
+    checking,
+    engine,
     start,
     stop,
     toggle: () => (listening ? stop() : start()),
-    clearError: () => setError(null),
+    clearError: () => {
+      setError(null);
+      setStatus(null);
+    },
   };
 }
