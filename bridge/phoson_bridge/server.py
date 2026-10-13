@@ -45,7 +45,7 @@ from .sink import GuiSink
 from .protocol import dump, to_jsonable
 from .confirmation import GuiConfirmation
 from .plugin_ui import install as install_plugin_ui
-from .stt import SttManager
+from .stt import SttManager, report as stt_report, transcribe_wav as stt_transcribe_wav
 
 log = logging.getLogger("phoson_bridge")
 
@@ -1474,6 +1474,28 @@ async def run_bridge(protocol_out: TextIO) -> None:
 
 def main(protocol_out: TextIO) -> None:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    args = sys.argv[1:]
+    if "--stt-transcribe" in args:
+        # Dictado de un WAV (sin micro ni PortAudio): prueba que el binario
+        # congelado trae el runtime de Moonshine y sus modelos, sin depender de
+        # que alguien hable. Uso: phoson-bridge --stt-transcribe audio.wav [idioma]
+        rest = args[args.index("--stt-transcribe") + 1:]
+        wav = rest[0] if rest else ""
+        language = rest[1] if len(rest) > 1 else None
+        ok, text = stt_transcribe_wav(wav, language)
+        payload = {"ok": ok, "text": text}
+        protocol_out.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        protocol_out.flush()
+        sys.exit(0 if ok else 1)
+    if "--stt-check" in args:
+        # Diagnóstico de dictado sin micro ni loop de protocolo: imprime el estado
+        # por el canal del protocolo (stdout real) y sale con código 0/1. Lo usa
+        # scripts/build-sidecar.sh para comprobar que el binario congelado trae el
+        # motor STT; también sirve al usuario para depurar el botón del micrófono.
+        supported, text = stt_report()
+        protocol_out.write(text + "\n")
+        protocol_out.flush()
+        sys.exit(0 if supported else 1)
     try:
         asyncio.run(run_bridge(protocol_out))
     except KeyboardInterrupt:

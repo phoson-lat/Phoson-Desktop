@@ -250,6 +250,13 @@ export interface SttStatus {
   language: string | null;
   /** Códigos de idioma admitidos por el motor. */
   languages: string[];
+  /**
+   * Arquitectura del modelo de Moonshine (entero de la librería); `null` = la
+   * de la librería para el idioma. Viene de `config.toml`/`PHOSON_STT_MODEL_ARCH`.
+   */
+  modelArch?: number | null;
+  /** Nombre legible del modelo (`medium_streaming`); `null` si es el default. */
+  modelName?: string | null;
   /** Motivo accionable cuando `supported` es false. */
   reason?: string | null;
 }

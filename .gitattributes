@@ -1,0 +1,17 @@
+# Los scripts de shell se chequean SIEMPRE con LF: con core.autocrlf=true en
+# Windows el working tree saldría en CRLF y `bash scripts/build-sidecar.sh`
+# moriría en el primer `elif` (Git Bash/MSYS no acepta CR en scripts).
+*.sh text eol=lf
+
+# El resto respeta la configuración global del clon (autocrlf); solo se fija lo
+# que se ejecuta o lo cuyo byte exacto importa.
+*.py text
+*.ts text
+*.tsx text
+*.md text
+Cargo.lock text
+*.lock text
+*.exe binary
+*.dll binary
+*.png binary
+*.ico binary

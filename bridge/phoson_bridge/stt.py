@@ -1,10 +1,10 @@
 """Dictado por voz (STT) del bridge, respaldado por ``phoson_plugin_stt``.
 
-La Web Speech API **no existe en WebKitGTK/WKWebView**, así que en Linux/macOS la
-app no puede dictar con el navegador. En su lugar, el sidecar usa el motor STT
-del propio engine (Moonshine, *on-device*, multilingüe) y reemite el transcript
-como notificaciones JSON-RPC. El micrófono lo captura el host que ejecuta el
-sidecar — el mismo equipo que muestra la app.
+La Web Speech API depende del navegador del webview: WebView2 la expone pero falla
+(falta el servicio de Google en Edge) y WebKitGTK/WKWebView no la implementa. El
+motor principal es el STT del propio engine (Moonshine, *on-device*, multilingüe),
+que reemite el transcript como notificaciones JSON-RPC. El micrófono lo captura el
+host que ejecuta el sidecar — el mismo equipo que muestra la app.
 
 Notificaciones:
 
@@ -12,16 +12,34 @@ Notificaciones:
   interino (se sustituye); ``final=true`` es una línea ya cerrada (se añade).
 - ``stt.done``    ``{sessionId, text}`` — fin de la captura.
 - ``stt.error``   ``{sessionId, message}`` — fallo con mensaje accionable.
+- ``stt.progress`` ``{sessionId, phase, message}`` — aviso transitorio del motor
+  (carga/descarga del modelo). La primera captura baja ~100 MB del modelo de
+  Moonshine con el stderr nativo silenciado: sin esto, la UI parece colgada.
 
 Mismo contrato ``interino/final`` que la Web Speech API, para que el hook de
 dictado del frontend sea agnóstico al motor.
+
+Configuración — la misma cadena que usa la CLI del engine, resuelta al construir
+el motor (una vez por proceso) y expuesta por ``stt.status``:
+
+- ``model_arch`` / ``language`` en la sección del plugin ``stt`` de
+  ``config.toml`` (``[[plugins]] name = "phoson-plugin-stt"`` con su ``config``),
+- si no, ``PHOSON_STT_MODEL_ARCH`` / ``PHOSON_STT_LANGUAGE``,
+- si no, el default de la librería (``small-streaming``) y ``es``.
+
+El idioma que manda el frontend en ``stt.start`` (el del UI) gana a lo anterior.
+``model_arch`` acepta nombre (``tiny``, ``base``, ``tiny-streaming``,
+``base-streaming``, ``small-streaming``, ``medium-streaming``) o número (0-5): es
+el equivalente de ``--stt-model-arch`` de la CLI.
 """
 
 from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import logging
+import os
 import threading
 from typing import Any, Callable
 
@@ -30,10 +48,73 @@ log = logging.getLogger("phoson_bridge")
 #: Segundos que ``stop`` espera a que el hilo de captura termine.
 _STOP_TIMEOUT = 4.0
 
+#: La primera captura descarga el modelo de Moonshine (decenas de MB) y abre la
+#: sesión ONNX: 10-20 s sin ninguna salida visible (el motor silencia el stderr
+#: nativo). Se avisa de la espera para que la UI no parezca colgada.
+_LOADING_MESSAGE = "Cargando el modelo de dictado (la primera vez se descarga)…"
+
 _MISSING_RUNTIME = (
     "El runtime de dictado (moonshine-voice) no está instalado. "
     "Instálalo con: pip install 'phoson-engine-minimal[stt]'."
 )
+
+#: Pista para una ``model_arch`` mal escrita: los nombres que acepta Moonshine.
+_ARCH_HINT = (
+    "Usa tiny|base|tiny-streaming|base-streaming|small-streaming|medium-streaming "
+    "(o su número 0-5)."
+)
+
+_plugin_config_cache: dict[str, Any] | None = None
+
+
+def _plugin_config() -> dict[str, Any]:
+    """Config del plugin de dictado en ``config.toml``, o ``{}``.
+
+    Es la misma fuente que consume la CLI (``PhosonConfig.plugins``); el bridge no
+    reinventa la resolución, solo la lee. Un fallo al cargar la config (engine sin
+    ``phoson_cli``, sin archivo) deja el dictado con los defaults: nunca tumba.
+    """
+    global _plugin_config_cache
+    if _plugin_config_cache is None:
+        try:
+            from phoson_cli.config import load_config
+
+            specs = load_config().plugins or []
+        except Exception:  # noqa: BLE001 — la config es opcional
+            specs = []
+        for spec in specs:
+            if isinstance(spec, dict) and "stt" in str(spec.get("name", "")).lower():
+                inner = spec.get("config")
+                _plugin_config_cache = inner if isinstance(inner, dict) else {}
+                break
+        else:
+            _plugin_config_cache = {}
+    return _plugin_config_cache
+
+
+def _setting(key: str) -> tuple[Any, str]:
+    """``(valor, fuente)`` de una opción del dictado: config.toml → entorno → None."""
+    value = _plugin_config().get(key)
+    if value not in (None, ""):
+        return value, f"la opción '{key}' del plugin stt en config.toml"
+    env = f"PHOSON_STT_{key.upper()}"
+    raw = os.environ.get(env)
+    if raw:
+        return raw, env
+    return None, ""
+
+
+def _arch_label(plugin, arch: int | None) -> str | None:
+    """Nombre legible de la arquitectura; ``None`` si manda la librería."""
+    if arch is None:
+        return None
+    try:
+        arches = getattr(
+            importlib.import_module("phoson_plugin_stt.engine"), "MODEL_ARCHES", {}
+        )
+    except Exception:  # noqa: BLE001 — es solo una etiqueta para la UI
+        return str(arch)
+    return next((name for name, value in arches.items() if value == arch), str(arch))
 
 
 class SttManager:
@@ -50,6 +131,10 @@ class SttManager:
         #: Idioma por sesión (una captura por sesión) + último usado, para el sondeo.
         self._languages: dict[str, str] = {}
         self._language: str | None = None
+        #: El motor se construye una vez: guarda solo la arquitectura del modelo, y
+        #: el entorno no cambia durante la vida del sidecar.
+        self._engine_instance: Any | None = None
+        self._model_arch: int | None = None
 
     # ── Disponibilidad ────────────────────────────────────────────────────
     def _plugin(self):
@@ -60,11 +145,14 @@ class SttManager:
             return None
 
     def _engine(self) -> tuple[Any | None, str | None]:
-        """Devuelve ``(SttEngine | None, razón-de-fallo | None)``.
+        """Devuelve ``(SttEngine | None, razón-de-fallo | None)``, construido una vez.
 
         No descarga modelos: solo comprueba que el plugin, el runtime de
-        Moonshine y el backend de audio (sounddevice) están disponibles.
+        Moonshine y el backend de audio (sounddevice) están disponibles, y respeta
+        la ``model_arch`` configurada (config.toml → entorno).
         """
+        if self._engine_instance is not None:
+            return self._engine_instance, None
         plugin = self._plugin()
         if plugin is None:
             return None, "El plugin de dictado (phoson_plugin_stt) no está instalado."
@@ -84,10 +172,18 @@ class SttManager:
             # (PHOSON_STT_PORTAUDIO / ~/.cache/phoson/portaudio); deja que
             # falle en la captura con su mensaje accionable.
             pass
+        raw_arch, arch_source = _setting("model_arch")
         try:
-            return plugin.SttEngine(), None
+            arch = plugin.parse_model_arch(raw_arch)
+        except (ValueError, TypeError) as exc:
+            return None, f"{arch_source or 'model_arch'} no es válido: {exc} {_ARCH_HINT}"
+        try:
+            engine = plugin.SttEngine(model_arch=arch)
         except Exception as exc:  # noqa: BLE001 — nunca tumbar la UI
             return None, str(exc)
+        self._engine_instance = engine
+        self._model_arch = arch
+        return engine, None
 
     def status(self) -> dict[str, Any]:
         """Estado del dictado para que la UI habilite o explique el botón."""
@@ -103,6 +199,9 @@ class SttManager:
             "listening": any(not task.done() for task in self._tasks.values()),
             "language": active or self._language,
             "languages": languages,
+            # Modelo en uso; null = el default de moonshine-voice para el idioma.
+            "modelArch": self._model_arch,
+            "modelName": _arch_label(plugin, self._model_arch) if engine else None,
             "reason": reason,
         }
 
@@ -117,8 +216,11 @@ class SttManager:
             return {"ok": False, "supported": False, "reason": reason}
 
         plugin = self._plugin()
+        # El idioma del UI (lo manda el frontend en stt.start) gana al configurado.
+        configured = _setting("language")[0]
+        requested = language or (str(configured) if configured else None) or None
         try:
-            chosen = plugin.normalize_language(language) if plugin else (language or "es")
+            chosen = plugin.normalize_language(requested) if plugin else (requested or "es")
         except ValueError as exc:
             self._emit("stt.error", {"sessionId": session_key, "message": str(exc)})
             return {"ok": False, "supported": True, "reason": str(exc)}
@@ -165,6 +267,13 @@ class SttManager:
     ) -> None:
         captured: list[str] = []
         partial = {"text": ""}
+
+        # El motor baja el modelo y monta la sesión ONNX dentro del hilo, con el
+        # stderr nativo silenciado: sin este aviso la espera parece un cuelgue.
+        self._emit(
+            "stt.progress",
+            {"sessionId": key, "phase": "loading", "message": _LOADING_MESSAGE},
+        )
 
         worker = asyncio.ensure_future(
             asyncio.to_thread(
@@ -216,3 +325,47 @@ class SttManager:
             )
             emitted += 1
         return emitted
+
+
+def report() -> tuple[bool, str]:
+    """``phoson-bridge --stt-check``: estado del dictado como texto, sin micrófono.
+
+    Sirve para depurar el sidecar *congelado* (PyInstaller): un binario sin el
+    extra ``stt`` responde pero ``supported`` es ``false`` con el motivo.
+    """
+    manager = SttManager(lambda _method, _params: None)
+    status = manager.status()
+    return bool(status["supported"]), json.dumps(status, ensure_ascii=False, indent=2)
+
+
+def transcribe_wav(path: str, language: str | None = None) -> tuple[bool, str]:
+    """``phoson-bridge --stt-transcribe``: dicta un WAV y devuelve el texto.
+
+    Es la prueba determinista del empaquetado: recorre el mismo runtime de
+    Moonshine (sus librerías nativas y la descarga del modelo) que usa el botón
+    del micrófono, pero alimentado por un archivo y sin PortAudio, así que corre
+    en CI, sin micro y en el binario congelado. ``language`` omite la cadena de
+    configuración (config.toml → entorno) cuando se da. Devuelve ``(ok, texto)``
+    o ``(False, motivo)``.
+    """
+    manager = SttManager(lambda _method, _params: None)
+    engine, reason = manager._engine()
+    if engine is None:
+        return False, reason or "El motor de dictado no está disponible."
+    plugin = manager._plugin()
+    try:
+        chosen = plugin.normalize_language(language) if plugin else (language or "es")
+    except ValueError as exc:
+        return False, str(exc)
+    if not hasattr(engine, "transcribe_wav"):
+        return False, (
+            "El plugin de dictado no puede dictar archivos "
+            "(actualiza phoson-engine-minimal)."
+        )
+    try:
+        text = engine.transcribe_wav(path, chosen)
+    except FileNotFoundError as exc:
+        return False, str(exc)
+    except Exception as exc:  # noqa: BLE001 — es un diagnóstico de CLI, nunca tumbar
+        return False, f"{type(exc).__name__}: {exc}"
+    return True, text
