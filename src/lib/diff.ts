@@ -209,3 +209,63 @@ export const diffStats = (rows: DiffRow[]): { adds: number; dels: number } => {
   }
   return { adds, dels };
 };
+
+/** Diff de un archivo dentro de la salida de `git diff`. */
+export interface GitFileDiff {
+  path: string;
+  rows: DiffRow[];
+}
+
+/** Quita el prefijo `a/`·`b/` y las comillas de rutas con espacios. */
+const cleanGitPath = (raw: string): string => {
+  let p = raw.trim();
+  if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1);
+  if (p.startsWith("a/") || p.startsWith("b/")) p = p.slice(2);
+  return p;
+};
+
+/**
+ * Parsea la salida de `git diff` (formato unificado multiarchivo) a secciones
+ * por archivo con `DiffRow`s para `DiffView`. Se ignoran las cabeceras que no
+ * aportan a la vista (`index …`, `old mode`, marcadores `\ No newline…`).
+ */
+export function parseGitDiff(text: string): GitFileDiff[] {
+  const files: GitFileDiff[] = [];
+  let current: GitFileDiff | null = null;
+  let oldNo = 0;
+  let newNo = 0;
+
+  for (const line of text.split("\n")) {
+    if (line.startsWith("diff --git")) {
+      current = { path: "", rows: [] };
+      files.push(current);
+      continue;
+    }
+    if (!current) continue;
+    if (line.startsWith("--- ")) {
+      const p = cleanGitPath(line.slice(4));
+      if (p !== "/dev/null") current.path = p;
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      const p = cleanGitPath(line.slice(4));
+      if (p !== "/dev/null") current.path = p;
+      continue;
+    }
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hunk) {
+      oldNo = Number(hunk[1]);
+      newNo = Number(hunk[2]);
+      current.rows.push({ kind: "hunk", text: line });
+      continue;
+    }
+    if (line.startsWith("+")) {
+      current.rows.push({ kind: "add", text: line.slice(1), newLine: newNo++ });
+    } else if (line.startsWith("-")) {
+      current.rows.push({ kind: "del", text: line.slice(1), oldLine: oldNo++ });
+    } else if (line.startsWith(" ")) {
+      current.rows.push({ kind: "ctx", text: line.slice(1), oldLine: oldNo++, newLine: newNo++ });
+    }
+  }
+  return files.filter((f) => f.rows.length > 0);
+}

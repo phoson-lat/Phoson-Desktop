@@ -13,6 +13,8 @@ interface DiffViewProps {
    * contenido (ctx/add/del).
    */
   maxLines?: number;
+  /** Si se pasa, las líneas con número nuevo son clicables (abrir en esa línea). */
+  onOpenLine?: (line: number) => void;
   className?: string;
 }
 
@@ -46,13 +48,17 @@ function hunkAlignedCut(rows: DiffRow[], maxLines: number): number {
  * `write_file`): numeración doble, líneas añadidas/borradas con fondo y
  * cabeceras `@@ … @@`, en vez del volcado en crudo del resultado.
  */
-export function DiffView({ rows, path, note, maxLines = 300, className }: DiffViewProps) {
+export function DiffView({ rows, path, note, maxLines = 300, onOpenLine, className }: DiffViewProps) {
   if (rows.length === 0) return null;
 
   const shown = rows.slice(0, hunkAlignedCut(rows, maxLines));
   // Solo cuentan las filas ctx/add/del: las cabeceras de hunk no son «líneas».
   const hidden = rows.slice(shown.length).filter(isBodyRow).length;
   const { adds, dels } = diffStats(rows);
+  // Con onOpenLine, la línea que abre un clic en una fila `del` es la del ctx/add
+  // vecino más cercano (las borradas no existen en la versión nueva).
+  const lineFor = (row: DiffRow): number | undefined =>
+    row.newLine ?? row.oldLine;
 
   return (
     <div className={cn("mt-1", className)}>
@@ -74,7 +80,17 @@ export function DiffView({ rows, path, note, maxLines = 300, className }: DiffVi
               "flex gap-1 whitespace-pre px-2",
               ROW_CLASS[row.kind],
               row.kind === "hunk" && "mt-1 first:mt-0",
+              onOpenLine && row.kind !== "hunk" && "cursor-pointer hover:bg-foreground/5",
             )}
+            title={onOpenLine && row.kind !== "hunk" ? "Abrir en el editor en esta línea" : undefined}
+            onClick={
+              onOpenLine && row.kind !== "hunk"
+                ? () => {
+                    const line = lineFor(row);
+                    if (line) onOpenLine(line);
+                  }
+                : undefined
+            }
           >
             <span className="w-9 shrink-0 select-none text-right opacity-50">
               {row.kind === "hunk" ? "" : (row.oldLine ?? "")}

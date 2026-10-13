@@ -124,3 +124,147 @@ export async function showMainWindow(): Promise<void> {
   if (!isTauri()) return;
   await invoke("show_window").catch(() => {});
 }
+
+/* ── Abrir el workspace fuera de la app ────────────────────────────────── */
+
+/** Editor de código detectado en el equipo (whitelist cerrada en Rust). */
+export interface EditorInfo {
+  id: string;
+  name: string;
+}
+
+/** Abre una carpeta en el explorador de archivos del sistema. */
+export async function openFolder(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_folder", { path });
+}
+
+/** Gestor de archivos del sistema: id de icono ("windows" | "finder" | "linux") y nombre. */
+export interface FileManagerInfo {
+  id: string;
+  name: string;
+}
+
+/** Gestor de archivos por defecto del SO (Explorer, Finder, Dolphin…). */
+export async function fileManager(): Promise<FileManagerInfo | null> {
+  if (!isTauri()) return null;
+  return invoke<FileManagerInfo>("file_manager").catch(() => null);
+}
+
+/** Editores de código instalados (VS Code, Cursor, Windsurf, Zed…). */
+export async function listEditors(): Promise<EditorInfo[]> {
+  if (!isTauri()) return [];
+  return invoke<EditorInfo[]>("list_editors");
+}
+
+/**
+ * Abre una carpeta (o archivo) en un editor instalado (`id` de `listEditors`).
+ * Con `line` abre el archivo en esa línea (`-g ruta:línea`).
+ */
+export async function openInEditor(editorId: string, path: string, line?: number): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_in_editor", { editor: editorId, path, line: line ?? null });
+}
+
+/* ── Editor preferido ──────────────────────────────────────────────────── */
+
+const PREF_EDITOR_KEY = "phoson.preferredEditor";
+
+/** Editor preferido para aperturas directas (último elegido en el menú). */
+export function preferredEditorId(): string | null {
+  try {
+    return localStorage.getItem(PREF_EDITOR_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setPreferredEditorId(id: string): void {
+  try {
+    localStorage.setItem(PREF_EDITOR_KEY, id);
+  } catch {
+    /* almacenamiento no disponible */
+  }
+}
+
+/** Cache de por vida de la sesión: escanear PATH en cada apertura no aporta. */
+let editorsCache: Promise<EditorInfo[]> | null = null;
+
+/** Editores instalados (cacheados tras la primera consulta). */
+export function installedEditors(): Promise<EditorInfo[]> {
+  editorsCache ??= listEditors().catch(() => []);
+  return editorsCache;
+}
+
+/**
+ * Abre una ruta en el editor preferido (o el primero detectado).
+ * Lanza error si no hay ningún editor instalado.
+ */
+export async function openWithPreferredEditor(path: string, line?: number): Promise<void> {
+  const editors = await installedEditors();
+  const primary = editors.find((e) => e.id === preferredEditorId()) ?? editors[0];
+  if (!primary) throw new Error("No se encontró ningún editor instalado");
+  await openInEditor(primary.id, path, line);
+}
+
+/** Estado de git de un workspace: rama, cambios y ahead/behind del upstream. */
+export interface GitStatusInfo {
+  branch: string;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  staged: number;
+  modified: number;
+  untracked: number;
+  conflicted: number;
+  lastCommit: string | null;
+  lastCommitRel: string | null;
+  remoteWeb: string | null;
+}
+
+/** `null` si la carpeta no es un repo git (o git no está instalado). */
+export async function gitStatus(path: string): Promise<GitStatusInfo | null> {
+  if (!isTauri()) return null;
+  return invoke<GitStatusInfo | null>("git_status", { path }).catch(() => null);
+}
+
+/**
+ * Sello ligero del estado de git (stats de archivos, sin procesos). El front
+ * lo sondea cada poco y solo recarga el estado completo cuando cambia.
+ */
+export async function gitStamp(path: string): Promise<number | null> {
+  if (!isTauri()) return null;
+  return invoke<number | null>("git_stamp", { path }).catch(() => null);
+}
+
+/** Abre una terminal en la carpeta (Windows Terminal, PowerShell, cmd…). */
+export async function openTerminal(path: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("open_terminal", { path });
+}
+
+/** Diff del working tree (`git diff HEAD` + archivos sin seguimiento). */
+export interface GitDiffResult {
+  diff: string;
+  untracked: string[];
+  truncated: boolean;
+}
+
+export async function gitDiff(path: string): Promise<GitDiffResult> {
+  return invoke<GitDiffResult>("git_diff", { path });
+}
+
+/** Acción de red sobre el repo. Devuelve la salida de git; lanza si falla. */
+export async function gitAction(path: string, action: "fetch" | "pull" | "push"): Promise<string> {
+  return invoke<string>("git_action", { path, action });
+}
+
+/** Ramas locales del repo. */
+export async function gitBranches(path: string): Promise<string[]> {
+  return invoke<string[]>("git_branches", { path });
+}
+
+/** Cambia de rama o la crea (`create`). Lanza con el mensaje de git si falla. */
+export async function gitCheckout(path: string, branch: string, create = false): Promise<void> {
+  await invoke("git_checkout", { path, branch, create });
+}

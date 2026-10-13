@@ -2,6 +2,7 @@ import {
   ArrowUp,
   Check,
   ChevronRight,
+  CodeXml,
   FileText,
   Folder,
   FolderOpen,
@@ -10,9 +11,11 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
-import { phoson } from "@/bridge/client";
+import { isTauri, phoson } from "@/bridge/client";
 import type { FsListResult } from "@/bridge/protocol";
+import { openWithPreferredEditor } from "@/lib/desktop";
 import { cn } from "@/lib/utils";
 
 const fmtSize = (n?: number | null): string => {
@@ -191,34 +194,47 @@ export function FileExplorer({
         ) : (
           (data?.entries ?? []).map((e) => {
             const Icon = e.dir ? Folder : FileText;
+            const fullPath = joinPath(data!.path, e.name);
             return (
-              <button
-                key={e.name}
-                onClick={() =>
-                  e.dir
-                    ? void load(joinPath(data!.path, e.name))
-                    : onOpenFile(joinPath(data!.path, e.name))
-                }
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors dashboard-hover",
-                  e.dir ? "text-foreground/85" : "text-muted-foreground hover:text-foreground",
-                  e.hidden && "opacity-60",
-                )}
-                title={e.name}
-              >
-                <Icon
+              <div key={e.name} className="group relative">
+                <button
+                  onClick={() => (e.dir ? void load(fullPath) : onOpenFile(fullPath))}
                   className={cn(
-                    "size-3.5 shrink-0",
-                    e.dir ? "text-violet/80" : "opacity-60",
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors dashboard-hover",
+                    e.dir ? "text-foreground/85" : "text-muted-foreground hover:text-foreground",
+                    e.hidden && "opacity-60",
                   )}
-                />
-                <span className="min-w-0 flex-1 truncate">{e.name}</span>
-                {!e.dir && (
-                  <span className="shrink-0 text-[0.6rem] tabular-nums opacity-60">
-                    {fmtSize(e.size)}
-                  </span>
+                  title={e.name}
+                >
+                  <Icon
+                    className={cn(
+                      "size-3.5 shrink-0",
+                      e.dir ? "text-violet/80" : "opacity-60",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{e.name}</span>
+                  {!e.dir && (
+                    <span className="shrink-0 text-[0.6rem] tabular-nums opacity-60 transition-opacity group-hover:opacity-0">
+                      {fmtSize(e.size)}
+                    </span>
+                  )}
+                </button>
+                {/* Abrir en el editor preferido (aparece al pasar el ratón) */}
+                {!e.dir && isTauri() && (
+                  <button
+                    onClick={() =>
+                      void openWithPreferredEditor(fullPath).catch((err) =>
+                        toast.error("No se pudo abrir en el editor", { description: String(err) }),
+                      )
+                    }
+                    title="Abrir en el editor"
+                    aria-label={`Abrir ${e.name} en el editor`}
+                    className="absolute right-1 top-1/2 grid size-5.5 -translate-y-1/2 place-items-center rounded text-muted-foreground opacity-0 transition-opacity dashboard-hover group-hover:opacity-100 hover:text-foreground"
+                  >
+                    <CodeXml className="size-3.5" />
+                  </button>
                 )}
-              </button>
+              </div>
             );
           })
         )}

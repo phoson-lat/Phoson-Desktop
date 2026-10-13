@@ -9,6 +9,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Composer } from "@/features/composer";
 import { ContextMeter } from "@/features/context-meter";
+import { GitStatus } from "@/features/git-status";
+import { WorkspaceActions } from "@/features/workspace-actions";
 import { InteractionCard } from "@/features/questions-card";
 import { PluginBlocks } from "@/features/plugin-blocks";
 import { MessageRow } from "@/features/message";
@@ -406,18 +408,23 @@ export default function App() {  const {
 
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{title}</div>
-              <button
-                onClick={() => setExplorerOpen((o) => !o)}
-                title="Ver archivos del espacio de trabajo"
-                className="flex max-w-full items-center gap-1.5 truncate text-[0.68rem] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <Folder className="size-3 shrink-0" />
-                <span className="truncate">{workspacePath ? basename(workspacePath) : "workspace"}</span>
-                <span className="shrink-0 opacity-40">·</span>
-                <span className="shrink-0">{ready ? "listo" : "conectando…"}</span>
-                {!isTauri() && <span className="shrink-0 opacity-60">· demo</span>}
-              </button>
+              <div className="flex min-w-0 items-center gap-1.5 text-[0.68rem] text-muted-foreground">
+                <button
+                  onClick={() => setExplorerOpen((o) => !o)}
+                  title="Ver archivos del espacio de trabajo"
+                  className="flex min-w-0 items-center gap-1.5 truncate transition-colors hover:text-foreground"
+                >
+                  <Folder className="size-3 shrink-0" />
+                  <span className="truncate">{workspacePath ? basename(workspacePath) : "workspace"}</span>
+                  <span className="shrink-0 opacity-40">·</span>
+                  <span className="shrink-0">{ready ? "listo" : "conectando…"}</span>
+                  {!isTauri() && <span className="shrink-0 opacity-60">· demo</span>}
+                </button>
+                <GitStatus workspace={workspacePath} running={metrics?.isRunning} />
+              </div>
             </div>
+
+            <WorkspaceActions workspace={workspacePath} />
 
             <ContextMeter metrics={metrics ?? undefined} />
           </header>
