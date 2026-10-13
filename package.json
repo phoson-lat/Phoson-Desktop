@@ -11,7 +11,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "gen:icons": "node scripts/gen-provider-icons.mjs"
+    "gen:icons": "node scripts/gen-provider-icons.mjs",
+    "gen:brand-icons": "node scripts/gen-editor-icons.mjs"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "1.2.12",

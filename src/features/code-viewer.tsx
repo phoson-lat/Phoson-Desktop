@@ -1,4 +1,4 @@
-import { Check, ExternalLink, FileText, Loader2, Pencil, Save, X } from "lucide-react";
+import { Check, CodeXml, ExternalLink, FileText, Loader2, Pencil, Save, X } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import { isTauri, openPath, phoson } from "@/bridge/client";
 import type { FsReadResult } from "@/bridge/protocol";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { openWithPreferredEditor } from "@/lib/desktop";
 import { highlight } from "@/lib/highlighter";
 import { cn } from "@/lib/utils";
 
@@ -185,6 +186,20 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
                 <Pencil className="size-3.5" /> Editar
               </Button>
             )
+          )}
+          {path && isTauri() && (
+            <button
+              onClick={() =>
+                void openWithPreferredEditor(path).catch((e) =>
+                  toast.error("No se pudo abrir en el editor", { description: String(e) }),
+                )
+              }
+              title="Abrir en el editor"
+              aria-label="Abrir en el editor"
+              className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
+            >
+              <CodeXml className="size-3.5" />
+            </button>
           )}
           {path && isTauri() && (
             <button
