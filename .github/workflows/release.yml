@@ -62,7 +62,10 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libfuse2
+          # libportaudio2: el wheel de sounddevice NO trae PortAudio en Linux, así
+          # que sin él `--stt-check` del build avisa que el sidecar sale sin dictado
+          # (y hook-sounddevice no tiene .so que meter en el congelado).
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libfuse2 libportaudio2
 
       - name: deps del frontend
         run: pnpm install --frozen-lockfile
