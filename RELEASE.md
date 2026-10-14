@@ -69,8 +69,10 @@ Secciones:
 ## 4. Limitaciones conocidas (esperadas en esta alpha)
 
 - **Swarms**: gated en «próximamente» (código presente, no expuesto).
-- **Firma de instaladores** (Windows Authenticode / macOS notarización):
-  **pendiente**; el SO mostrará avisos de origen desconocido.
+- **Firma de instaladores**: macOS se firma **ad-hoc** en CI (ya no sale
+  "dañado"; el usuario debe autorizarlo una vez en Ajustes → Privacidad y
+  seguridad). La **notarización con Developer ID** y la firma Authenticode de
+  Windows siguen **pendientes** (ver `DISTRIBUTION.md` §2).
 - **Updater**: funciona una vez **publicado** (no draft) el release con
   `latest.json`.
 - **Rendimiento**: el primer `session.list` puede tardar (lectura completa del
