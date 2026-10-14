@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      El sidecar es un onefile de PyInstaller: al arrancar extrae un
+      Python.framework a un directorio temporal y hace `dlopen`. Tauri firma el
+      binario con el *hardened runtime* (código `runtime`), que activa la
+      "library validation": el proceso solo puede cargar librerías firmadas con
+      el MISMO Team ID. La firma ad-hoc no tiene Team ID, así que el dyld
+      rechaza el framework extraído:
+
+        Failed to load Python shared library '…/_MEI…/Python.framework/…/Python':
+        code signature … not valid for use in process:
+        mapping process and mapped file (non-platform) have different Team IDs
+
+      `disable-library-validation` levanta esa restricción y es el entitlement
+      estándar para apps que cargan plugins/helpers (Electron, PyInstaller…).
+      Es compatible con la notarización.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

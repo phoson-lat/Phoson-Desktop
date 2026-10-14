@@ -96,6 +96,30 @@ Application* y las credenciales de notarización como secretos de Actions
 > signingIdentity`; si no se define, se infiere de `APPLE_CERTIFICATE`. La
 > firma ad-hoc (`-`) es solo un parche para no romper el flujo de desarrollo.
 
+### macOS: entitlements del sidecar (hardened runtime)
+
+El sidecar es un **onefile de PyInstaller**: extrae un `Python.framework` a un
+directorio temporal y hace `dlopen`. Tauri firma los binarios con el *hardened
+runtime* (flag `runtime`), que activa la **library validation**: el proceso solo
+puede cargar librerías firmadas con el **mismo Team ID**. La firma ad-hoc no
+tiene Team ID, así que el arranque falla con:
+
+```
+Failed to load Python shared library '…/_MEI…/Python.framework/…/Python':
+code signature … not valid for use in process:
+mapping process and mapped file (non-platform) have different Team IDs
+```
+
+Por eso `src-tauri/entitlements.plist` aporta
+`com.apple.security.cs.disable-library-validation` (el entitlement estándar para
+apps que cargan plugins/helpers: Electron, PyInstaller…). Es compatible con la
+notarización. Está referenciado en `bundle > macOS > entitlements`.
+
+> Regresión a vigilar: si el `dmg` se firma ad-hoc **por primera vez** (antes no
+> se firmaba nada) sin este entitlement, la app abre pero **hace panic** al
+> lanzar el sidecar ("no se pudo lanzar el bridge"). Verifica `bridge.init` en
+> los logs tras un build firmado.
+
 QA de la firma tras un build local o de CI:
 
 ```bash
