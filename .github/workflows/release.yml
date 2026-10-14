@@ -94,6 +94,42 @@ jobs:
           "$PY" -m pip install -e "./engine"
           PHOSON_ENGINE_DIR="$PWD/engine" bash scripts/build-sidecar.sh
 
+      # macOS: un bundle SIN firma válida se descarga con cuarentena y macOS 26
+      # lo muestra como "Phoson Desktop está dañado y no se puede abrir" (no hay
+      # botón para autorizarlo). Con `APPLE_SIGNING_IDENTITY=-` Tauri firma
+      # ad-hoc: la firma pasa a ser válida y el usuario solo debe autorizarla en
+      # Ajustes → Privacidad y seguridad (comportamiento esperado en ARM).
+      #
+      # Se aplica ad-hoc SOLO si no hay certificado, y las variables se exportan
+      # por GITHUB_ENV (no en el `env:` de tauri-action) para no dejar
+      # `APPLE_CERTIFICATE` definida y vacía: el bundler la leería como presente
+      # e intentaría importar un certificado vacío.
+      - name: macOS — configurar firma (ad-hoc si no hay certificado)
+        if: matrix.platform == 'macos-14'
+        shell: bash
+        env:
+          IN_CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          IN_CERT_PW: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          IN_CERT_ID: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          IN_APPLE_ID: ${{ secrets.APPLE_ID }}
+          IN_APPLE_PW: ${{ secrets.APPLE_PASSWORD }}
+          IN_APPLE_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "${IN_CERT:-}" ]; then
+            {
+              echo "APPLE_CERTIFICATE=$IN_CERT"
+              echo "APPLE_CERTIFICATE_PASSWORD=$IN_CERT_PW"
+              [ -n "${IN_CERT_ID:-}" ] && echo "APPLE_SIGNING_IDENTITY=$IN_CERT_ID"
+              [ -n "${IN_APPLE_ID:-}" ] && echo "APPLE_ID=$IN_APPLE_ID"
+              [ -n "${IN_APPLE_PW:-}" ] && echo "APPLE_PASSWORD=$IN_APPLE_PW"
+              [ -n "${IN_APPLE_TEAM:-}" ] && echo "APPLE_TEAM_ID=$IN_APPLE_TEAM"
+            } >> "$GITHUB_ENV"
+            echo "Firma con Developer ID + notarización (si APPLE_ID/APPLE_TEAM_ID están definidos)."
+          else
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            echo "::warning title=macOS sin certificado::APPLE_CERTIFICATE no configurado: se firma ad-hoc. Los usuarios deberán autorizar la app en Ajustes → Privacidad y seguridad."
+          fi
+
       # tauri-action compila la app con la config de release (externalBin +
       # createUpdaterArtifacts), firma y sube los bundles + latest.json al release.
       - name: build + release (tauri-action)

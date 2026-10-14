@@ -524,8 +524,12 @@ Instaladas las libs de sistema, esto es lo que faltaba y se resolvió:
    PyInstaller (decisión #2).
 2. **`build.rs`** — faltaba por completo: sin él `tauri::generate_context!()`
    falla con *"OUT_DIR env var is not set"*.
-3. **Iconos** — `pnpm tauri icon public/icon.svg` genera `src-tauri/icons/`
-   (icon.png/icns/ico…) desde el isotipo de Phoson.
+3. **Iconos** — `pnpm tauri icon scripts/assets/phoson-app-icon.svg` genera
+   `src-tauri/icons/` (icon.png/icns/ico…) desde el isotipo de Phoson. El maestro
+   es **full-bleed** (fondo opaco): macOS 26 enmascara los íconos en un squircle
+   y rellena con un gris por defecto las esquinas transparentes. `public/icon.svg`
+   (favicon web) conserva el círculo. Tras generarlos, borra `icons/android` e
+   `icons/ios` si no compilas para móvil.
 4. `capabilities/default.json` simplificado: `core:default` +
    `notification:default` (el sidecar se lanza desde Rust; el scope de shell solo
    aplica a la API JS).

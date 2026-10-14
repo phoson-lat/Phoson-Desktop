@@ -55,16 +55,56 @@ En CI (GitHub Actions → *Settings → Secrets and variables → Actions*), añ
 > clientes instalarán una versión que ya no se puede actualizar. Guárdala en un
 > gestor de secretos.
 
-### Firma de los instaladores (pendiente de credenciales)
+### Firma de los instaladores
 
 - **Windows**: Authenticode (`signtool` o Azure Trusted Signing) →
   `bundle.windows.certificateThumbprint` / variables `WINDOWS_CERTIFICATE*`.
-- **macOS**: Developer ID + notarización (`APPLE_CERTIFICATE`,
-  `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_PASSWORD`).
+- **macOS**: Developer ID + notarización (ver abajo).
 
-La firma de instaladores sigue **pendiente**; la app funciona sin ella (con el
-aviso de "origen desconocido" del SO). El updater **sí** queda operativo con la
-clave de arriba.
+### macOS (firma ad-hoc, y Developer ID + notarización)
+
+Un `.app` **sin firma válida** y descargado por el navegador llega con la marca
+de cuarentena (`com.apple.quarantine`) y macOS 26 lo rechaza como *"Phoson
+Desktop está dañado y no se puede abrir"* — sin opción de autorizarlo. Ocurre
+porque, sin identidad, el bundler de Tauri **omite `codesign`** y el binario
+queda solo *linker-signed* (firma inválida para el bundle):
+
+```bash
+# Síntomas de un bundle sin firmar de verdad
+codesign -dv "Phoson Desktop.app"      # flags=…(adhoc,linker-signed)  Sealed Resources=none
+codesign --verify --deep --strict "Phoson Desktop.app"
+# → "code has no resources but signature indicates they must be present"
+```
+
+`release.yml` fuerza **firma ad-hoc** cuando no hay certificado
+(`APPLE_SIGNING_IDENTITY=-`, exportado por `GITHUB_ENV`). Con eso la firma es
+válida y macOS ya no dice "dañado": solo pide autorizar la app una vez
+(Ajustes → Privacidad y seguridad → *Abrir de todos modos*).
+
+Para una instalación **sin ningún aviso**, añade un certificado *Developer ID
+Application* y las credenciales de notarización como secretos de Actions
+(`release.yml` los pasa automáticamente si `APPLE_CERTIFICATE` está definido):
+
+| Secreto | Contenido |
+| --- | --- |
+| `APPLE_CERTIFICATE` | `.p12` en base64 (`openssl base64 -A -in cert.p12`) |
+| `APPLE_CERTIFICATE_PASSWORD` | contraseña del `.p12` |
+| `APPLE_SIGNING_IDENTITY` | identidad del certificado (`security find-identity -v -p codesigning`) |
+| `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | notarización con Apple ID (o `APPLE_API_KEY` + `APPLE_API_ISSUER` + `APPLE_API_KEY_PATH`) |
+
+> `APPLE_SIGNING_IDENTITY` **sobrescribe** `tauri.conf.json > bundle > macOS >
+> signingIdentity`; si no se define, se infiere de `APPLE_CERTIFICATE`. La
+> firma ad-hoc (`-`) es solo un parche para no romper el flujo de desarrollo.
+
+QA de la firma tras un build local o de CI:
+
+```bash
+codesign --verify --deep --strict "Phoson Desktop.app"   # "valid on disk"
+spctl -a -vv "Phoson Desktop.app"                        # "accepted" solo si está notarizada
+```
+
+La firma de **instaladores de Windows** sigue **pendiente** (el updater **sí**
+queda operativo con la clave de §2.1).
 
 ## 3. Updater — solución elegida
 
