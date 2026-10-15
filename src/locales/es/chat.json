@@ -32,7 +32,8 @@
     "regenerate": "Regenerar",
     "turnFailed": "El turno falló",
     "noDetail": "El engine no dio más detalle.",
-    "stoppedByYou": "Detenido por ti"
+    "stoppedByYou": "Detenido por ti",
+    "openFilePanel": "Ver el archivo en el panel lateral"
   },
   "artifacts": {
     "labels": {

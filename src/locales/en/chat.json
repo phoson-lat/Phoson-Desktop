@@ -32,7 +32,8 @@
     "regenerate": "Regenerate",
     "turnFailed": "The turn failed",
     "noDetail": "The engine gave no further detail.",
-    "stoppedByYou": "Stopped by you"
+    "stoppedByYou": "Stopped by you",
+    "openFilePanel": "Open the file in the side panel"
   },
   "artifacts": {
     "labels": {

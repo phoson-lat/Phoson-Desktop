@@ -394,6 +394,90 @@ html {
   }
 }
 
+/* Panel de archivos del agente: numeración de líneas clicables.
+   shiki envuelve cada línea en `<span class="line">`, de modo que los números
+   salen de contadores CSS (receta oficial de shiki) y el clic sobre una línea
+   se resuelve por delegación de eventos en el propio HTML resaltado. */
+.file-panel-lines pre {
+  counter-reset: line;
+}
+.file-panel-lines .line {
+  counter-increment: line;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.file-panel-lines .line:hover {
+  background: rgb(91 46 255 / 0.07);
+}
+.file-panel-lines .line.file-line-commented {
+  background: rgb(91 46 255 / 0.14);
+}
+.file-panel-lines .line.file-line-commented:hover {
+  background: rgb(91 46 255 / 0.18);
+}
+.file-panel-lines .line::before {
+  content: counter(line);
+  display: inline-block;
+  width: 2.25rem;
+  margin-right: 1.25rem;
+  text-align: right;
+  opacity: 0.4;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+/* Panel de archivos: superficie sin `backdrop-filter`. En WKWebView (macOS),
+   la combinación de blur + animación de entrada + scroll congela la
+   presentación de frames y la ventana se queda en negro (wry#1848), así que
+   este panel pinta opaco (dashboard-panel-strong) y entra con un fundido sin
+   transform. */
+.file-panel-surface {
+  background: var(--dashboard-panel-strong);
+  border-color: var(--dashboard-border);
+  box-shadow: var(--dashboard-shadow);
+}
+
+/* Panel de archivos: escritura en vivo con la marca. Sobre una retícula tenue
+   (estática, ::before), una banda de luz violeta barre el panel de arriba abajo
+   mientras el logo respira en el centro. */
+.file-writing-backdrop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 55% 40% at 50% 40%, rgb(91 46 255 / 0.1), transparent 70%),
+    repeating-linear-gradient(to bottom, transparent 0 23px, rgb(128 128 128 / 0.06) 23px 24px);
+}
+.file-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 30%;
+  background: linear-gradient(to bottom, transparent, rgb(91 46 255 / 0.1), transparent);
+  animation: file-scan-y 3.2s linear infinite;
+  pointer-events: none;
+}
+@keyframes file-scan-y {
+  from { transform: translateY(-100%); }
+  to   { transform: translateY(334%); }
+}
+
+/* Cursor del typewriter del panel de archivos. */
+.file-caret {
+  color: #7c5cff;
+  animation: file-caret-blink 1s ease-in-out infinite;
+}
+@keyframes file-caret-blink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-scanline,
+  .file-caret {
+    animation: none;
+  }
+}
+
 /* Chat typing indicator dots */
 @keyframes chat-dot-bounce {
   0%, 100% { transform: translateY(0); }

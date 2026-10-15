@@ -5,13 +5,13 @@ import {
   AlertCircle,
   ChevronRight,
   Copy,
+  PanelRightOpen,
   RotateCcw,
   Square,
 } from "lucide-react";
 import { memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { DiffView } from "@/components/diff-view";
 import { ImageGrid } from "@/components/image-grid";
 import { ImagePreview } from "@/components/image-preview";
 import { UploadedFiles } from "@/components/uploads-block";
@@ -24,16 +24,21 @@ import {
 } from "@/components/ui/reasoning";
 import { ThinkingIndicator } from "@/components/thinking-indicator";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
-import { additionsRows, unifiedDiffRows } from "@/lib/diff";
 import { fileUrlToPath } from "@/lib/files";
 import { toolDetail, toolPresentation } from "@/lib/tool-labels";
 import { cn } from "@/lib/utils";
-import { messageText, type ChatMessage, type ToolCard } from "@/stores/session";
+import { messageText, useSession, type ChatMessage, type ToolCard } from "@/stores/session";
+import { FILE_TOOLS, useFilePanel } from "@/stores/file-panel";
 
 /* ── Llamada a herramienta (fila discreta, expandible) ──────────────────── */
-function ToolRow({ tool }: { tool: ToolCard }) {
+function ToolRow({ tool, messageId }: { tool: ToolCard; messageId: string }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
+  // Tools de escritura: la fila abre el panel lateral en vez del desplegable
+  // (el diff/archivo se ve ahí, en vivo y con comentarios para el agente).
+  const isFileTool = FILE_TOOLS.has(tool.name);
+  const sessionId = useSession((s) => s.activeKey);
+  const openFilePanel = useFilePanel((s) => s.open);
   const Icon = tool.status === "running" ? Loader2 : tool.status === "error" ? AlertTriangle : Check;
   const args = tool.args as Record<string, unknown> | undefined;
   const filePath = typeof args?.path === "string" ? args.path : undefined;
@@ -48,48 +53,28 @@ function ToolRow({ tool }: { tool: ToolCard }) {
   const detail = useMemo(() => toolDetail(tool.name, args), [tool.name, args]);
   const ToolIcon = presentation.icon;
 
-  /**
-   * Diff para las tools de edición, reconstruido desde sus argumentos —
-   * `patch_file` trae el bloque viejo y el nuevo, así que el diff es exacto;
-   * `write_file` reescribe el archivo entero, así que se muestra como
-   * adiciones (con el verbo creado/actualizado del resultado).
-   *
-   * Solo cuando la tool terminó: los args llegan incompletos mientras el
-   * modelo los redacta (`AgentToolComposingEvent`).
-   */
-  const diff = useMemo(() => {
-    if (tool.status === "running") return null;
-    const a = args ?? {};
-    if (tool.name === "patch_file") {
-      const oldContent = a.old_content;
-      const newContent = a.new_content;
-      if (typeof oldContent !== "string" || typeof newContent !== "string") return null;
-      const rows = unifiedDiffRows(oldContent, newContent);
-      return rows.length > 0 ? { rows, note: undefined } : null;
-    }
-    if (tool.name === "write_file" && typeof a.content === "string") {
-      const rows = additionsRows(a.content);
-      if (rows.length === 0) return null;
-      // La nota es una frase completa del catálogo (nada de concatenar aquí).
-      const note = tool.result?.trim().toLowerCase().startsWith("updated")
-        ? t("tools.writeFile.updated")
-        : t("tools.writeFile.created");
-      return { rows, note };
-    }
-    return null;
-  }, [args, tool.name, tool.status, tool.result, t]);
-
   return (
     <div className="my-1">
       <button
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        title={tool.name}
+        onClick={() => {
+          if (isFileTool && sessionId) {
+            openFilePanel({ sessionId, messageId, toolId: tool.id });
+            return;
+          }
+          setOpen((o) => !o);
+        }}
+        aria-expanded={isFileTool ? undefined : open}
+        title={isFileTool ? t("message.openFilePanel") : tool.name}
         className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs dashboard-hover"
       >
-        <ChevronRight
-          className={cn("size-3 text-muted-foreground transition-transform", open && "rotate-90")}
-        />
+        {isFileTool ? (
+          // Pista visual de que la fila abre el panel lateral, no un desplegable.
+          <PanelRightOpen className="size-3 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight
+            className={cn("size-3 text-muted-foreground transition-transform", open && "rotate-90")}
+          />
+        )}
         <ToolIcon className="size-3 shrink-0 text-muted-foreground" />
         <span
           className="min-w-0 truncate"
@@ -112,10 +97,7 @@ function ToolRow({ tool }: { tool: ToolCard }) {
         />
       </button>
       {open && imagePath ? <ImagePreview path={imagePath} className="px-2" /> : null}
-      {open && diff && !tool.error ? (
-        <DiffView rows={diff.rows} path={filePath} note={diff.note} className="px-2" />
-      ) : null}
-      {open && !(diff && !tool.error) && (tool.result || tool.error) ? (
+      {open && (tool.result || tool.error) ? (
         <pre className="mt-1 max-h-56 overflow-auto rounded-lg border border-[var(--dashboard-border)] bg-[var(--muted)] px-3 py-2 font-mono text-[0.72rem] text-muted-foreground">
           {tool.error ?? tool.result}
         </pre>
@@ -130,18 +112,18 @@ function ToolRow({ tool }: { tool: ToolCard }) {
  * Mientras genera argumentos largos (un `write_file` de 200 líneas, un `bash`
  * enorme) el engine no emite nada visible hasta que la tool arranca; el evento
  * `AgentToolComposingEvent` (I-128) solo trae el nombre, y con él se da
- * feedback real en vez de dejar la respuesta muda.
+ * feedback real en vez de dejar la respuesta muda. Si es una tool de escritura,
+ * la fila abre el panel lateral (que enganchará con la tool en cuanto exista).
  */
-function ComposingRow({ tool }: { tool: string }) {
+function ComposingRow({ tool, messageId }: { tool: string; messageId: string }) {
   const { t } = useTranslation("chat");
+  const sessionId = useSession((s) => s.activeKey);
+  const openFilePanel = useFilePanel((s) => s.open);
   const { verb, icon: Icon } = toolPresentation(tool, t);
-  return (
-    <div
-      className="my-1 flex items-center gap-2 px-2 py-1 text-xs"
-      aria-live="polite"
-      aria-busy
-      title={tool}
-    >
+  const clickable = FILE_TOOLS.has(tool) && !!sessionId;
+
+  const content = (
+    <>
       <Loader2 className="size-3 shrink-0 animate-spin text-violet" />
       <Icon className="size-3 shrink-0 text-muted-foreground" />
       <span style={shimmerTextStyle}>{verb}</span>
@@ -150,6 +132,25 @@ function ComposingRow({ tool }: { tool: string }) {
         <span>.</span>
         <span>.</span>
       </span>
+    </>
+  );
+
+  return clickable ? (
+    <button
+      onClick={() => sessionId && openFilePanel({ sessionId, messageId })}
+      title={t("message.openFilePanel")}
+      className="my-1 flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs dashboard-hover"
+    >
+      {content}
+    </button>
+  ) : (
+    <div
+      className="my-1 flex items-center gap-2 px-2 py-1 text-xs"
+      aria-live="polite"
+      aria-busy
+      title={tool}
+    >
+      {content}
     </div>
   );
 }
@@ -266,7 +267,7 @@ function MessageRowView({
         // Aún sin salida: o el modelo piensa de verdad, o ya está escribiendo
         // la llamada a una tool.
         composing ? (
-          <ComposingRow tool={composing} />
+          <ComposingRow tool={composing} messageId={message.id} />
         ) : (
           message.status === "streaming" && !reasoning && <ThinkingIndicator />
         )
@@ -274,7 +275,7 @@ function MessageRowView({
         <>
           {message.parts.map((part, index) =>
             part.kind === "tool" ? (
-              <ToolRow key={`tool-${part.tool.id}-${index}`} tool={part.tool} />
+              <ToolRow key={`tool-${part.tool.id}-${index}`} tool={part.tool} messageId={message.id} />
             ) : (
               <TextBlock
                 key={`text-${index}`}
@@ -284,7 +285,7 @@ function MessageRowView({
               />
             ),
           )}
-          {composing ? <ComposingRow tool={composing} /> : null}
+          {composing ? <ComposingRow tool={composing} messageId={message.id} /> : null}
         </>
       )}
 

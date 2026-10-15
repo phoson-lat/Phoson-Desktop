@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { isTauri, onTerminated, openExternal } from "@/bridge/client";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -30,6 +31,7 @@ import { demoUser } from "@/lib/demo-content";
 import { mark, record, uptime } from "@/lib/perf";
 import { cleanSessionTitle } from "@/lib/session-title";
 import { useSession } from "@/stores/session";
+import { useFilePanel } from "@/stores/file-panel";
 
 const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
 
@@ -44,6 +46,9 @@ const CodeViewer = lazy(() =>
 );
 const FileExplorer = lazy(() =>
   import("@/features/file-explorer").then((m) => ({ default: m.FileExplorer })),
+);
+const FilePanel = lazy(() =>
+  import("@/features/file-panel").then((m) => ({ default: m.FilePanel })),
 );
 const Onboarding = lazy(() =>
   import("@/features/onboarding").then((m) => ({ default: m.Onboarding })),
@@ -98,6 +103,8 @@ export default function App() {  const {
   }, [settingsOpen]);
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [openFile, setOpenFile] = useState<string | null>(null);
+  // Panel lateral de archivos del agente (lo abren las filas de write/patch).
+  const filePanelTarget = useFilePanel((s) => s.target);
 
   // Rendimiento: hitos de arranque (requiere `phosonPerf` en la consola).
   useEffect(() => {
@@ -614,7 +621,16 @@ export default function App() {  const {
             onRemoveAttachment={(path) => void removeAttachment(path)}
             onRemoveUpload={removeUpload}
           />
-        </main>
+          </main>
+
+          {/* Panel de archivo del agente: entre el thread y el explorador. */}
+          {filePanelTarget && (
+            <Suspense fallback={null}>
+              <ErrorBoundary name="FilePanel">
+                <FilePanel overlay={narrow} />
+              </ErrorBoundary>
+            </Suspense>
+          )}
 
           {explorerOpen && (
             <Suspense fallback={null}>

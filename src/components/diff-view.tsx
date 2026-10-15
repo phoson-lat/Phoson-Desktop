@@ -17,6 +17,8 @@ interface DiffViewProps {
   maxLines?: number;
   /** Si se pasa, las líneas con número nuevo son clicables (abrir en esa línea). */
   onOpenLine?: (line: number) => void;
+  /** Etiqueta del tooltip de las líneas clicables (por defecto, abrir en el editor). */
+  lineTitle?: string;
   className?: string;
 }
 
@@ -50,7 +52,7 @@ function hunkAlignedCut(rows: DiffRow[], maxLines: number): number {
  * `write_file`): numeración doble, líneas añadidas/borradas con fondo y
  * cabeceras `@@ … @@`, en vez del volcado en crudo del resultado.
  */
-export function DiffView({ rows, path, note, maxLines = 300, onOpenLine, className }: DiffViewProps) {
+export function DiffView({ rows, path, note, maxLines = 300, onOpenLine, lineTitle, className }: DiffViewProps) {
   // El hook va antes del return temprano: los hooks no pueden quedar tras un `return`.
   const { t } = useTranslation("tools");
   if (rows.length === 0) return null;
@@ -86,7 +88,7 @@ export function DiffView({ rows, path, note, maxLines = 300, onOpenLine, classNa
               row.kind === "hunk" && "mt-1 first:mt-0",
               onOpenLine && row.kind !== "hunk" && "cursor-pointer hover:bg-foreground/5",
             )}
-            title={onOpenLine && row.kind !== "hunk" ? t("diff.openLine") : undefined}
+            title={onOpenLine && row.kind !== "hunk" ? (lineTitle ?? t("diff.openLine")) : undefined}
             onClick={
               onOpenLine && row.kind !== "hunk"
                 ? () => {
