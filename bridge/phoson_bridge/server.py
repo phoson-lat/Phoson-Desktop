@@ -45,7 +45,12 @@ from .sink import GuiSink
 from .protocol import dump, to_jsonable
 from .confirmation import GuiConfirmation
 from .plugin_ui import install as install_plugin_ui
-from .stt import SttManager, report as stt_report, transcribe_wav as stt_transcribe_wav
+from .stt import (
+    SttManager,
+    merge_plugin_config,
+    report as stt_report,
+    transcribe_wav as stt_transcribe_wav,
+)
 
 log = logging.getLogger("phoson_bridge")
 
@@ -382,6 +387,8 @@ class Bridge:
             "stt.status": self._stt_status,
             "stt.start": self._stt_start,
             "stt.stop": self._stt_stop,
+            "stt.config.set": self._stt_config_set,
+            "stt.download": self._stt_download,
             "perf": self._perf,
             "shutdown": self._shutdown,
         }
@@ -1460,6 +1467,88 @@ class Bridge:
 
     async def _stt_stop(self, params: dict[str, Any]) -> dict[str, Any]:
         return await self.stt.stop(str(params.get("sessionId") or ""))
+
+    async def _stt_config_set(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Ajustes del dictado: idioma/modelo en la sección del plugin stt.
+
+        ``modelArch``/``language`` ausentes no se tocan; ``null``/``""`` borra la
+        opción (vuelve al default de la librería — el idioma vuelve a seguir al
+        de la interfaz). Se persiste en ``config.toml`` y se aplica en vivo
+        (``reload``: la próxima captura reconstruye el motor).
+        """
+        from phoson_cli.config import save_config
+
+        plugin = self.stt._plugin()
+        if plugin is None:
+            return {"ok": False, "reason": "El plugin de dictado (phoson_plugin_stt) no está instalado."}
+
+        values: dict[str, Any] = {}
+        if "modelArch" in params:
+            raw = params["modelArch"]
+            if raw not in (None, ""):
+                try:
+                    # Validar con el plugin: no persistir una arch que el motor
+                    # luego rechazaría al reconstruirse.
+                    plugin.parse_model_arch(raw)
+                except (ValueError, TypeError) as exc:
+                    return {"ok": False, "reason": f"model_arch no es válido: {exc}"}
+            values["model_arch"] = raw
+        if "language" in params:
+            raw = params["language"]
+            if raw not in (None, ""):
+                try:
+                    plugin.normalize_language(str(raw))
+                except (ValueError, TypeError) as exc:
+                    return {"ok": False, "reason": f"language no es válido: {exc}"}
+            values["language"] = raw
+        if not values:
+            return {"ok": True, "status": await self._stt_status({})}
+
+        repl = await self.sessions.get(params["sessionId"])
+        merge_plugin_config(repl.config, values)
+        path = save_config(repl.config, only_fields={"plugins"})
+        # Aplicar en vivo: descartar motor y config cacheada para que la próxima
+        # captura recoja la model_arch nueva sin reiniciar la app.
+        self.stt.reload()
+        self._stt_status_cache = None
+        return {"ok": True, "path": str(path), "status": await self._stt_status({})}
+
+    async def _stt_download(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Baja por adelantado el modelo de dictado (Ajustes), con progreso.
+
+        El idioma es el pedido o el que resolverá la próxima captura; el progreso
+        sale como ``stt.progress`` (``phase="downloading"``) por la sesión dada.
+        """
+        engine, reason = self.stt._engine()
+        if engine is None:
+            return {"ok": False, "reason": reason}
+        try:
+            language = self.stt.pick_language(params.get("language"))
+        except ValueError as exc:
+            return {"ok": False, "reason": str(exc)}
+        session_key = str(params.get("sessionId") or "")
+        loop = asyncio.get_running_loop()
+
+        def _emit_threadsafe(method: str, emitted: dict[str, Any]) -> None:
+            loop.call_soon_threadsafe(self._emit, method, emitted)
+
+        result = await asyncio.to_thread(
+            self.stt._download_model, language, session_key, _emit_threadsafe
+        )
+        if result == "unavailable":
+            return {
+                "ok": False,
+                "reason": (
+                    "Este runtime de moonshine-voice no expone descarga previa: "
+                    "el modelo se baja solo en la primera captura."
+                ),
+            }
+        if result == "failed":
+            return {
+                "ok": False,
+                "reason": "La descarga del modelo falló (¿sin red?). Reintenta más tarde.",
+            }
+        return {"ok": True, "result": result, "language": language}
 
     async def _shutdown(self, _params: dict[str, Any]) -> dict[str, Any]:
         await self.stt.stop_all()

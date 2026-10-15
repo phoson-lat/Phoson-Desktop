@@ -9,6 +9,7 @@
     "local": "Local servers",
     "mcp": "MCP",
     "agent": "Agent & sessions",
+    "dictation": "Dictation",
     "desktop": "Desktop",
     "appearance": "Appearance",
     "about": "About"
@@ -69,6 +70,22 @@
     "safeModeHint": "Asks for confirmation before running commands (bash).",
     "sessionsDir": "Sessions folder"
   },
+  "dictation": {
+    "title": "Dictation",
+    "hint": "Language and model for voice dictation (Moonshine, on-device).",
+    "language": "Language",
+    "languageHint": "\"Automatic\" follows the interface language; a specific one fixes it for every capture.",
+    "languageAuto": "Automatic (interface language)",
+    "sourceNote": "Currently set by: {{source}}.",
+    "model": "Model",
+    "modelHint": "Bigger models are more accurate but slower; the default is small-streaming.",
+    "modelDefault": "Library default",
+    "download": "Download model",
+    "downloadHint": "Pre-downloads the model so the first capture doesn't have to wait.",
+    "downloadNow": "Download now",
+    "downloading": "Downloading…",
+    "unsupported": "Voice dictation is not available."
+  },
   "desktop": {
     "title": "Desktop",
     "hint": "System notices and the system tray (Windows).",
@@ -121,7 +138,12 @@
     "mcpAdded": "MCP server added",
     "mcpRemoved": "Server {{name}} deleted",
     "saveFailed": "Could not save",
-    "saved": "Settings saved"
+    "saved": "Settings saved",
+    "sttSaved": "Dictation settings saved",
+    "sttSaveFailed": "Could not save the dictation setting",
+    "sttDownloaded": "Dictation model downloaded",
+    "sttDownloadCached": "The model was already downloaded",
+    "sttDownloadFailed": "Could not download the model"
   },
   "modelPicker": {
     "title": "Switch model",

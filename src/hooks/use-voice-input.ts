@@ -103,6 +103,8 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   /** Baja de la suscripción a las notificaciones `stt.*` del sidecar. */
   const unsubRef = useRef<(() => void) | null>(null);
+  /** Cancela la sonda del motor en vuelo (evita que una vieja pise la nueva). */
+  const probeCancelRef = useRef<(() => void) | null>(null);
   const textRef = useRef(onText);
   textRef.current = onText;
   /**
@@ -129,8 +131,10 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   // Sondea el motor del sidecar SIEMPRE que exista: es el preferido. La
   // presencia de `webkitSpeechRecognition` no basta para elegir motor (en
   // WebView2 existe y falla), así que ya no se usa para saltarse la sonda.
-  useEffect(() => {
-    if (!hasSidecar) return;
+  const probeEngine = useCallback(() => {
+    // Si hay una sonda previa en vuelo (evento de Ajustes), se cancela para
+    // que su respuesta tardía no pise el estado de la nueva.
+    probeCancelRef.current?.();
     let cancelled = false;
     setEngineSupported(null);
     phoson
@@ -138,7 +142,11 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
       .then((probe: SttStatus) => {
         if (cancelled) return;
         setEngineSupported(probe.supported);
-        const language = pickSttLanguage(probe.languages, speechLocale(localeRef.current));
+        // Un idioma fijado desde Ajustes (config.toml) gana al de la interfaz;
+        // si no hay, el de la UI — o nada, si el motor no lo conoce, y decide
+        // el sidecar (su config/default).
+        const forced = probe.configuredLanguage ?? null;
+        const language = forced ?? pickSttLanguage(probe.languages, speechLocale(localeRef.current));
         languageRef.current = language;
         setEngine({ language: language ?? probe.language ?? null, model: probe.modelName ?? null });
         if (probe.supported) setError(null);
@@ -149,10 +157,25 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
         setEngineSupported(false);
         setError(String(e));
       });
-    return () => {
+    const cancel = () => {
       cancelled = true;
     };
-  }, [hasSidecar, sessionId]);
+    probeCancelRef.current = cancel;
+    return cancel;
+  }, []);
+
+  useEffect(() => {
+    if (!hasSidecar) return;
+    return probeEngine();
+  }, [hasSidecar, sessionId, probeEngine]);
+
+  // Ajustes puede cambiar el idioma/modelo del dictado (`stt.config.set`): el
+  // dialog lo anuncia por evento y aquí se re-sondea para que la próxima
+  // captura (y el título del botón) reflejen lo nuevo sin recargar la vista.
+  useEffect(() => {
+    window.addEventListener("phoson:stt-config-changed", probeEngine);
+    return () => window.removeEventListener("phoson:stt-config-changed", probeEngine);
+  }, [probeEngine]);
 
   // ── Web Speech API ─────────────────────────────────────────────────────
   const stopWeb = useCallback(() => {

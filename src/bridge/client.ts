@@ -32,6 +32,8 @@ import type {
   ModelsListResult,
   SttStatus,
   SttStartResult,
+  SttConfigSetResult,
+  SttDownloadResult,
   Json,
 } from "./protocol";
 import { demoAssistant, demoUser } from "../lib/demo-content";
@@ -271,6 +273,14 @@ class MockBridge implements Bridge {
         return { ok: false, supported: false, reason: i18n.t("welcome:demo.sttUnavailable") } as unknown as T;
       case "stt.stop":
         return { ok: true } as unknown as T;
+      case "stt.config.set":
+        // En modo demo no hay sidecar: el dictado no tiene ajustes que mover.
+        return {
+          ok: false,
+          reason: i18n.t("welcome:demo.sttUnavailable"),
+        } as unknown as T;
+      case "stt.download":
+        return { ok: false, reason: i18n.t("welcome:demo.sttUnavailable") } as unknown as T;
       case "mcp.get":
         return MOCK_MCP as unknown as T;
       case "attachment.list":
@@ -767,6 +777,26 @@ export const phoson = {
   sttStart: (sessionId: string, language?: string) =>
     call<SttStartResult>("stt.start", language ? { sessionId, language } : { sessionId }),
   sttStop: (sessionId: string) => call<{ ok: boolean }>("stt.stop", { sessionId }),
+  /**
+   * Ajustes del dictado (Ajustes → Dictado): idioma/modelo persistentes en la
+   * sección del plugin stt de config.toml. `null` en un campo lo borra (vuelve
+   * al default de la librería; el idioma vuelve a seguir al de la interfaz).
+   */
+  sttConfigSet: (
+    sessionId: string,
+    patch: { modelArch?: string | null; language?: string | null },
+  ) => {
+    const params: Record<string, unknown> = { sessionId };
+    if ("modelArch" in patch) params.modelArch = patch.modelArch ?? null;
+    if ("language" in patch) params.language = patch.language ?? null;
+    return call<SttConfigSetResult>("stt.config.set", params);
+  },
+  /** Pre-descarga del modelo de dictado (progreso por `stt.progress`). */
+  sttDownload: (sessionId: string, language?: string | null) =>
+    call<SttDownloadResult>(
+      "stt.download",
+      language ? { sessionId, language } : { sessionId },
+    ),
   mcpGet: (sessionId: string) => call<McpState>("mcp.get", { sessionId }),
   mcpSave: (sessionId: string, name: string, server: Json) =>
     call<{ ok: boolean; mcp: McpState }>("mcp.save", { sessionId, name, server }),
