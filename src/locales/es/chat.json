@@ -14,7 +14,10 @@
       "defaultModel": "modelo por defecto",
       "browser": "Dictado por voz (navegador)",
       "checking": "Comprobando el motor de dictado…",
-      "unsupported": "El dictado no está soportado en este sistema"
+      "unsupported": "El dictado no está soportado en este sistema",
+      "loading": "Cargando el modelo de dictado…",
+      "downloading": "Descargando el modelo de dictado… {{percent}}%",
+      "ready": "Modelo de dictado listo."
     },
     "send": {
       "title": "Enviar (Enter)",
