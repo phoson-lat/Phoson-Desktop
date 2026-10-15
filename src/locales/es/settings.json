@@ -9,6 +9,7 @@
     "local": "Servidores locales",
     "mcp": "MCP",
     "agent": "Agente y sesiones",
+    "dictation": "Dictado",
     "desktop": "Escritorio",
     "appearance": "Apariencia",
     "about": "Acerca de"
@@ -69,6 +70,22 @@
     "safeModeHint": "Pide confirmación antes de ejecutar comandos (bash).",
     "sessionsDir": "Carpeta de sesiones"
   },
+  "dictation": {
+    "title": "Dictado",
+    "hint": "Idioma y modelo del dictado por voz (Moonshine, en el equipo).",
+    "language": "Idioma",
+    "languageHint": "«Automático» sigue al idioma de la interfaz; uno concreto lo fija para todas las capturas.",
+    "languageAuto": "Automático (idioma de la interfaz)",
+    "sourceNote": "Quien manda ahora: {{source}}.",
+    "model": "Modelo",
+    "modelHint": "Los más grandes son más precisos y más lentos; el default es small-streaming.",
+    "modelDefault": "Default de la librería",
+    "download": "Descargar modelo",
+    "downloadHint": "Baja el modelo por adelantado para que la primera captura no espere.",
+    "downloadNow": "Descargar ahora",
+    "downloading": "Descargando…",
+    "unsupported": "El dictado por voz no está disponible."
+  },
   "desktop": {
     "title": "Escritorio",
     "hint": "Avisos del sistema y bandeja del sistema (Windows).",
@@ -121,7 +138,12 @@
     "mcpAdded": "Servidor MCP añadido",
     "mcpRemoved": "Servidor {{name}} eliminado",
     "saveFailed": "No se pudo guardar",
-    "saved": "Configuración guardada"
+    "saved": "Configuración guardada",
+    "sttSaved": "Ajustes de dictado guardados",
+    "sttSaveFailed": "No se pudo guardar el ajuste de dictado",
+    "sttDownloaded": "Modelo de dictado descargado",
+    "sttDownloadCached": "El modelo ya estaba descargado",
+    "sttDownloadFailed": "No se pudo descargar el modelo"
   },
   "modelPicker": {
     "title": "Cambiar modelo",

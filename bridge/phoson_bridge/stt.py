@@ -30,10 +30,17 @@ el motor (una vez por proceso) y expuesta por ``stt.status``:
 - si no, ``PHOSON_STT_MODEL_ARCH`` / ``PHOSON_STT_LANGUAGE``,
 - si no, el default de la librería (``small-streaming``) y ``es``.
 
-El idioma que manda el frontend en ``stt.start`` (el del UI) gana a lo anterior.
+El idioma que manda el frontend en ``stt.start`` (el del UI) gana a lo anterior
+— salvo que ``config.toml`` haya fijado uno (``configuredLanguage`` en
+``stt.status``): entonces Ajustes lo eligió a mano y el frontend no manda nada.
 ``model_arch`` acepta nombre (``tiny``, ``base``, ``tiny-streaming``,
 ``base-streaming``, ``small-streaming``, ``medium-streaming``) o número (0-5): es
 el equivalente de ``--stt-model-arch`` de la CLI.
+
+Ajustes cambia esa sección con ``stt.config.set`` (server.py, que persiste con
+``save_config`` y llama a :meth:`SttManager.reload`) y puede bajar el modelo por
+adelantado con ``stt.download``, que comparte la pre-descarga con progreso de la
+captura.
 """
 
 from __future__ import annotations
@@ -127,6 +134,66 @@ def _arch_label(plugin, arch: int | None) -> str | None:
     return next((name for name, value in arches.items() if value == arch), str(arch))
 
 
+def _arches() -> list[str]:
+    """Nombres de arquitectura que acepta Moonshine (opciones de Ajustes)."""
+    try:
+        arches = getattr(
+            importlib.import_module("phoson_plugin_stt.engine"), "MODEL_ARCHES", {}
+        )
+    except Exception:  # noqa: BLE001 — es solo para la UI
+        return []
+    return sorted(arches)
+
+
+#: Nombre canónico del plugin de dictado (la spec de config.toml lo referencia).
+_STT_PLUGIN_NAME = "phoson-plugin-stt"
+
+
+def _is_stt_spec(spec: object) -> bool:
+    """¿Es la spec (cadena o tabla inline) del plugin de dictado?"""
+    if isinstance(spec, dict):
+        return "stt" in str(spec.get("name", "")).lower()
+    return "stt" in str(spec or "").lower()
+
+
+def merge_plugin_config(cfg: Any, values: dict[str, Any]) -> None:
+    """Fusiona ``values`` en la sección ``config`` del plugin stt de ``cfg.plugins``.
+
+    ``values`` mapea opción → valor nuevo; ``None``/``""`` borra la opción (vuelve
+    al default de la librería). La spec del plugin puede ser una cadena suelta
+    (``"phoson-plugin-stt"``) o una tabla inline con su ``config``: se normaliza a
+    tabla y se fusionan las claves; si queda sin opciones se colapsa de nuevo a
+    la cadena suelta para no ensuciar el toml. Persistir es cosa del llamador
+    (``save_config`` con ``only_fields={"plugins"}``).
+    """
+    specs: list[Any] = list(getattr(cfg, "plugins", None) or [])
+    index = next((i for i, spec in enumerate(specs) if _is_stt_spec(spec)), None)
+    if index is None:
+        if all(value in (None, "") for value in values.values()):
+            return  # no hay sección y nada que fijar: no se crea
+        spec: dict[str, Any] = {"name": _STT_PLUGIN_NAME, "config": {}}
+    else:
+        original = specs[index]
+        if isinstance(original, dict):
+            spec = {**original, "config": dict(original.get("config") or {})}
+        else:
+            spec = {"name": str(original), "config": {}}
+    inner: dict[str, Any] = spec["config"]
+    for key, value in values.items():
+        if value in (None, ""):
+            inner.pop(key, None)
+        else:
+            inner[key] = value
+    if index is None:
+        specs.append(spec)
+    elif not inner and set(spec.keys()) <= {"name", "config"}:
+        # Sin opciones queda la forma mínima (cadena suelta): no ensucia el toml.
+        specs[index] = spec["name"]
+    else:
+        specs[index] = spec
+    cfg.plugins = specs
+
+
 class SttManager:
     """Captura de micrófono por sesión, sobre el loop del sidecar.
 
@@ -159,7 +226,7 @@ class SttManager:
         language: str,
         session_key: str,
         emit: Callable[[str, dict[str, Any]], None],
-    ) -> bool:
+    ) -> str:
         """Descarga (si falta) el modelo de Moonshine de ``language``, con progreso.
 
         Se llama ANTES de abrir la sesión de micrófono — la primera captura de
@@ -169,31 +236,35 @@ class SttManager:
         «cargando». ``emit`` debe ser thread-safe: el método corre en un hilo
         aparte y el loop hace el marshal.
 
-        Devuelve ``True`` solo si hubo descarga visible (la caché caliente
-        «recalienta» en milisegundos y no debe pintar barras). Cualquier fallo
-        devuelve ``False`` sin emitir nada: la captura reintenta la misma
-        descarga y reporta el error una sola vez por ``stt.error``.
+        Devuelve un estado breve, que también consume ``stt.download`` (Ajustes):
+
+        - ``"downloaded"`` — hubo descarga visible (con progreso emitido);
+        - ``"cached"`` — el modelo ya estaba (la caché caliente recalienta en
+          milisegundos y no debe pintar barras);
+        - ``"unavailable"`` — el runtime no expone la API de descarga;
+        - ``"failed"`` — la descarga reventó (la captura reintentará y
+          reportará el error una sola vez por ``stt.error``).
         """
         try:
             moonshine = importlib.import_module("moonshine_voice")
         except ImportError:
-            return False
+            return "unavailable"
         get_model = getattr(moonshine, "get_model_for_language", None)
         if get_model is None:
             # Runtime sin API pública de descarga: el flujo viejo (aviso de
             # «cargando») sigue siendo válido.
-            return False
+            return "unavailable"
         arch = None
         if self._model_arch is not None:
             arch_enum = getattr(moonshine, "ModelArch", None)
             if arch_enum is None:
-                return False
+                return "unavailable"
             try:
                 # La misma arquitectura que usará la captura, para calentar
                 # exactamente el mismo modelo.
                 arch = arch_enum(self._model_arch)
             except ValueError:
-                return False
+                return "unavailable"
         started = time.monotonic()
         reported = False
 
@@ -219,8 +290,8 @@ class SttManager:
             get_model(language, arch, on_progress=_on_progress)
         except Exception as exc:  # noqa: BLE001 — la captura reintentará y reportará
             log.info("pre-descarga del modelo de dictado no disponible: %s", exc)
-            return False
-        return reported
+            return "failed"
+        return "downloaded" if reported else "cached"
 
     def _engine(self) -> tuple[Any | None, str | None]:
         """Devuelve ``(SttEngine | None, razón-de-fallo | None)``, construido una vez.
@@ -278,6 +349,33 @@ class SttManager:
         self._model_arch = arch
         return engine, None
 
+    def reload(self) -> None:
+        """Descarta el motor y la config cacheada tras cambiar ``config.toml``.
+
+        ``stt.config.set`` escribe la sección del plugin y llama aquí: la próxima
+        captura reconstruye el motor con la ``model_arch`` nueva en vez de
+        esperar un reinicio de la app. Una captura en curso no se toca (el task
+        ya tiene su referencia al motor).
+        """
+        global _plugin_config_cache
+        _plugin_config_cache = None
+        self._engine_instance = None
+        self._model_arch = None
+
+    def pick_language(self, requested: str | None) -> str:
+        """Idioma efectivo de una captura: pedido → config.toml/entorno → ``es``.
+
+        Lanza ``ValueError`` (mensaje accionable del plugin) si el idioma no es
+        admitido. Además de ``start`` lo usan ``stt.download`` y Ajustes para
+        predecir qué idioma capturará la próxima sesión.
+        """
+        plugin = self._plugin()
+        configured = _setting("language")[0]
+        wanted = requested or (str(configured) if configured else None) or None
+        if plugin is not None:
+            return plugin.normalize_language(wanted)
+        return wanted or "es"
+
     def status(self) -> dict[str, Any]:
         """Estado del dictado para que la UI habilite o explique el botón."""
         engine, reason = self._engine()
@@ -287,11 +385,24 @@ class SttManager:
             languages = sorted(getattr(plugin, "LANGUAGES", {}) or {})
         # Idioma de la captura en curso (una hay, normalmente); si no, el último.
         active = next(iter(self._languages.values()), None)
+        configured, language_source = _setting("language")
+        _, arch_source = _setting("model_arch")
         return {
             "supported": engine is not None,
             "listening": any(not task.done() for task in self._tasks.values()),
             "language": active or self._language,
             "languages": languages,
+            # Nombres amigables (es → "Spanish") y arquitecturas aceptadas:
+            # opciones de la sección de Dictado en Ajustes.
+            "languageNames": dict(getattr(plugin, "LANGUAGES", {}) or {})
+            if plugin
+            else {},
+            "arches": _arches(),
+            # Idioma fijado en config.toml/entorno: el frontend deja de mandar el
+            # suyo y la fuente explica quién manda. null = el de la interfaz.
+            "configuredLanguage": str(configured) if configured else None,
+            "languageSource": language_source or None,
+            "archSource": arch_source or None,
             # Modelo en uso; null = el default de moonshine-voice para el idioma.
             "modelArch": self._model_arch,
             "modelName": _arch_label(plugin, self._model_arch) if engine else None,
@@ -308,12 +419,9 @@ class SttManager:
             self._emit("stt.error", {"sessionId": session_key, "message": reason})
             return {"ok": False, "supported": False, "reason": reason}
 
-        plugin = self._plugin()
         # El idioma del UI (lo manda el frontend en stt.start) gana al configurado.
-        configured = _setting("language")[0]
-        requested = language or (str(configured) if configured else None) or None
         try:
-            chosen = plugin.normalize_language(requested) if plugin else (requested or "es")
+            chosen = self.pick_language(language)
         except ValueError as exc:
             self._emit("stt.error", {"sessionId": session_key, "message": str(exc)})
             return {"ok": False, "supported": True, "reason": str(exc)}
@@ -383,7 +491,7 @@ class SttManager:
             downloaded = await asyncio.to_thread(
                 self._download_model, language, key, _emit_threadsafe
             )
-            if downloaded:
+            if downloaded == "downloaded":
                 self._emit(
                     "stt.progress",
                     {"sessionId": key, "phase": "ready", "message": _READY_MESSAGE},

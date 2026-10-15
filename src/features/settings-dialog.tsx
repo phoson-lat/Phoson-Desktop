@@ -7,6 +7,7 @@ import {
   Info,
   KeyRound,
   Loader2,
+  Mic,
   Monitor,
   Moon,
   Palette,
@@ -24,7 +25,7 @@ import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, phoson } from "@/bridge/client";
-import type { ConfigView, McpState } from "@/bridge/protocol";
+import type { ConfigView, McpState, SttStatus } from "@/bridge/protocol";
 import { ProviderLogo } from "@/components/provider-logo";
 import { McpLogo } from "@/components/mcp-logo";
 import { Button } from "@/components/ui/button";
@@ -40,10 +41,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { pickSttLanguage } from "@/hooks/use-voice-input";
 import { REASONING_EFFORTS, effortLabel } from "@/lib/reasoning";
 import { PROVIDER_META, providerLabel, providerNote } from "@/lib/providers";
 import { hideToTray, isCloseToTrayEnabled, setCloseToTrayPref } from "@/lib/desktop";
 import { useLocale } from "@/lib/i18n";
+import { speechLocale } from "@/lib/locale";
 import { logPath, openLogFolder } from "@/lib/log";
 import { checkForUpdates, currentVersion, installPendingUpdate, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
@@ -54,6 +57,7 @@ type SectionId =
   | "local"
   | "mcp"
   | "agent"
+  | "dictation"
   | "desktop"
   | "appearance"
   | "about";
@@ -69,6 +73,7 @@ const SECTIONS: { id: SectionId; icon: ComponentType<{ className?: string }> }[]
   { id: "local", icon: Server },
   { id: "mcp", icon: Plug },
   { id: "agent", icon: ShieldCheck },
+  { id: "dictation", icon: Mic },
   { id: "desktop", icon: AppWindow },
   { id: "appearance", icon: Palette },
   { id: "about", icon: Info },
@@ -161,6 +166,11 @@ export function SettingsDialog({
   const [progress, setProgress] = useState(0);
   /** Preferencia local «cerrar a la bandeja» (no va en config.toml). */
   const [closeToTray, setCloseToTray] = useState(() => isCloseToTrayEnabled());
+  /** Estado del dictado (sección Dictado): idioma/modelo y descarga. */
+  const [stt, setStt] = useState<SttStatus | null>(null);
+  const [sttSaving, setSttSaving] = useState(false);
+  const [sttDownloading, setSttDownloading] = useState(false);
+  const [sttPercent, setSttPercent] = useState<number | null>(null);
 
   useEffect(() => {
     void currentVersion().then(setVersion);
@@ -207,6 +217,11 @@ export function SettingsDialog({
       .mcpGet(sessionId)
       .then(setMcp)
       .catch(() => setMcp(null));
+    // Dictado: idioma/modelo configurados (la sección no depende de `config`).
+    phoson
+      .sttStatus()
+      .then(setStt)
+      .catch(() => setStt(null));
   }, [open, sessionId]);
 
   const patch = (p: Partial<ConfigView>) => setConfig((c) => (c ? { ...c, ...p } : c));
@@ -305,6 +320,66 @@ export function SettingsDialog({
 
   const keyProviders = config?.providers.filter((p) => p.supportsKey !== false) ?? [];
   const localProviders = config?.providers.filter((p) => p.supportsBaseUrl) ?? [];
+
+  // ── Dictado (idioma/modelo del motor STT) ─────────────────────────────
+  /**
+   * Idioma cuyo modelo conviene tener en caché: el que usará la próxima
+   * captura. Es la misma resolución del compositor: el fijado en Ajustes, o si
+   * no, el de la interfaz cuando el motor lo admite.
+   */
+  const sttTargetLanguage = stt
+    ? (stt.configuredLanguage ?? pickSttLanguage(stt.languages, speechLocale(locale)) ?? undefined)
+    : undefined;
+
+  const saveStt = async (patch: { modelArch?: string | null; language?: string | null }) => {
+    if (!sessionId || !stt) return;
+    setSttSaving(true);
+    try {
+      const res = await phoson.sttConfigSet(sessionId, patch);
+      if (!res.ok) {
+        toast.error(t("toasts.sttSaveFailed"), { description: res.reason ?? "" });
+        return;
+      }
+      if (res.status) setStt(res.status);
+      toast.success(t("toasts.sttSaved"), { description: res.path ?? "~/.phoson/config.toml" });
+      // El compositor re-sondea: su botón debe reflejar el idioma/modelo nuevo.
+      window.dispatchEvent(new CustomEvent("phoson:stt-config-changed"));
+    } catch (e) {
+      toast.error(t("toasts.sttSaveFailed"), { description: String(e) });
+    } finally {
+      setSttSaving(false);
+    }
+  };
+
+  const downloadSttModel = async () => {
+    if (!sessionId || !stt) return;
+    setSttDownloading(true);
+    setSttPercent(null);
+    let unsub: (() => void) | null = null;
+    try {
+      // Progreso en vivo (la pre-descarga emite `stt.progress` con percent).
+      unsub = await phoson.onNotify((envelope) => {
+        const params = envelope.params as { sessionId?: string; phase?: string; percent?: number };
+        if (envelope.method !== "stt.progress" || params.sessionId !== sessionId) return;
+        if (params.phase === "downloading" && typeof params.percent === "number") {
+          setSttPercent(params.percent);
+        }
+      });
+      const res = await phoson.sttDownload(sessionId, sttTargetLanguage);
+      if (!res.ok) {
+        toast.error(t("toasts.sttDownloadFailed"), { description: res.reason ?? "" });
+      } else if (res.result === "cached") {
+        toast.info(t("toasts.sttDownloadCached"), { description: res.language ?? "" });
+      } else {
+        toast.success(t("toasts.sttDownloaded"), { description: res.language ?? "" });
+      }
+    } catch (e) {
+      toast.error(t("toasts.sttDownloadFailed"), { description: String(e) });
+    } finally {
+      unsub?.();
+      setSttDownloading(false);
+    }
+  };
 
   /**
    * Proveedores que el selector de "Proveedor activo" puede ofrecer: los que
@@ -777,6 +852,113 @@ export function SettingsDialog({
                           readOnly
                         />
                       </div>
+                    </div>
+                  )}
+
+                  {/* Dictado: idioma y modelo del motor STT (Moonshine). */}
+                  {section === "dictation" && (
+                    <div className="space-y-5">
+                      <SectionTitle
+                        title={t("dictation.title")}
+                        hint={t("dictation.hint")}
+                      />
+                      {!stt ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Loader2 className="size-3.5 animate-spin" /> {t("common:state.loading")}
+                        </div>
+                      ) : !stt.supported ? (
+                        <p className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--phoson-surface-2)] p-3 text-xs leading-relaxed text-muted-foreground">
+                          {stt.reason ?? t("dictation.unsupported")}
+                        </p>
+                      ) : (
+                        <>
+                          <Row
+                            label={t("dictation.language")}
+                            hint={t("dictation.languageHint")}
+                          >
+                            <Select
+                              value={stt.configuredLanguage ?? "auto"}
+                              onValueChange={(v) => void saveStt({ language: v === "auto" ? null : v })}
+                              disabled={sttSaving}
+                            >
+                              <SelectTrigger className="h-8 w-44 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="auto" className="text-xs">
+                                  {t("dictation.languageAuto")}
+                                </SelectItem>
+                                {stt.languages.map((code) => (
+                                  <SelectItem key={code} value={code} className="text-xs">
+                                    {stt.languageNames?.[code] ?? code}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </Row>
+                          {stt.languageSource && (
+                            <p className="text-[0.68rem] text-muted-foreground">
+                              {t("dictation.sourceNote", { source: stt.languageSource })}
+                            </p>
+                          )}
+                          <Row
+                            label={t("dictation.model")}
+                            hint={t("dictation.modelHint")}
+                          >
+                            <Select
+                              value={stt.modelName ?? "default"}
+                              onValueChange={(v) => void saveStt({ modelArch: v === "default" ? null : v })}
+                              disabled={sttSaving}
+                            >
+                              <SelectTrigger className="h-8 w-44 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="default" className="text-xs">
+                                  {t("dictation.modelDefault")}
+                                </SelectItem>
+                                {(stt.arches ?? []).map((arch) => (
+                                  <SelectItem key={arch} value={arch} className="text-xs">
+                                    {arch}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </Row>
+                          {stt.archSource && (
+                            <p className="text-[0.68rem] text-muted-foreground">
+                              {t("dictation.sourceNote", { source: stt.archSource })}
+                            </p>
+                          )}
+                          <Row
+                            label={t("dictation.download")}
+                            hint={t("dictation.downloadHint")}
+                          >
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="gap-1.5"
+                              disabled={sttDownloading}
+                              onClick={() => void downloadSttModel()}
+                            >
+                              {sttDownloading ? (
+                                <Loader2 className="size-3.5 animate-spin" />
+                              ) : (
+                                <Mic className="size-3.5" />
+                              )}
+                              {sttDownloading ? t("dictation.downloading") : t("dictation.downloadNow")}
+                            </Button>
+                          </Row>
+                          {sttDownloading && sttPercent !== null && (
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full bg-violet transition-[width]"
+                                style={{ width: `${sttPercent}%` }}
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                   )}
 

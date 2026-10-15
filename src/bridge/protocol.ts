@@ -250,6 +250,18 @@ export interface SttStatus {
   language: string | null;
   /** Códigos de idioma admitidos por el motor. */
   languages: string[];
+  /** Nombres en inglés de cada idioma (es → "Spanish"), para Ajustes. */
+  languageNames?: Record<string, string>;
+  /** Arquitecturas de modelo aceptadas (opciones del selector de Ajustes). */
+  arches?: string[];
+  /**
+   * Idioma fijado en config.toml/PHOSON_STT_LANGUAGE (Ajustes): con uno
+   * fijado, el compositor no manda el suyo. `null` = sigue al de la interfaz.
+   */
+  configuredLanguage?: string | null;
+  /** Dónde salió el idioma/modelo configurado (config.toml o variable de entorno). */
+  languageSource?: string | null;
+  archSource?: string | null;
   /**
    * Arquitectura del modelo de Moonshine (entero de la librería); `null` = la
    * de la librería para el idioma. Viene de `config.toml`/`PHOSON_STT_MODEL_ARCH`.
@@ -266,6 +278,28 @@ export interface SttStartResult {
   ok: boolean;
   supported: boolean;
   language?: string;
+  reason?: string | null;
+}
+
+/** Resultado de `stt.config.set` (idioma/modelo del dictado, desde Ajustes). */
+export interface SttConfigSetResult {
+  ok: boolean;
+  /** Ruta del config.toml persistido (cuando `ok`). */
+  path?: string;
+  /** Estado nuevo del dictado (cuando `ok`). */
+  status?: SttStatus;
+  /** Motivo accionable cuando `ok` es false (valor rechazado, plugin ausente…). */
+  reason?: string | null;
+}
+
+/** Resultado de `stt.download` (pre-descarga del modelo desde Ajustes). */
+export interface SttDownloadResult {
+  ok: boolean;
+  /** "downloaded" (hubo descarga) o "cached" (ya estaba en caché). */
+  result?: "downloaded" | "cached";
+  /** Idioma cuya descarga se comprobó. */
+  language?: string;
+  /** Motivo accionable cuando `ok` es false (sin runtime, red, idioma…). */
   reason?: string | null;
 }
 

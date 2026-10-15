@@ -53,6 +53,7 @@ if "phoson_plugin_stt.engine" not in sys.modules:
     sys.modules["phoson_plugin_stt.engine"] = _engine_mod
 
 from phoson_bridge import stt  # noqa: E402
+from phoson_bridge.stt import merge_plugin_config  # noqa: E402
 
 failures: list[str] = []
 
@@ -196,6 +197,107 @@ _check(
     "idioma no admitido => error accionable y sin captura",
     loop_result.get("ok") is False and "fr" in str(loop_result.get("reason")),
     str(loop_result),
+)
+
+# 6) stt.status expone lo que Ajustes necesita: idioma fijado (y su fuente) +
+#    arquitecturas aceptadas para el selector.
+manager = _manager(PHOSON_STT_LANGUAGE="en")
+status = manager.status()
+_check(
+    "status expone configuredLanguage + languageSource + arches",
+    status["configuredLanguage"] == "en"
+    and status["languageSource"] == "PHOSON_STT_LANGUAGE"
+    and status["languageNames"].get("es") == "Spanish"
+    and status["arches"] == sorted(status["arches"])
+    and "medium_streaming" in status["arches"],
+    str(status),
+)
+
+# 7) pick_language: lo que capturará la próxima sesión (UI → config → default).
+manager = _manager()
+stt._plugin_config_cache = {"language": "zh"}
+_check(
+    "pick_language: el configurado gana al default",
+    manager.pick_language(None) == "zh",
+    manager.pick_language(None),
+)
+_check(
+    "pick_language: el pedido gana al configurado",
+    manager.pick_language("en") == "en",
+    manager.pick_language("en"),
+)
+
+# 8) merge_plugin_config: la sección del plugin stt de cfg.plugins.
+class _Cfg:
+    def __init__(self, plugins: list[Any]) -> None:
+        self.plugins = plugins
+
+
+cfg = _Cfg(["phoson-plugin-stt"])
+merge_plugin_config(cfg, {"language": "en", "model_arch": "tiny"})
+_check(
+    "una spec en cadena pasa a tabla con su config",
+    cfg.plugins == [{"name": "phoson-plugin-stt", "config": {"language": "en", "model_arch": "tiny"}}],
+    str(cfg.plugins),
+)
+merge_plugin_config(cfg, {"language": None})
+_check(
+    "borrar el idioma deja el resto y la forma de tabla",
+    cfg.plugins == [{"name": "phoson-plugin-stt", "config": {"model_arch": "tiny"}}],
+    str(cfg.plugins),
+)
+merge_plugin_config(cfg, {"model_arch": None})
+_check(
+    "tabla vacía vuelve a la cadena suelta original",
+    cfg.plugins == ["phoson-plugin-stt"],
+    str(cfg.plugins),
+)
+cfg = _Cfg([])
+merge_plugin_config(cfg, {"language": "en"})
+_check(
+    "sin spec previa se crea la sección del plugin stt",
+    cfg.plugins == [{"name": "phoson-plugin-stt", "config": {"language": "en"}}],
+    str(cfg.plugins),
+)
+cfg = _Cfg([])
+merge_plugin_config(cfg, {"language": None})
+_check(
+    "sin spec previa y sin valores no se crea nada",
+    cfg.plugins == [],
+    str(cfg.plugins),
+)
+cfg = _Cfg([{"name": "phoson-plugin-stt", "config": {"language": "zh"}}])
+merge_plugin_config(cfg, {"model_arch": "base"})
+_check(
+    "una tabla previa se fusiona sin perder el resto",
+    cfg.plugins == [{"name": "phoson-plugin-stt", "config": {"language": "zh", "model_arch": "base"}}],
+    str(cfg.plugins),
+)
+cfg = _Cfg(["otro-plugin"])
+merge_plugin_config(cfg, {"language": "en"})
+_check(
+    "las specs ajenas se respetan",
+    cfg.plugins == ["otro-plugin", {"name": "phoson-plugin-stt", "config": {"language": "en"}}],
+    str(cfg.plugins),
+)
+
+# 9) reload(): tras un cambio de config, el motor se reconstruye con lo nuevo.
+manager = _manager()
+manager._engine()
+stt._plugin_config_cache = {"model_arch": "tiny"}
+manager.reload()
+_check(
+    "reload descarta el motor y la config cacheada",
+    manager._engine_instance is None and stt._plugin_config_cache is None,
+    f"{manager._engine_instance} {stt._plugin_config_cache}",
+)
+# La relectura del toml (el archivo ya persistió el cambio) ve la arch nueva…
+stt._plugin_config_cache = {"model_arch": "tiny"}
+engine, reason = manager._engine()
+_check(
+    "reload aplica la nueva model_arch sin reiniciar",
+    engine is not None and engine.model_arch == 0 and manager._model_arch == 0,
+    f"{reason} {manager._model_arch}",
 )
 
 for key in ("PHOSON_STT_MODEL_ARCH", "PHOSON_STT_LANGUAGE"):
