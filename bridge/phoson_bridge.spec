@@ -32,8 +32,12 @@ Qué hace además de un build del entry-point (`phoson_bridge/__main__.py`):
    STT y `--stt-check` (ver `scripts/build-sidecar.sh`) lo dice en el build.
 3. **SDKs de proveedor** que se importan de forma perezosa.
 
-Salida: un único ejecutable `phoson-bridge` (onefile) apto para `externalBin`
-de Tauri (que espera `binaries/phoson-bridge-<target-triple>`).
+Salida: un árbol **onedir** `phoson-bridge/` (ejecutable + libs), apto para
+`bundle.resources` de Tauri. NO usar onefile: el onefile re-extrae ~100 MB a un
+directorio temporal en CADA arranque y macOS revalida la firma de cada `.so`
+recién extraído (~10 s de arranque, medido); con onedir los archivos quedan en
+su sitio dentro del bundle y el kernel cachea la validación tras el primer
+arranque (~0.2 s en caliente).
 """
 
 import os
@@ -174,13 +178,21 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    # onedir: los binarios/datos van al COLLECT, no dentro del exe (ver cabecera).
+    exclude_binaries=True,
     name=DIST_NAME,
     debug=False,
     strip=False,
     upx=False,
     console=True,
-    # Sin ventana ni splash: es un proceso de protocolo por stdio.
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name=DIST_NAME,
 )

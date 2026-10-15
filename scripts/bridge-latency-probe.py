@@ -17,6 +17,7 @@ Uso:
     python scripts/bridge-latency-probe.py                 # matriz básica
     python scripts/bridge-latency-probe.py --turn "hola"   # añade turn.run
     python scripts/bridge-latency-probe.py --repeat 3      # repite la matriz
+    python scripts/bridge-latency-probe.py --binary <exe>  # mide el onedir empaquetado
 
 No toca nada del estado: usa un directorio de sesiones temporal salvo que se
 pase ``--sessions-dir``. Stdlib solamente.
@@ -54,14 +55,14 @@ BASIC_METHODS = [
 class Sidecar:
     """Un sidecar vivo + lector de su stdout en un hilo."""
 
-    def __init__(self, cwd: Path, env: dict[str, str], trace: bool = False) -> None:
+    def __init__(self, cmd: list[str], cwd: Path, env: dict[str, str], trace: bool = False) -> None:
         self._inbox: queue.Queue[dict] = queue.Queue()
         self._next_id = 0
         self.session_id: str | None = None
         self.stderr_lines: list[str] = []
         self.t_spawn = time.perf_counter()
         self.proc = subprocess.Popen(
-            [str(PYTHON), "-m", "phoson_bridge"],
+            cmd,
             cwd=str(cwd),
             env=env,
             stdin=subprocess.PIPE,
@@ -200,6 +201,13 @@ def main() -> int:
     ap.add_argument("--turn-timeout", type=float, default=180.0)
     ap.add_argument("--trace", action="store_true", help="captura el stderr del sidecar (logs [perf])")
     ap.add_argument(
+        "--binary",
+        default=None,
+        help="binario empaquetado (onedir) a medir en vez del venv de dev; "
+        "p. ej. 'src-tauri/binaries/phoson-bridge/phoson-bridge' o el de dentro "
+        "de la .app. Implica --workspace del cwd actual.",
+    )
+    ap.add_argument(
         "--first",
         default=None,
         help="método barato a medir como PRIMERA RPC de un sidecar en frío "
@@ -212,22 +220,31 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    if not PYTHON.is_file():
-        print(f"NO se encuentra el intérprete del venv: {PYTHON}", file=sys.stderr)
-        return 2
-
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(BRIDGE_DIR), env["PYTHONPATH"]] if env.get("PYTHONPATH") else [str(BRIDGE_DIR)]
-    )
-
-    print(f"python : {PYTHON}")
-    print(f"engine : {ENGINE_DIR}")
-    print(f"cwd    : {args.workspace}")
-    print()
+    if args.binary:
+        # Modo binario empaquetado: sin venv ni PYTHONPATH, tal como lo lanza
+        # la app en release. La ruta se absolutiza porque el Popen cambia de
+        # cwd al workspace.
+        cmd = [str(Path(args.binary).resolve())]
+        print(f"binary : {args.binary}")
+        print(f"cwd    : {args.workspace}")
+        print()
+        sidecar = Sidecar(cmd, Path(args.workspace), dict(os.environ), trace=args.trace)
+    else:
+        if not PYTHON.is_file():
+            print(f"NO se encuentra el intérprete del venv: {PYTHON}", file=sys.stderr)
+            return 2
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(BRIDGE_DIR), env["PYTHONPATH"]] if env.get("PYTHONPATH") else [str(BRIDGE_DIR)]
+        )
+        print(f"python : {PYTHON}")
+        print(f"engine : {ENGINE_DIR}")
+        print(f"cwd    : {args.workspace}")
+        print()
+        sidecar = Sidecar([str(PYTHON), "-m", "phoson_bridge"], Path(args.workspace), env, trace=args.trace)
 
     rows: list[tuple[str, float]] = []
-    with closing(Sidecar(Path(args.workspace), env, trace=args.trace)) as sidecar:
+    with closing(sidecar) as sidecar:
         print(f"{'spawn':<22}{fmt(sidecar.spawn_ms)} ms")
         rows.append(("spawn", sidecar.spawn_ms))
 

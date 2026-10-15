@@ -63,13 +63,11 @@ it is the check that a frozen bundle is really able to dictate.
 ## Building the sidecar binary
 
 ```bash
-scripts/build-sidecar.sh        # PyInstaller onefile → src-tauri/binaries/
+scripts/build-sidecar.sh        # PyInstaller onedir → src-tauri/binaries/phoson-bridge/
 ```
 
-- **On Windows run it from Git Bash, not WSL**: WSL's Linux `rustc`/`uname`
-  produce the wrong target triple and a Linux binary. The script also strips CR
-  from `rustc -vV`, whose Windows output carries `\r` (a trailing CR makes Tauri
-  unable to find `phoson-bridge-<triple>.exe`). `PHOSON_TARGET_TRIPLE` forces it.
+- **On Windows run it from Git Bash, not WSL**: WSL's Linux Python/uname
+  produce a Linux binary that won't run on Windows.
 - After building, the script runs `--stt-check` and dictates one of Moonshine's
   sample WAVs with the built binary. A missing STT runtime is a warning, not a
   failure: platforms without a Moonshine wheel (e.g. macOS x86_64) must still
@@ -78,6 +76,9 @@ scripts/build-sidecar.sh        # PyInstaller onefile → src-tauri/binaries/
   DLL is a *data file* of the sibling package `_sounddevice_data/`, invisible to
   PyInstaller's static analysis, so a bundle without it answers RPC but fails to
   open the microphone.
+- The tree is bundled as `bundle.resources` (see `DISTRIBUTION.md` §1): onedir
+  instead of onefile because onefile re-extracts at every launch and macOS
+  re-signature-validation made the bridge take ~10 s to boot.
 - `.gitattributes` pins `*.sh` to LF; a CRLF shell script does not run under Git
   Bash.
 

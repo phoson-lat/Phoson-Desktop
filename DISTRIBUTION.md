@@ -3,30 +3,36 @@
 Guía del **camino B**: empaquetar el sidecar con PyInstaller, firmar la app y
 entregar actualizaciones.
 
-## 1. Sidecar empaquetado (PyInstaller)
+## 1. Sidecar empaquetado (PyInstaller, onedir)
 
-El sidecar (`bridge/`) se compila a un único ejecutable que Tauri mete en el
-bundle como `externalBin`. Dentro van estos plugins del engine: **bgjobs,
-monitor, checkpoint, mcp, stt, swarm, peers** (los del paquete base; los demás
-aportan `mcp`, `asyncpg` y `moonshine-voice`).
+El sidecar (`bridge/`) se compila a un **árbol onedir** (ejecutable + libs) que
+Tauri mete en el bundle como `bundle.resources`. Dentro van estos plugins del
+engine: **bgjobs, monitor, checkpoint, mcp, stt, swarm, peers** (los del paquete
+base; los demás aportan `mcp`, `asyncpg` y `moonshine-voice`).
 
 ```bash
-scripts/build-sidecar.sh          # detecta el triple de Rust del host
+scripts/build-sidecar.sh
 ```
 
 - Entrada: `bridge/phoson_bridge.spec` (recolecta submodules de los plugins,
   los assets y las libs nativas de Moonshine — `libmoonshine.so` +
   `moonshine_voice.libs/libonnxruntime-*.so.1`, replicando el RPATH relativo).
-- Salida: `src-tauri/binaries/phoson-bridge-<target-triple>` (~94 MB en Linux;
-  onefile).
-- Variables: `PHOSON_ENGINE_DIR` (venv con el engine + extras) y
-  `PHOSON_TARGET_TRIPLE`.
+- Salida: `src-tauri/binaries/phoson-bridge/` (~118 MB en macOS; onedir).
+- Variables: `PHOSON_ENGINE_DIR` (venv con el engine + extras).
 
-El binario se declara como `bundle.externalBin` **solo en la config de
-release** (`src-tauri/tauri.release.conf.json`), de modo que en desarrollo
+El árbol se declara como `bundle.resources` **solo en la config de release**
+(`src-tauri/tauri.release.conf.json`), de modo que en desarrollo
 `cargo check` / `pnpm tauri dev` no exigen el binario y el sidecar cae al
 fallback de Python. Los binarios **no se versionan** (`.gitignore`); se generan
 por plataforma en CI.
+
+> **¿Por qué onedir y no onefile?** El onefile re-extrae ~100 MB a un
+> directorio temporal en cada arranque: macOS revalida la firma de cada `.so`
+> recién extraído y el sidecar tardaba **~10 s** en responder la primera RPC.
+> Con onedir los archivos quedan dentro del bundle y solo el primer arranque
+> tras instalar paga esa validación; los siguientes responden `initialize` en
+> ~2 s (arranque del proceso ~0.2 s). Windows también se beneficia: sin
+> extracción por lanzamiento, menos fricción con Defender. Ver `PERF.md` §6.
 
 > Cross-compile: PyInstaller **no** cross-compila. Cada plataforma se construye
 > en su runner (matrix de GitHub Actions con `ubuntu/windows/macos`).

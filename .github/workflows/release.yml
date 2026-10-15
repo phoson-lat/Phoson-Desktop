@@ -77,7 +77,8 @@ jobs:
         run: echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
 
       # Crea el venv del engine, instala el engine + extras y compila el sidecar
-      # como `externalBin` (src-tauri/binaries/phoson-bridge-<triple>).
+      # onedir (src-tauri/binaries/phoson-bridge/), que tauri-action empaqueta
+      # como recurso del bundle (bundle.resources de tauri.release.conf.json).
       - name: compilar el sidecar
         shell: bash
         run: |
@@ -130,8 +131,9 @@ jobs:
             echo "::warning title=macOS sin certificado::APPLE_CERTIFICATE no configurado: se firma ad-hoc. Los usuarios deberán autorizar la app en Ajustes → Privacidad y seguridad."
           fi
 
-      # tauri-action compila la app con la config de release (externalBin +
-      # createUpdaterArtifacts), firma y sube los bundles + latest.json al release.
+      # tauri-action compila la app con la config de release (sidecar onedir como
+      # `bundle.resources` + createUpdaterArtifacts), firma y sube los bundles +
+      # latest.json al release.
       - name: build + release (tauri-action)
         uses: tauri-apps/tauri-action@v1
         env:

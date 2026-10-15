@@ -1,7 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
-    "externalBin": ["binaries/phoson-bridge"],
+    "resources": {
+      "binaries/phoson-bridge": "phoson-bridge"
+    },
     "createUpdaterArtifacts": true,
     "targets": ["deb", "rpm", "appimage", "nsis", "dmg", "app"]
   }
