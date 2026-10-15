@@ -1,6 +1,6 @@
 [package]
 name = "phoson-desktop"
-version = "0.1.0-alpha.14"
+version = "0.1.0-alpha.15"
 edition = "2021"
 
 [build-dependencies]
