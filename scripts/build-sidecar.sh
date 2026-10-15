@@ -54,10 +54,30 @@ install_pkgs pyinstaller
 install_pkgs "mcp>=1.0.0,<2.0.0" "asyncpg>=0.29.0"
 # STT (Moonshine): trae wheels solo para algunas plataformas (en macOS x86_64 el
 # engine ya lo omite) y arrastra numpy + sounddevice, que es el que abre el micro.
-# Best-effort: si no está, el sidecar se construye sin dictado y el paso 4 lo dice.
+# Best-effort: si no está, el sidecar se construye sin dictado y el paso 3 lo dice.
+#
+# NADA de fallback a una versión sin pin. phoson_plugin_stt usa la API builder
+# (`MicTranscriber().language(...)`), que solo existe desde moonshine-voice 0.1.1;
+# una 0.1.0 se instala, importa (`--stt-check` pasa) e incluso dicta WAV
+# (`--stt-transcribe`), pero revienta al abrir el micrófono con
+# "MicTranscriber.__init__() missing 1 required positional argument: 'model_path'".
+# Así se rompió el bundle de macOS en v0.1.0-alpha.12: el pin falló en CI y el
+# fallback instaló la 0.1.0.
 if ! install_pkgs "moonshine-voice>=0.1.5" "sounddevice>=0.5.5"; then
-  echo "==> AVISO: moonshine-voice no disponible aquí; se construye sin STT."
-  install_pkgs "moonshine-voice" 2>/dev/null || true
+  echo "==> AVISO: moonshine-voice>=0.1.5 no disponible aquí; se construye sin STT."
+fi
+
+# Compatibilidad de API del runtime que va a quedar congelado: el constructor SIN
+# argumentos es el contrato que usa el motor. Se comprueba AQUÍ (en el build) y
+# no en el micrófono del usuario. Solo se permite continuar sin STT cuando el
+# runtime ni siquiera está (p. ej. macOS x86_64); si está pero con la API vieja,
+# el build se aborta — mejor un release fallido que uno con dictado roto.
+if "$PY" -c 'import moonshine_voice' 2>/dev/null; then
+  if ! "$PY" -c 'from moonshine_voice import MicTranscriber; MicTranscriber()' 2>/dev/null; then
+    echo "error: el moonshine-voice del venv no expone la API builder (MicTranscriber())." >&2
+    echo "       Revisa por qué 'moonshine-voice>=0.1.5' no se pudo instalar." >&2
+    exit 1
+  fi
 fi
 
 # 2) Build (onedir): el COLLECT del spec deja el árbol en `$OUT_DIR/phoson-bridge/`.

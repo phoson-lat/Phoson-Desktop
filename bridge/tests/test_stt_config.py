@@ -20,8 +20,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 # El bridge sondea estos dos para decir si hay motor. Se suplantan aquí para que
-# el test valga también en CI, donde `moonshine-voice` no está instalado.
-sys.modules.setdefault("moonshine_voice", types.ModuleType("moonshine_voice"))
+# el test valga también en CI, donde `moonshine-voice` no está instalado. El
+# falso moonshine_voice expone la API builder que valida `_engine()`
+# (`MicTranscriber()` sin argumentos), igual que el real >= 0.1.1.
+_moonshine = types.ModuleType("moonshine_voice")
+
+
+class _MicTranscriber:  # API builder mínima, sin micrófono
+    def language(self, _code: str) -> "_MicTranscriber":
+        return self
+
+
+_moonshine.MicTranscriber = _MicTranscriber
+sys.modules.setdefault("moonshine_voice", _moonshine)
 sys.modules.setdefault("sounddevice", types.ModuleType("sounddevice"))
 
 # `_arch_label` lee MODEL_ARCHES del motor para ponerle nombre al modelo; sin esto,

@@ -160,6 +160,21 @@ class SttManager:
             importlib.import_module("moonshine_voice")
         except ImportError:
             return None, _MISSING_RUNTIME
+        # Compatibilidad de API: phoson_plugin_stt construye MicTranscriber() sin
+        # argumentos (API builder, moonshine-voice >= 0.1.1). Una 0.1.0 importa
+        # bien — este chequeo la detecta aquí, con mensaje accionable, en vez de
+        # dejar que el micrófono reviente a mitad de dictado (alpha.12).
+        try:
+            from moonshine_voice import MicTranscriber
+
+            MicTranscriber()
+        except TypeError as exc:
+            return None, (
+                "El runtime de dictado (moonshine-voice) es demasiado viejo: "
+                f"{exc}. Actualízalo con: pip install 'moonshine-voice>=0.1.5'."
+            )
+        except ImportError:
+            return None, _MISSING_RUNTIME
         try:
             importlib.import_module("sounddevice")
         except ImportError:
