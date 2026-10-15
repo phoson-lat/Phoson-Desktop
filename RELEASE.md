@@ -63,12 +63,23 @@ Ajustes / extras:
 - [ ] Dictado por voz (si el SO lo soporta).
 - [ ] Comando `Ctrl/⌘+K` (paleta) y `Ctrl/⌘+E` (esfuerzo de razonamiento).
 
-Secciones:
-- [ ] **Swarms de agentes** aparece como **«Próximamente»** (placeholder).
+Idioma (i18n):
+- [ ] Ajustes → Apariencia: cambiar a **English** → la UI, el **menú de bandeja**
+      y su tooltip cambian sin reiniciar; volver a **Español**.
+- [ ] Primer arranque con el SO en inglés y sin elección guardada: la app sale en
+      inglés (en macOS la webview sola reportaría `en` igualmente).
+- [ ] Dictado con la UI en inglés: el micrófono usa `en`
+      (`CONTRIBUTING.md` § Voice dictation).
+
+Swarms (en pausa):
+- [ ] **Swarms de agentes** no aparece en ninguna parte (ni sidebar, ni paleta,
+      ni `?swarm=1`): la feature está en pausa, no «próximamente».
 
 ## 4. Limitaciones conocidas (esperadas en esta alpha)
 
-- **Swarms**: gated en «próximamente» (código presente, no expuesto).
+- **Swarms**: en pausa — el código sigue en `src/features/swarm/`, pero **sin
+  punto de entrada en la UI** (las entradas del sidebar y de la paleta se
+  retiraron a propósito).
 - **Firma de instaladores**: macOS se firma **ad-hoc** en CI (ya no sale
   "dañado"; el usuario debe autorizarlo una vez en Ajustes → Privacidad y
   seguridad). La **notarización con Developer ID** y la firma Authenticode de

@@ -271,5 +271,6 @@ existan G1/G2/G3.
 
 ---
 
-*Contacto en la app: sección «Swarms de agentes» (`src/features/swarm/`),
-modelo y contrato en `src/lib/swarm.ts`.*
+*Contacto en la app: código del workbench en `src/features/swarm/` (hoy **sin
+punto de entrada en la UI**: la feature está en pausa), modelo y contrato en
+`src/lib/swarm.ts`.*

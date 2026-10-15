@@ -42,9 +42,13 @@ sirven de muestra.
 
 - Mensajes de commit y descripciones de PR/release: **inglés**. Comentarios de
   código y docs: **español**.
+- Textos de UI: siempre en `src/locales/` (`es` es la fuente de verdad, `en` la
+  espeja clave a clave) y vía `useTranslation`; nunca literales en el JSX. Los
+  archivos de idioma, la cadena de resolución y el escape `i18n-ignore` están en
+  `CONTRIBUTING.md` § Localization.
 - Commits pequeños y enfocados; referencia el área (`fix(ui):`, `feat(perf):`…).
-- Checks antes de un PR: `pnpm build`, `cd src-tauri && cargo check`,
-  `python -m py_compile bridge/phoson_bridge/*.py`.
+- Checks antes de un PR: `pnpm build`, `pnpm check:i18n`,
+  `cd src-tauri && cargo check`, `python -m py_compile bridge/phoson_bridge/*.py`.
 - No commitear secretos ni claves de firma (`.gitignore` ya excluye `*.key`).
 
 ## Contexto del proyecto
