@@ -148,17 +148,36 @@ pub fn spawn_bridge(
     let cwd = effective_cwd(workspace);
     let cwd_str = cwd.to_string_lossy().to_string();
 
-    // 1) Sidecar empaquetado (PyInstaller), arrancado en el workspace pedido.
-    if let Ok(command) = app.shell().sidecar("phoson-bridge") {
-        if let Ok(pair) = command.current_dir(cwd_str.clone()).spawn() {
-            logging::event(
-                app,
-                "info",
-                "engine",
-                "engine.spawn",
-                json!({ "workspace": cwd_str, "mode": "sidecar" }),
-            );
-            return Ok(pair);
+    // 1) Sidecar empaquetado (PyInstaller **onedir**) como recurso del bundle
+    //    (`Resources/phoson-bridge/phoson-bridge`). No se usa `externalBin`:
+    //    exige un único binario (onefile) y el onefile re-extrae ~100 MB a un
+    //    directorio temporal en CADA arranque, con lo que macOS revalida la
+    //    firma de cada `.so` recién extraído (~10 s por arranque; ver PERF.md
+    //    §6). Con onedir los archivos quedan en su sitio y el kernel cachea la
+    //    validación tras el primer arranque.
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let exe_name = if cfg!(windows) { "phoson-bridge.exe" } else { "phoson-bridge" };
+        let exe = resource_dir.join("phoson-bridge").join(exe_name);
+        if exe.is_file() {
+            if let Ok(pair) = app
+                .shell()
+                .command(exe.to_string_lossy().to_string())
+                .current_dir(cwd_str.clone())
+                .spawn()
+            {
+                logging::event(
+                    app,
+                    "info",
+                    "engine",
+                    "engine.spawn",
+                    json!({
+                        "workspace": cwd_str,
+                        "mode": "onedir",
+                        "binary": exe.to_string_lossy(),
+                    }),
+                );
+                return Ok(pair);
+            }
         }
     }
 

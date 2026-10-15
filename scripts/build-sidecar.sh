@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 #
-# Construye el sidecar `phoson-bridge` con PyInstaller y lo deja listo como
-# `externalBin` de Tauri (uno por plataforma), con los plugins:
+# Construye el sidecar `phoson-bridge` con PyInstaller (onedir) y lo deja listo
+# para empaquetarlo como recurso del bundle de Tauri, con los plugins:
 # bgjobs, monitor, checkpoint, mcp, stt, swarm y peers.
 #
 #   scripts/build-sidecar.sh
 #
 # Variables:
 #   PHOSON_ENGINE_DIR      ruta del engine (por defecto ../phoson-engine-minimal)
-#   PHOSON_TARGET_TRIPLE   fuerza el triple de Rust (por defecto, el host)
 #
-# La salida es `src-tauri/binaries/phoson-bridge-<triple>` (Tauri añade/espera
-# el sufijo del triple y renombra a `phoson-bridge` dentro del bundle).
+# La salida es `src-tauri/binaries/phoson-bridge/` (árbol onedir:
+# ejecutable + libs), que `tauri.release.conf.json` declara como
+# `bundle.resources` (map: `binaries/phoson-bridge` → `phoson-bridge`).
+#
+# ¿Por qué onedir y no onefile? El onefile re-extrae ~100 MB a un directorio
+# temporal en CADA arranque: macOS valida la firma de cada `.so` recién
+# extraído (vnode nuevo, sin caché de kernel) y el sidecar tardaba ~10 s en
+# responder la primera RPC. Con onedir los archivos quedan dentro del bundle y
+# solo el PRIMER arranque tras instalar paga esa validación (~10 s); los
+# siguientes arrancan en ~0.2 s. Ver PERF.md §6.
 
 set -euo pipefail
 
@@ -20,29 +27,6 @@ ENGINE_DIR="${PHOSON_ENGINE_DIR:-$HERE/../phoson-engine-minimal}"
 BRIDGE_DIR="$HERE/bridge"
 OUT_DIR="$HERE/src-tauri/binaries"
 WORK_DIR="$HERE/build/pyinstaller"
-
-# Triple de Rust = nombre que Tauri espera en `binaries/phoson-bridge-<triple>`.
-# OJO en Windows: `rustc` es un .exe y su salida puede traer CR; sin limpiarlo el
-# archivo quedaría como `phoson-bridge-x86_64-pc-windows-msvc\r` y Tauri no lo ve.
-TRIPLE="${PHOSON_TARGET_TRIPLE:-$(rustc -vV 2>/dev/null | awk '/^host:/{print $2}')}"
-TRIPLE="${TRIPLE//[$'\r\n' ]/}"
-
-# Sin rustc en PATH (bash de login mínimo): se deduce del host.
-if [ -z "$TRIPLE" ]; then
-  case "$(uname -s):$(uname -m)" in
-    Linux:x86_64)  TRIPLE=x86_64-unknown-linux-gnu ;;
-    Linux:aarch64) TRIPLE=aarch64-unknown-linux-gnu ;;
-    Darwin:x86_64) TRIPLE=x86_64-apple-darwin ;;
-    Darwin:arm64)  TRIPLE=aarch64-apple-darwin ;;
-    MINGW*:x86_64 | MSYS*:x86_64 | CYGWIN*:x86_64) TRIPLE=x86_64-pc-windows-msvc ;;
-  esac
-fi
-
-if [ -z "$TRIPLE" ]; then
-  echo "error: no se pudo determinar el triple (¿rustc en PATH? en Windows usa Git Bash," >&2
-  echo "       no WSL, o forza PHOSON_TARGET_TRIPLE=x86_64-pc-windows-msvc)" >&2
-  exit 1
-fi
 
 # Intérprete del venv del engine (POSIX o Windows).
 if [ -x "$ENGINE_DIR/.venv/bin/python" ]; then
@@ -55,8 +39,7 @@ else
 fi
 
 echo "==> Engine:   $ENGINE_DIR"
-echo "==> Triple:   $TRIPLE"
-echo "==> Salida:   $OUT_DIR/phoson-bridge-$TRIPLE"
+echo "==> Salida:   $OUT_DIR/phoson-bridge/ (onedir)"
 
 # 1) PyInstaller + extras de los plugins que van dentro del bundle.
 install_pkgs() {
@@ -77,32 +60,31 @@ if ! install_pkgs "moonshine-voice>=0.1.5" "sounddevice>=0.5.5"; then
   install_pkgs "moonshine-voice" 2>/dev/null || true
 fi
 
-# 2) Build (onefile).
-mkdir -p "$OUT_DIR" "$WORK_DIR"
-rm -rf "$OUT_DIR/tmp"
-(
-  cd "$ENGINE_DIR"
-  PHOSON_ENGINE_DIR="$ENGINE_DIR" "$PY" -m PyInstaller \
-    --clean --noconfirm \
-    --distpath "$OUT_DIR/tmp" \
-    --workpath "$WORK_DIR" \
-    "$BRIDGE_DIR/phoson_bridge.spec"
-)
-
-# 3) Renombra al esquema de Tauri.
+# 2) Build (onedir): el COLLECT del spec deja el árbol en `$OUT_DIR/phoson-bridge/`.
 EXT=""
 case "$(uname -s)" in
   MINGW* | MSYS* | CYGWIN*) EXT=".exe" ;;
 esac
-mv "$OUT_DIR/tmp/phoson-bridge$EXT" "$OUT_DIR/phoson-bridge-$TRIPLE$EXT"
-rm -rf "$OUT_DIR/tmp"
-chmod +x "$OUT_DIR/phoson-bridge-$TRIPLE$EXT" 2>/dev/null || true
+mkdir -p "$OUT_DIR" "$WORK_DIR"
+rm -rf "$OUT_DIR/phoson-bridge"
+(
+  cd "$ENGINE_DIR"
+  PHOSON_ENGINE_DIR="$ENGINE_DIR" "$PY" -m PyInstaller \
+    --clean --noconfirm \
+    --distpath "$OUT_DIR" \
+    --workpath "$WORK_DIR" \
+    "$BRIDGE_DIR/phoson_bridge.spec"
+)
+test -f "$OUT_DIR/phoson-bridge/phoson-bridge$EXT" || {
+  echo "error: el build no produjo $OUT_DIR/phoson-bridge/phoson-bridge$EXT" >&2
+  exit 1
+}
 
-# 4) Verificación del dictado: un congelado sin el runtime de voz responde igual y
+# 3) Verificación del dictado: un congelado sin el runtime de voz responde igual y
 #    la UI solo muestra "no soportado", así que se comprueba aquí, con el propio
 #    binario (`--stt-check` imprime el estado de STT y sale 0/1). No es fatal: en
 #    macOS x86_64 no hay wheel de Moonshine y el build debe seguir sirviendo.
-BIN="$OUT_DIR/phoson-bridge-$TRIPLE$EXT"
+BIN="$OUT_DIR/phoson-bridge/phoson-bridge$EXT"
 STT_JSON="$WORK_DIR/stt-check.json"
 echo "==> Comprobando el dictado dentro del binario…"
 if "$BIN" --stt-check >"$STT_JSON" 2>/dev/null; then
@@ -129,6 +111,6 @@ else
   echo "    (si es por falta de PortAudio en Linux: apt install libportaudio2)"
 fi
 
-echo "==> Listo: $OUT_DIR/phoson-bridge-$TRIPLE$EXT"
+echo "==> Listo: $OUT_DIR/phoson-bridge/"
 echo "    Build de release:  pnpm tauri build --config src-tauri/tauri.release.conf.json"
 echo "    (en dev no hace falta el binario: el sidecar cae al fallback de Python)"
