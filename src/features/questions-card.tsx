@@ -8,6 +8,7 @@
 
 import { HelpCircle, Send, X } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { ConfirmRequest, Question } from "@/bridge/protocol";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,8 @@ const answered = (q: Question, ids: string[] | undefined, other: string | undefi
   (ids?.length ?? 0) > 0 || (q.allow_other !== false && !!other?.trim());
 
 export function InteractionCard({ request, onAnswer, onCancel }: InteractionCardProps) {
+  // `common` entra en el array para poder reutilizar sus claves (`common:…`).
+  const { t } = useTranslation(["chat", "common"]);
   /** Opciones elegidas por pregunta (id de pregunta -> ids de opción). */
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   /** Texto libre ("Otro") por pregunta. */
@@ -78,12 +81,12 @@ export function InteractionCard({ request, onAnswer, onCancel }: InteractionCard
     <div
       role="dialog"
       aria-live="polite"
-      aria-label={request.title || "El agente pregunta"}
+      aria-label={request.title || t("questions.title")}
       className="dashboard-panel-strong mx-3 mb-2 rounded-xl border p-3 sm:mx-auto sm:w-full sm:max-w-3xl"
     >
       <div className="mb-2 flex items-center gap-2 text-xs font-medium">
         <HelpCircle className="size-3.5 text-violet" />
-        {request.title || "El agente pregunta"}
+        {request.title || t("questions.title")}
       </div>
 
       {/* questions: 1–4 preguntas de opción múltiple */}
@@ -95,7 +98,7 @@ export function InteractionCard({ request, onAnswer, onCancel }: InteractionCard
                 {q.header}
               </span>
               {q.multi_select && (
-                <span className="text-[0.58rem] text-muted-foreground">varias opciones</span>
+                <span className="text-[0.58rem] text-muted-foreground">{t("questions.multiSelect")}</span>
               )}
             </div>
             <p className="mb-1.5 text-[0.8125rem]">{q.question}</p>
@@ -124,7 +127,7 @@ export function InteractionCard({ request, onAnswer, onCancel }: InteractionCard
             {q.allow_other !== false && (
               <Input
                 className="mt-1.5 h-8 text-xs"
-                placeholder="Otro…"
+                placeholder={t("questions.other")}
                 value={others[q.id] ?? ""}
                 onChange={(e) => setOthers((prev) => ({ ...prev, [q.id]: e.target.value }))}
               />
@@ -177,7 +180,7 @@ export function InteractionCard({ request, onAnswer, onCancel }: InteractionCard
 
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={() => onCancel(request.requestId)}>
-          <X className="size-3.5" /> Cancelar
+          <X className="size-3.5" /> {t("common:actions.cancel")}
         </Button>
         {request.kind !== "select" && (
           <Button
@@ -186,7 +189,7 @@ export function InteractionCard({ request, onAnswer, onCancel }: InteractionCard
             disabled={request.kind === "questions" ? !allAnswered : false}
             onClick={submit}
           >
-            <Send className="size-3.5" /> Responder
+            <Send className="size-3.5" /> {t("questions.answer")}
           </Button>
         )}
       </div>

@@ -1,4 +1,5 @@
 import { ExternalLink, ImageOff, Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, openPath } from "@/bridge/client";
@@ -16,6 +17,7 @@ const isSystemPath = (p: string): boolean => /^(?:[A-Za-z]:[\\/]|[\\/])/.test(p)
  * contenido en base64 (`fs.readImage`) y aquí se pinta como data URL.
  */
 export function ImagePreview({ path, className }: { path: string; className?: string }) {
+  const { t } = useTranslation("system");
   const { url, error, loading, deferred } = useImageUrl(path);
 
   // Lectura pospuesta (aún fuera de pantalla): ni spinner ni error.
@@ -24,7 +26,7 @@ export function ImagePreview({ path, className }: { path: string; className?: st
   if (loading) {
     return (
       <div className={cn("flex items-center gap-2 py-2 text-xs text-muted-foreground", className)}>
-        <Loader2 className="size-3.5 animate-spin" /> Cargando imagen…
+        <Loader2 className="size-3.5 animate-spin" /> {t("images.loading")}
       </div>
     );
   }
@@ -32,7 +34,7 @@ export function ImagePreview({ path, className }: { path: string; className?: st
   if (error || !url) {
     return (
       <div className={cn("flex items-center gap-2 py-2 text-xs text-muted-foreground", className)}>
-        <ImageOff className="size-3.5" /> {error ?? "No se pudo cargar la imagen"}
+        <ImageOff className="size-3.5" /> {error ?? t("images.loadFailed")}
       </div>
     );
   }
@@ -52,13 +54,13 @@ export function ImagePreview({ path, className }: { path: string; className?: st
           <button
             onClick={() =>
               void openPath(path).catch((e) =>
-                toast.error("No se pudo abrir la imagen", {
+                toast.error(t("images.openFailed"), {
                   description: String(e).replace(/^Error:\s*/, ""),
                 }),
               )
             }
-            title="Abrir en el visor del sistema"
-            aria-label="Abrir en el visor del sistema"
+            title={t("images.openInSystem")}
+            aria-label={t("images.openInSystem")}
             className="grid size-5 shrink-0 place-items-center rounded-md transition-colors dashboard-hover hover:text-foreground"
           >
             <ExternalLink className="size-3" />

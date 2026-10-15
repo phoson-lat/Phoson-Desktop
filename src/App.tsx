@@ -1,5 +1,6 @@
-import { Folder, Menu, Sparkles } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, Folder, Menu, Sparkles } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -18,17 +19,16 @@ import { CommandPalette } from "@/features/command-palette";
 import { SubagentPanel } from "@/features/subagent-panel";
 import { Sidebar } from "@/features/sidebar";
 import { Welcome } from "@/features/welcome";
-import { ComingSoon } from "@/features/coming-soon";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useTurnNotifications } from "@/hooks/use-notifications";
 import { syncCloseToTray } from "@/lib/desktop";
 import { logAction, logError, setLogContext } from "@/lib/log";
+import { isModalOpen } from "@/lib/platform";
 import { checkForUpdates } from "@/lib/updater";
-import { DEMO_USER } from "@/lib/demo-content";
+import { demoUser } from "@/lib/demo-content";
 import { mark, record, uptime } from "@/lib/perf";
 import { cleanSessionTitle } from "@/lib/session-title";
-import { cn } from "@/lib/utils";
 import { useSession } from "@/stores/session";
 
 const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
@@ -76,6 +76,8 @@ export default function App() {  const {
     removeAttachment,
     removeUpload,
   } = useSession();
+  // `common` entra en el array para poder reutilizar sus claves (`common:…`).
+  const { t } = useTranslation(["chrome", "common"]);
   // Borrador POR SESIÓN: cambiar de sesión no debe arrastrar (ni enviar) el
   // texto que estabas escribiendo en otra.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -95,15 +97,6 @@ export default function App() {  const {
     if (settingsOpen) setSettingsMounted(true);
   }, [settingsOpen]);
   const [explorerOpen, setExplorerOpen] = useState(false);
-  /** Sección visible en el área de contenido: la conversación o los swarms. */
-  const [section, setSection] = useState<"chat" | "swarm">("chat");
-  /**
-   * Secciones que ya se visitaron. Se montan en su primera visita (montar el
-   * lienzo de React Flow al arrancar sería pagar por lo que aún no se usa) y a
-   * partir de ahí se quedan: así el borrador y el encuadre sobreviven al cambiar
-   * de sección y volver.
-   */
-  const [visited, setVisited] = useState<Record<string, boolean>>({ chat: true });
   const [openFile, setOpenFile] = useState<string | null>(null);
 
   // Rendimiento: hitos de arranque (requiere `phosonPerf` en la consola).
@@ -118,7 +111,14 @@ export default function App() {  const {
       logAction("app.ready", { ms: Math.round(uptime()) });
     }
   }, [ready]);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  /**
+   * Contenedor de la conversación por *callback ref*: mientras se ve el estado
+   * vacío (Welcome) no existe, así que con un `useRef` el listener de scroll solo
+   * se enganchaba si la sesión ya tenía mensajes al montar (y el «pegado al
+   * fondo» nunca se desactivaba en la primera sesión).
+   */
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const scrollRef = useCallback((node: HTMLDivElement | null) => setScrollEl(node), []);
   const isMobile = useIsMobile();
   /** El explorador pasa a panel superpuesto en ventanas estrechas. */
   const narrow = useMediaQuery("(max-width: 1279px)");
@@ -168,9 +168,9 @@ export default function App() {  const {
   const applyWorkspace = async (path: string) => {
     try {
       const next = await setWorkspace(path);
-      toast.success("Espacio de trabajo actualizado", { description: next });
+      toast.success(t("workspace.updated"), { description: next });
     } catch (e) {
-      toast.error("No se pudo cambiar el espacio de trabajo", { description: String(e) });
+      toast.error(t("workspace.updateError"), { description: String(e) });
     }
   };
 
@@ -182,24 +182,9 @@ export default function App() {  const {
   useEffect(() => {
     if (demoParam && ready && activeKey && !demoLoaded.current) {
       demoLoaded.current = true;
-      void send(DEMO_USER);
+      void send(demoUser());
     }
   }, [demoParam, ready, activeKey, send]);
-
-  // Deep-link: `?swarm=1` abre la sección de swarms al arrancar.
-  const search = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
-  const swarmParam = search?.get("swarm") ?? null;
-  const linked = useRef(false);
-  useEffect(() => {
-    if (linked.current || swarmParam === null) return;
-    linked.current = true;
-    setSection("swarm");
-  }, [swarmParam]);
-
-  useEffect(() => {
-    setVisited((current) => (current[section] ? current : { ...current, [section]: true }));
-    logAction("ui.section", { section });
-  }, [section]);
 
   useEffect(() => {
     try {
@@ -220,10 +205,10 @@ export default function App() {  const {
         logAction("engine.idle-evicted", { workspace });
         return;
       }
-      toast.error("El motor de un espacio de trabajo se detuvo", {
+      toast.error(t("engine.stopped"), {
         description: workspace
-          ? `Se reiniciará al volver a usarlo: ${basename(workspace)}`
-          : "Se reiniciará al volver a usarlo.",
+          ? t("engine.restartWithPath", { path: basename(workspace) })
+          : t("engine.restart"),
       });
       logError("engine.terminated", "sidecar detenido", { workspace });
     }).then((fn) => {
@@ -235,22 +220,57 @@ export default function App() {  const {
   // Pegado al fondo: solo auto-scroll si el usuario ya está abajo. Si sube a
   // leer un mensaje anterior, no le arrastramos la vista en cada token.
   const stickToBottom = useRef(true);
+  /** Espejo en estado de `stickToBottom` (la UI necesita el botón «Ir al final»). */
+  const [atBottom, setAtBottom] = useState(true);
+  /** Mensajes llegados mientras el usuario lee hacia arriba. */
+  const [unseen, setUnseen] = useState(0);
+  const messageCount = useRef(0);
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
+    if (!scrollEl) return;
     const onScroll = () => {
-      stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      const bottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 80;
+      stickToBottom.current = bottom;
+      // React ignora el `set` si el valor no cambia: no hay re-render por scroll.
+      setAtBottom(bottom);
+      if (bottom) setUnseen(0);
     };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+    // No se sincroniza al montar: el auto-scroll de abajo coloca la vista y el
+    // primer evento de scroll ajusta el estado (si se marcara «arriba» antes,
+    // el auto-scroll se saltaría y la sesión se abriría por el principio).
+    scrollEl.addEventListener("scroll", onScroll, { passive: true });
+    return () => scrollEl.removeEventListener("scroll", onScroll);
+  }, [scrollEl]);
+
+  // Al cambiar de sesión se vuelve a seguir el final (antes se heredaba el
+  // «estoy leyendo arriba» de la sesión anterior y el auto-scroll no volvía).
+  useEffect(() => {
+    stickToBottom.current = true;
+    setAtBottom(true);
+    setUnseen(0);
+    messageCount.current = 0;
+  }, [activeKey]);
+
+  // Cuenta lo que entra fuera de pantalla (número del botón «Ir al final»).
+  useEffect(() => {
+    if (messages.length > messageCount.current && !stickToBottom.current) {
+      setUnseen((n) => n + (messages.length - messageCount.current));
+    }
+    messageCount.current = messages.length;
+  }, [messages.length]);
 
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !stickToBottom.current) return;
+    if (!scrollEl || !stickToBottom.current) return;
     // `auto` mientras el agente trabaja: `smooth` en cada token pelea con la lectura.
-    el.scrollTo({ top: el.scrollHeight, behavior: view?.sending ? "auto" : "smooth" });
-  }, [messages, view?.sending]);
+    scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: view?.sending ? "auto" : "smooth" });
+  }, [messages, view?.sending, scrollEl]);
+
+  /** Vuelve al final y reactiva el seguimiento (también al enviar un turno). */
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    stickToBottom.current = true;
+    setAtBottom(true);
+    setUnseen(0);
+    scrollEl?.scrollTo({ top: scrollEl.scrollHeight, behavior });
+  };
 
   const title = useMemo(() => {
     // Prefiere el título del engine (heurístico → del modelo) y cae al primer
@@ -259,8 +279,9 @@ export default function App() {  const {
     const stored = cleanSessionTitle(view?.title);
     if (stored) return stored;
     const first = cleanSessionTitle(messages.find((m) => m.role === "user")?.text);
-    return first ? (first.length > 60 ? first.slice(0, 60) + "…" : first) : "Nueva sesión";
-  }, [view?.title, messages]);
+    return first ? (first.length > 60 ? first.slice(0, 60) + "…" : first) : t("sessions.untitled");
+    // `t` en las deps: al cambiar de idioma el memo debe rehacer el fallback.
+  }, [view?.title, messages, t]);
 
   // El título de la ventana sigue a la conversación (barra de tareas, alt-tab).
   /** Preferencia «cerrar a la bandeja» → shell nativa (Windows). */
@@ -270,6 +291,38 @@ export default function App() {  const {
 
   // Avisos del sistema al terminar turnos (en cualquier sesión, no solo la activa).
   useTurnNotifications(sessions, activeKey);
+
+  /**
+   * Avisos que emite el sidecar/engine (`notify`). Antes se pintaban como una
+   * línea bajo el composer y solo se veía el último; ahora van a toasts apilados.
+   * Se deduplican por identidad del objeto: el array se recrea en cada parche,
+   * los avisos ya vistos conservan su referencia.
+   */
+  const toastedNotices = useRef<WeakSet<object>>(new WeakSet());
+  useEffect(() => {
+    for (const n of view?.notifications ?? []) {
+      if (toastedNotices.current.has(n)) continue;
+      toastedNotices.current.add(n);
+      const emit = n.kind === "error" ? toast.error : n.kind === "warn" ? toast.warning : toast.info;
+      emit(n.message);
+    }
+  }, [view?.notifications]);
+
+  /**
+   * Escape global: detiene la generación sin tener el foco en el composer.
+   * No roba el atajo si hay un diálogo abierto ni si el agente espera una
+   * confirmación (ahí Escape debe cerrar el diálogo que la contiene).
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !view?.sending) return;
+      if (isModalOpen() || (view.confirmations?.length ?? 0) > 0) return;
+      e.preventDefault();
+      void cancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [view?.sending, view?.confirmations, cancel]);
 
   useEffect(() => {
     const label = `${title} · Phoson`;
@@ -283,6 +336,9 @@ export default function App() {  const {
     // con la imagen, sin texto.
     if ((!value && !(view?.attachments.length ?? 0)) || view?.sending) return;
     setDraft("");
+    // Enviar implica querer ver la respuesta: se recupera el seguimiento aunque
+    // estuvieras leyendo hacia arriba.
+    scrollToBottom();
     void send(value);
   };
 
@@ -304,8 +360,8 @@ export default function App() {  const {
     void checkForUpdates()
       .then((u) => {
         if (u) {
-          toast.info(`Nueva versión v${u.version} disponible`, {
-            description: "Ajustes → Acerca de para instalarla.",
+          toast.info(t("update.available", { version: u.version }), {
+            description: t("update.hint"),
           });
         }
       })
@@ -316,17 +372,36 @@ export default function App() {  const {
 
   // Drag & drop en TODA la ventana (no solo el composer).
   const [dragOver, setDragOver] = useState(false);
+  /**
+   * Profundidad de `dragenter`/`dragleave`: al pasar por encima de los hijos
+   * llegan pares enter/leave que, contados mal, dejaban el overlay pegado. El
+   * composer además frena el `drop` (él ya adjunta), así que aquí solo se baja.
+   */
+  const dragDepth = useRef(0);
+  const hasFiles = (e: React.DragEvent) => Boolean(e.dataTransfer?.types?.includes("Files"));
   const handleDragOver = (e: React.DragEvent) => {
-    if (!e.dataTransfer?.types?.includes("Files")) return;
+    if (!hasFiles(e)) return;
     e.preventDefault();
     setDragOver(true);
   };
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!hasFiles(e)) return;
+    dragDepth.current += 1;
+    setDragOver(true);
+  };
   const handleDragLeave = (e: React.DragEvent) => {
-    if (e.currentTarget === e.target) setDragOver(false);
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    // Saliendo de la ventana no queda ningún hijo bajo el puntero: se limpia.
+    if (dragDepth.current === 0 || !e.relatedTarget) setDragOver(false);
   };
   const handleDrop = (e: React.DragEvent) => {
+    // El composer ya gestionó el drop (adjunta él mismo): no duplicar. Se mira
+    // ANTES del `preventDefault` propio.
+    const handledByComposer = e.defaultPrevented || e.nativeEvent.defaultPrevented;
     e.preventDefault();
+    dragDepth.current = 0;
     setDragOver(false);
+    if (handledByComposer) return;
     const files = Array.from(e.dataTransfer.files ?? []);
     if (files.length) {
       logAction("attach.drop", { count: files.length });
@@ -339,12 +414,13 @@ export default function App() {  const {
       <div
         className="dashboard-shell-overlay flex h-full min-h-0 w-full overflow-hidden"
         onDragOver={handleDragOver}
+        onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
         {dragOver && (
           <div className="pointer-events-none fixed inset-0 z-[90] grid place-items-center bg-[var(--background)]/70 text-sm text-violet">
-            Suelta los archivos para adjuntarlos
+            {t("drop.hint")}
           </div>
         )}
         <Sidebar
@@ -364,34 +440,19 @@ export default function App() {  const {
           }}
           onSelect={(k) => {
             setActive(k);
-            setSection("chat");
             setNavOpen(false);
           }}
           onOpen={(id, ws) => {
             void openSession(id, ws);
-            setSection("chat");
             setNavOpen(false);
           }}
           onClose={(k) => void closeSession(k)}
           onToggleCollapse={() => setCollapsed((c) => !c)}
           onOpenSettings={() => setSettingsOpen(true)}
-          onOpenSwarm={() => setSection("swarm")}
-          section={section}
         />
 
         <div className="relative min-h-0 min-w-0 flex-1">
-          {/* Las tres secciones conviven —para no perder borradores ni el
-              encuadre del lienzo— así que las inactivas se ocultan con
-              `visibility` y no con `display`: React Flow mide su contenedor al
-              montar, y un contenedor con `display:none` mide 0×0. */}
-          <div
-            aria-hidden={section !== "chat"}
-            data-section="chat"
-            className={cn(
-              "absolute inset-0 flex min-h-0 min-w-0",
-              section !== "chat" && "pointer-events-none invisible",
-            )}
-          >
+          <div className="absolute inset-0 flex min-h-0 min-w-0">
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="flex items-center gap-2 border-b border-dashboard-border-soft px-3 py-2.5 sm:gap-3 sm:px-4">
             {isMobile && (
@@ -400,7 +461,7 @@ export default function App() {  const {
                 size="icon"
                 className="size-7 shrink-0"
                 onClick={() => setNavOpen(true)}
-                title="Sesiones"
+                title={t("sessions.title")}
               >
                 <Menu className="size-4" />
               </Button>
@@ -411,14 +472,14 @@ export default function App() {  const {
               <div className="flex min-w-0 items-center gap-1.5 text-[0.68rem] text-muted-foreground">
                 <button
                   onClick={() => setExplorerOpen((o) => !o)}
-                  title="Ver archivos del espacio de trabajo"
+                  title={t("workspace.viewFiles")}
                   className="flex min-w-0 items-center gap-1.5 truncate transition-colors hover:text-foreground"
                 >
                   <Folder className="size-3 shrink-0" />
-                  <span className="truncate">{workspacePath ? basename(workspacePath) : "workspace"}</span>
+                  <span className="truncate">{workspacePath ? basename(workspacePath) : t("workspace.placeholder")}</span>
                   <span className="shrink-0 opacity-40">·</span>
-                  <span className="shrink-0">{ready ? "listo" : "conectando…"}</span>
-                  {!isTauri() && <span className="shrink-0 opacity-60">· demo</span>}
+                  <span className="shrink-0">{ready ? t("status.ready") : t("status.connecting")}</span>
+                  {!isTauri() && <span className="shrink-0 opacity-60">· {t("status.demo")}</span>}
                 </button>
                 <GitStatus workspace={workspacePath} running={metrics?.isRunning} />
               </div>
@@ -431,31 +492,54 @@ export default function App() {  const {
 
           {!ready && bootError ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-              <p className="text-sm text-destructive">No se pudo conectar con el engine</p>
+              <p className="text-sm text-destructive">{t("engine.connectError")}</p>
               <p className="max-w-md text-xs text-muted-foreground">{bootError}</p>
               <Button size="sm" className="bg-violet text-white hover:bg-violet/90" onClick={() => void init()}>
-                Reintentar
+                {t("common:actions.retry")}
               </Button>
             </div>
           ) : messages.length === 0 ? (
             <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
               <Welcome
-                onPick={(t) => void send(t)}
+                // El parámetro se llama `text` para no tapar el `t()` de traducciones.
+                onPick={(text) => void send(text)}
                 onOpenSession={(id, ws) => void openSession(id, ws)}
               />
             </div>
           ) : (
-            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              <div className="mx-auto flex max-w-3xl flex-col gap-6 px-3 py-5 sm:px-4 sm:py-8">
-                {messages.map((m, i) => (
-                  <MessageRow
-                    key={m.id}
-                    message={m}
-                    isLast={i === messages.length - 1}
-                    onRegenerate={() => void regenerate()}
-                  />
-                ))}
+            <div className="relative min-h-0 flex-1">
+              <div ref={scrollRef} className="h-full overflow-y-auto overscroll-contain">
+                <div className="mx-auto flex max-w-3xl flex-col gap-6 px-3 py-5 sm:px-4 sm:py-8">
+                  {messages.map((m, i) => (
+                    <MessageRow
+                      key={m.id}
+                      message={m}
+                      isLast={i === messages.length - 1}
+                      onRegenerate={() => void regenerate()}
+                    />
+                  ))}
+                </div>
               </div>
+
+              {/* Vuelta al final: el auto-scroll se desactiva cuando subes a leer,
+                  así que hace falta una salida explícita (con lo que ha entrado). */}
+              {!atBottom && (
+                <button
+                  onClick={() => scrollToBottom()}
+                  title={
+                    view?.sending ? t("scroll.agentWriting") : t("scroll.toLastMessage")
+                  }
+                  className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--dashboard-border)] bg-[var(--phoson-surface-2)] px-3 py-1.5 text-xs text-muted-foreground shadow-lg transition-colors hover:text-foreground"
+                >
+                  <ArrowDown className="size-3.5" aria-hidden />
+                  {t("common:a11y.scrollToBottom")}
+                  {unseen > 0 && (
+                    <span className="rounded-full bg-violet px-1.5 text-[0.65rem] tabular-nums text-white">
+                      {unseen}
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
           )}
 
@@ -482,11 +566,11 @@ export default function App() {  const {
               key={c.requestId}
               role="alertdialog"
               aria-live="assertive"
-              aria-label="Confirmación de comando"
+              aria-label={t("command.confirmLabel")}
               className="dashboard-panel-strong mx-3 mb-2 rounded-xl border p-3 sm:mx-auto sm:w-full sm:max-w-3xl"
             >
               <div className="mb-1 flex items-center gap-2 text-xs font-medium">
-                <Sparkles className="size-3.5 text-violet" /> ¿Ejecutar comando?
+                <Sparkles className="size-3.5 text-violet" /> {t("command.runQuestion")}
               </div>
               <pre className="mb-3 overflow-x-auto rounded-md border border-dashboard-border-soft bg-black/20 p-2 text-[0.75rem]">
                 {c.command ?? ""}
@@ -496,19 +580,19 @@ export default function App() {  const {
                   className="rounded-md bg-violet px-3 py-1 text-xs text-white"
                   onClick={() => void respondConfirm(c.requestId, "yes")}
                 >
-                  Sí
+                  {t("common:words.yes")}
                 </button>
                 <button
                   className="rounded-md border border-dashboard-border-soft px-3 py-1 text-xs"
                   onClick={() => void respondConfirm(c.requestId, "always")}
                 >
-                  Siempre
+                  {t("command.always")}
                 </button>
                 <button
                   className="rounded-md border border-dashboard-border-soft px-3 py-1 text-xs text-muted-foreground"
                   onClick={() => void respondConfirm(c.requestId, "no")}
                 >
-                  No
+                  {t("common:words.no")}
                 </button>
               </div>
             </div>
@@ -529,11 +613,6 @@ export default function App() {  const {
             onAddFiles={(files) => void addFiles(files)}
             onRemoveAttachment={(path) => void removeAttachment(path)}
             onRemoveUpload={removeUpload}
-            notice={
-              view?.notifications?.length
-                ? view.notifications[view.notifications.length - 1].message
-                : null
-            }
           />
         </main>
 
@@ -548,25 +627,6 @@ export default function App() {  const {
               />
             </Suspense>
           )}
-          </div>
-
-          {/* La sección de swarms queda montada al cambiar de vista (así el
-              borrador y el encuadre sobreviven a ir a una sesión y volver). */}
-          <div
-            aria-hidden={section !== "swarm"}
-            data-section="swarm"
-            className={cn(
-              "absolute inset-0 flex min-h-0 min-w-0",
-              section !== "swarm" && "pointer-events-none invisible",
-            )}
-          >
-            {visited.swarm && (
-              <ComingSoon
-                title="Swarms de agentes"
-                note="Estamos afinando la orquestación multi-agente (topologías, estado en vivo y mensajería). Volverá en una próxima versión."
-                onExit={() => setSection("chat")}
-              />
-            )}
           </div>
         </div>
       </div>
@@ -592,7 +652,6 @@ export default function App() {  const {
       <CommandPalette
         onOpenSettings={() => setSettingsOpen(true)}
         onToggleExplorer={() => setExplorerOpen((v) => !v)}
-        onOpenSwarm={() => setSection("swarm")}
       />
       {ready && onboardingNeeded && (
         <Suspense fallback={null}>

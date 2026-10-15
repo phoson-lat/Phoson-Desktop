@@ -1,6 +1,7 @@
 import { Check, CodeXml, ExternalLink, FileText, Loader2, Pencil, Save, X } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, openPath, phoson } from "@/bridge/client";
@@ -70,6 +71,8 @@ interface CodeViewerProps {
  * modo edición con guardado vía `fs.write`.
  */
 export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) {
+  // `common` entra en el array para poder reutilizar sus claves (`common:…`).
+  const { t } = useTranslation(["tools", "common"]);
   const { resolvedTheme } = useTheme();
   const [data, setData] = useState<FsReadResult | null>(null);
   const [html, setHtml] = useState("");
@@ -116,9 +119,9 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
       await phoson.fsWrite(data.path, draft);
       setData({ ...data, text: draft, size: draft.length });
       setEditing(false);
-      toast.success("Archivo guardado", { description: basename(data.path) });
+      toast.success(t("viewer.saved"), { description: basename(data.path) });
     } catch (e) {
-      toast.error("No se pudo guardar", { description: String(e) });
+      toast.error(t("viewer.saveError"), { description: String(e) });
     } finally {
       setSaving(false);
     }
@@ -133,8 +136,8 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
         if (o) return;
         // No cerrar (Escape/overlay) con cambios sin guardar: se perderían.
         if (dirty) {
-          toast.warning("Hay cambios sin guardar", {
-            description: "Guarda o pulsa «Cancelar» antes de cerrar.",
+          toast.warning(t("viewer.unsavedTitle"), {
+            description: t("viewer.unsavedBody"),
           });
           return;
         }
@@ -149,7 +152,7 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
           </DialogTitle>
           <span className="min-w-0 flex-1 truncate text-[0.68rem] text-muted-foreground">
             {path}
-            {data?.truncated && " · truncado"}
+            {data?.truncated && t("viewer.truncated")}
           </span>
 
           {editable && data && !data.binary && (
@@ -164,7 +167,7 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
                     setEditing(false);
                   }}
                 >
-                  Cancelar
+                  {t("common:actions.cancel")}
                 </Button>
                 <Button
                   size="sm"
@@ -173,7 +176,7 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
                   onClick={() => void save()}
                 >
                   {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-                  Guardar
+                  {t("common:actions.save")}
                 </Button>
               </>
             ) : (
@@ -183,7 +186,7 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
                 className="h-7 gap-1.5 text-xs"
                 onClick={() => setEditing(true)}
               >
-                <Pencil className="size-3.5" /> Editar
+                <Pencil className="size-3.5" /> {t("common:actions.edit")}
               </Button>
             )
           )}
@@ -191,11 +194,11 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
             <button
               onClick={() =>
                 void openWithPreferredEditor(path).catch((e) =>
-                  toast.error("No se pudo abrir en el editor", { description: String(e) }),
+                  toast.error(t("editor.openError"), { description: String(e) }),
                 )
               }
-              title="Abrir en el editor"
-              aria-label="Abrir en el editor"
+              title={t("editor.openInEditor")}
+              aria-label={t("editor.openInEditor")}
               className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
             >
               <CodeXml className="size-3.5" />
@@ -205,13 +208,13 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
             <button
               onClick={() =>
                 void openPath(path).catch((e) =>
-                  toast.error("No se pudo abrir el archivo", {
+                  toast.error(t("viewer.openFileError"), {
                     description: String(e).replace(/^Error:\s*/, ""),
                   }),
                 )
               }
-              title="Abrir en el visor del sistema"
-              aria-label="Abrir en el visor del sistema"
+              title={t("viewer.openInSystem")}
+              aria-label={t("viewer.openInSystem")}
               className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
             >
               <ExternalLink className="size-3.5" />
@@ -219,7 +222,7 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
           )}
           <button
             onClick={onClose}
-            title="Cerrar"
+            title={t("common:actions.close")}
             className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
           >
             <X className="size-3.5" />
@@ -231,11 +234,11 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
             <p className="p-4 text-xs text-destructive">{error}</p>
           ) : !data ? (
             <div className="flex items-center gap-2 p-4 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" /> Abriendo…
+              <Loader2 className="size-3.5 animate-spin" /> {t("viewer.opening")}
             </div>
           ) : data.binary ? (
             <p className="p-4 text-xs text-muted-foreground">
-              Archivo binario — no se puede mostrar como texto.
+              {t("viewer.binary")}
             </p>
           ) : editing ? (
             <textarea
@@ -261,7 +264,7 @@ export function CodeViewer({ path, onClose, editable = true }: CodeViewerProps) 
 
         {editing && dirty && (
           <div className="flex items-center gap-1.5 border-t border-[var(--dashboard-border)] px-4 py-2 text-[0.68rem] text-muted-foreground">
-            <Check className="size-3 text-amber-500" /> Cambios sin guardar
+            <Check className="size-3 text-warning" /> {t("viewer.dirty")}
           </div>
         )}
       </DialogContent>

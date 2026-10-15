@@ -1,4 +1,5 @@
 import { useId } from "react"
+import { useTranslation } from "react-i18next"
 
 interface PhosonLogoProps {
   showText?: boolean
@@ -14,6 +15,7 @@ export function PhosonLogo({
   className = "",
   animated = false,
 }: PhosonLogoProps) {
+  const { t } = useTranslation("chrome")
   const uid = useId().replace(/:/g, "")
 
   return (
@@ -23,7 +25,7 @@ export function PhosonLogo({
         viewBox="0 0 130 130"
         width={size}
         height={size}
-        aria-label="Phoson logo mark"
+        aria-label={t("logo.aria")}
         aria-hidden={animated ? true : undefined}
         className={animated ? "phoson-logo-mark" : undefined}
       >

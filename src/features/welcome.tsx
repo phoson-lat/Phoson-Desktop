@@ -1,18 +1,13 @@
 import { History, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 
 import { phoson } from "@/bridge/client";
 import { PhosonLogo } from "@/components/phoson-logo";
+import { Kbd } from "@/components/ui/kbd";
 import type { SessionMeta } from "@/bridge/protocol";
-import { DEMO_USER } from "@/lib/demo-content";
+import { shortcutLabel } from "@/lib/platform";
 import { cleanSessionTitle } from "@/lib/session-title";
-
-const SUGGESTIONS = [
-  DEMO_USER,
-  "Resume la arquitectura de phoson-engine-minimal",
-  "¿Cómo desacopla la UI el SessionController?",
-  "Lista las sesiones guardadas",
-];
 
 interface WelcomeProps {
   onPick: (text: string) => void;
@@ -21,7 +16,17 @@ interface WelcomeProps {
 }
 
 export function Welcome({ onPick, onOpenSession }: WelcomeProps) {
+  const { t } = useTranslation("welcome");
   const [recent, setRecent] = useState<SessionMeta[]>([]);
+
+  // Las sugerencias se traducen en el render (no en una constante de módulo):
+  // así siguen al idioma activo si el usuario lo cambia.
+  const suggestions = [
+    t("demo.user"),
+    t("suggestions.engineArchitecture"),
+    t("suggestions.sessionController"),
+    t("suggestions.listSessions"),
+  ];
 
   useEffect(() => {
     phoson
@@ -46,15 +51,28 @@ export function Welcome({ onPick, onOpenSession }: WelcomeProps) {
           Phoson Desktop
         </h1>
         <p className="animate-welcome-subtitle max-w-md text-sm text-muted-foreground">
-          Tu agente autónomo, en el escritorio. Mismo engine y mismos plugins que el{" "}
-          <span className="text-violet-soft">phoson-cli</span>.
+          <Trans
+            t={t}
+            i18nKey="subtitle"
+            components={{ cli: <span className="text-violet-soft" /> }}
+          />
+        </p>
+        {/* El atajo que abre la paleta (acciones + búsqueda de sesiones) no se
+            anunciaba en ninguna parte visible: aquí y en el buscador lateral. */}
+        <p className="animate-welcome-subtitle flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+          <Trans
+            t={t}
+            i18nKey="shortcutHint"
+            values={{ shortcut: shortcutLabel("K") }}
+            components={{ kbd: <Kbd /> }}
+          />
         </p>
       </div>
 
       {recent.length > 0 && onOpenSession && (
         <div className="w-full max-w-lg">
           <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[0.62rem] uppercase tracking-wide text-muted-foreground">
-            <History className="size-3" /> Recientes
+            <History className="size-3" /> {t("recent.title")}
           </div>
           <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
             {recent.map((s) => (
@@ -73,7 +91,7 @@ export function Welcome({ onPick, onOpenSession }: WelcomeProps) {
       )}
 
       <div className="animate-welcome-recent grid w-full max-w-lg grid-cols-1 gap-2 sm:grid-cols-2">
-        {SUGGESTIONS.map((s) => (
+        {suggestions.map((s) => (
           <button
             key={s}
             onClick={() => onPick(s)}

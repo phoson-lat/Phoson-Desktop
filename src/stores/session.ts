@@ -11,6 +11,7 @@ import { create } from "zustand";
 
 import { phoson, bindSessionWorkspace, unbindSessionWorkspace, setCurrentWorkspace, getCurrentWorkspace } from "../bridge/client";
 import { logAction, logError, logEvent } from "../lib/log";
+import i18n from "../lib/i18n";
 import { basenameOf, fileUrlToPath, isImageFile, isInlineSource } from "../lib/files";
 import { cleanSessionTitle } from "../lib/session-title";
 import type {
@@ -87,6 +88,12 @@ export interface ChatMessage {
   /** Índice del slot de la llamada en redacción (el modelo puede redactar dos). */
   composingIndex?: number;
   status: "streaming" | "done" | "error" | "cancelled";
+  /**
+   * Motivo del fallo del turno (`AgentErrorEvent`, `errorCode` del engine o la
+   * RPC rota). Se pinta como bloque aparte bajo el contenido: no es texto del
+   * modelo y no debe confundirse con su respuesta.
+   */
+  error?: string;
 }
 
 /** Texto plano de un mensaje (usado para títulos y previews). */
@@ -539,7 +546,8 @@ export const useSession = create<SessionState>((set, get) => {
           status: "error",
           composingTool: undefined,
           composingIndex: undefined,
-          parts: mergeTextParts([...m.parts, { kind: "text", text: String(event.message ?? "Error") }]),
+          // El error NO va a `parts`: es un fallo del turno, no contenido.
+          error: String(event.message ?? "Error"),
         }));
         logError("turn.error", String(event.message ?? "Error"), { sessionId: key });
         break;
@@ -593,6 +601,8 @@ export const useSession = create<SessionState>((set, get) => {
           // Vuelca el streaming pendiente antes de cerrar el mensaje.
           drainPending(key);
           const status = String(params.status);
+          const errorCode =
+            typeof params.errorCode === "string" && params.errorCode ? params.errorCode : undefined;
           patchLastAssistant(key, (m) => ({
             ...m,
             // El turno terminó: ya no queda ninguna tool en redacción.
@@ -600,6 +610,14 @@ export const useSession = create<SessionState>((set, get) => {
             composingIndex: undefined,
             status:
               status === "done" ? "done" : status === "cancelled" ? "cancelled" : "error",
+            // El mensaje se pinta en el bloque de error del turno (texto de UI).
+            error:
+              status === "done" || status === "cancelled"
+                ? undefined
+                : (m.error ??
+                  (errorCode
+                    ? i18n.t("chat:errors.turnCode", { code: errorCode })
+                    : i18n.t("chat:errors.turnNoDetail"))),
           }));
           patchView(key, (v) => ({ ...v, sending: false }));
           const started = turnStart.get(key);
@@ -744,7 +762,9 @@ export const useSession = create<SessionState>((set, get) => {
             }
           }
           if (!info) {
-            set({ ready: false, bootError: lastError || "no se pudo inicializar el engine" });
+            // El aviso se pinta en App.tsx (texto de UI) y va traducido; el log
+            // se queda con el motivo en crudo, que es diagnóstico.
+            set({ ready: false, bootError: lastError || i18n.t("chat:errors.engineInit") });
             logError("engine.init", lastError || "no se pudo inicializar el engine");
             return;
           }
@@ -840,7 +860,7 @@ export const useSession = create<SessionState>((set, get) => {
               {
                 sessionId: key,
                 kind: "warn" as const,
-                message: `No se pudieron adjuntar: ${failed.join(", ")}`,
+                message: i18n.t("chat:errors.attachFailed", { names: failed.join(", ") }),
               },
             ]
           : v.notifications,
@@ -878,7 +898,7 @@ export const useSession = create<SessionState>((set, get) => {
           status: "error",
           composingTool: undefined,
           composingIndex: undefined,
-          parts: mergeTextParts([...m.parts, { kind: "text", text: `Error: ${message}` }]),
+          error: i18n.t("chat:errors.turnRun", { reason: message }),
         }));
         patchView(key, (v) => ({
           ...v,
@@ -954,7 +974,7 @@ export const useSession = create<SessionState>((set, get) => {
           ...v,
           notifications: [
             ...v.notifications,
-            { sessionId: key, kind: "warn" as const, message: "No se pudo deshacer el último turno." },
+            { sessionId: key, kind: "warn" as const, message: i18n.t("chat:errors.undoFailed") },
           ],
         }));
         return;
@@ -1018,8 +1038,7 @@ export const useSession = create<SessionState>((set, get) => {
                     {
                       sessionId,
                       kind: "warn" as const,
-                      message:
-                        "La carpeta original de esta sesión ya no existe: se usa el workspace actual.",
+                      message: i18n.t("chat:errors.originalFolderMissing"),
                     },
                   ],
                 }

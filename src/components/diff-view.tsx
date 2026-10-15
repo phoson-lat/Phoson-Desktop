@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 import { diffStats, type DiffRow } from "@/lib/diff";
 import { cn } from "@/lib/utils";
 
@@ -49,6 +51,8 @@ function hunkAlignedCut(rows: DiffRow[], maxLines: number): number {
  * cabeceras `@@ … @@`, en vez del volcado en crudo del resultado.
  */
 export function DiffView({ rows, path, note, maxLines = 300, onOpenLine, className }: DiffViewProps) {
+  // El hook va antes del return temprano: los hooks no pueden quedar tras un `return`.
+  const { t } = useTranslation("tools");
   if (rows.length === 0) return null;
 
   const shown = rows.slice(0, hunkAlignedCut(rows, maxLines));
@@ -65,7 +69,7 @@ export function DiffView({ rows, path, note, maxLines = 300, onOpenLine, classNa
       <div className="flex items-baseline gap-2 text-[0.65rem] text-muted-foreground">
         {path ? <span className="truncate font-mono">{path}</span> : null}
         <span className="ml-auto shrink-0 tabular-nums">
-          <span className="text-emerald-600 dark:text-emerald-400">+{adds}</span>
+          <span className="text-success">+{adds}</span>
           <span className="mx-1 opacity-40">/</span>
           <span className="text-destructive">−{dels}</span>
         </span>
@@ -82,7 +86,7 @@ export function DiffView({ rows, path, note, maxLines = 300, onOpenLine, classNa
               row.kind === "hunk" && "mt-1 first:mt-0",
               onOpenLine && row.kind !== "hunk" && "cursor-pointer hover:bg-foreground/5",
             )}
-            title={onOpenLine && row.kind !== "hunk" ? "Abrir en el editor en esta línea" : undefined}
+            title={onOpenLine && row.kind !== "hunk" ? t("diff.openLine") : undefined}
             onClick={
               onOpenLine && row.kind !== "hunk"
                 ? () => {
@@ -106,7 +110,7 @@ export function DiffView({ rows, path, note, maxLines = 300, onOpenLine, classNa
         ))}
         {hidden > 0 ? (
           <div className="px-2 pt-1 text-[0.65rem] text-muted-foreground">
-            … +{hidden} líneas más
+            {t("diff.moreLines", { count: hidden })}
           </div>
         ) : null}
       </div>

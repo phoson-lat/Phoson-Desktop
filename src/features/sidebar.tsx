@@ -1,5 +1,6 @@
-import { AlertTriangle, Bot, Loader2, Search, PanelLeft, MessageSquare, Settings, Trash2, Users, X, SquarePen } from "lucide-react";
+import { AlertTriangle, Bot, Loader2, Search, PanelLeft, MessageSquare, Settings, Trash2, X, SquarePen } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { PhosonLogo } from "@/components/phoson-logo";
@@ -7,6 +8,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Input } from "@/components/ui/input";
 import { phoson } from "@/bridge/client";
 import type { SessionMeta } from "@/bridge/protocol";
+import i18n from "@/lib/i18n";
+import { shortcutLabel } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import type { SessionView } from "@/stores/session";
 import { cleanSessionTitle, truncateTitle } from "@/lib/session-title";
@@ -32,10 +35,6 @@ interface SidebarProps {
   onToggleCollapse?: () => void;
   /** El pie de la barra abre Ajustes (como la cuenta en ChatGPT). */
   onOpenSettings?: () => void;
-  /** Abre la sección de swarms de agentes. */
-  onOpenSwarm?: () => void;
-  /** Sección visible en el área de contenido, para marcar el ítem activo. */
-  section?: "chat" | "swarm";
 }
 
 function titleOf(view: SessionView | undefined): string {
@@ -43,7 +42,10 @@ function titleOf(view: SessionView | undefined): string {
   if (stored) return truncateTitle(stored);
   const first = cleanSessionTitle(view?.messages.find((m) => m.role === "user")?.text);
   if (first) return truncateTitle(first);
-  return view?.engineId ? `Sesión ${view.engineId.slice(0, 6)}` : "Nueva sesión";
+  // Sin `useTranslation` aquí (no es un componente): se traduce con la instancia.
+  return view?.engineId
+    ? i18n.t("chrome:sessions.fallbackTitle", { id: view.engineId.slice(0, 6) })
+    : i18n.t("chrome:sessions.untitled");
 }
 
 /* ── Piezas reutilizables ──────────────────────────────────────────────── */
@@ -53,16 +55,20 @@ function IconButton({
   label,
   onClick,
   className,
+  /** Atajo que abre la misma acción: se muestra en el tooltip. */
+  shortcut,
 }: {
   icon: ComponentType<{ className?: string }>;
   label: string;
   onClick?: () => void;
   className?: string;
+  shortcut?: string;
 }) {
+  const { t } = useTranslation("chrome");
   return (
     <button
       onClick={onClick}
-      title={label}
+      title={shortcut ? t("sidebar.withShortcut", { label, shortcut }) : label}
       aria-label={label}
       className={cn(
         "grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors dashboard-hover hover:text-foreground",
@@ -117,8 +123,9 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 /** Indicador de sesión «running»: el agente está generando respuesta. */
 function RunningDot() {
+  const { t } = useTranslation("chrome");
   return (
-    <span title="Generando respuesta…" className="shrink-0 text-violet">
+    <span title={t("sessions.generating")} className="shrink-0 text-violet">
       <Loader2 className="size-3 animate-spin" />
     </span>
   );
@@ -143,9 +150,9 @@ export function Sidebar({
   collapsed = false,
   onToggleCollapse,
   onOpenSettings,
-  onOpenSwarm,
-  section = "chat",
 }: SidebarProps) {
+  // `common` entra en el array para poder reutilizar sus claves (`common:…`).
+  const { t } = useTranslation(["chrome", "common"]);
   const [saved, setSaved] = useState<SessionMeta[]>([]);
   /** Sesión pendiente de confirmar borrado (confirmación en dos pasos). */
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -185,9 +192,9 @@ export function Sidebar({
     try {
       await phoson.deleteSession(id);
       setSaved((list) => list.filter((s) => s.id !== id));
-      toast.success("Sesión eliminada");
+      toast.success(t("sessions.deleted"));
     } catch (e) {
-      toast.error("No se pudo eliminar la sesión", { description: String(e) });
+      toast.error(t("sessions.deleteError"), { description: String(e) });
     } finally {
       setDeletingId(null);
       setConfirmId(null);
@@ -235,6 +242,7 @@ export function Sidebar({
 
   const rail = collapsed && !mobile;
 
+  // Marca de producto («Phoson Desktop»): los literales no se traducen.
   const brandBlock = (
     <div className="flex min-w-0 items-baseline gap-2">
       <span className="text-sm font-semibold tracking-tight">Phoson</span>
@@ -277,34 +285,30 @@ export function Sidebar({
             <div className="flex h-full w-14 flex-col items-center gap-1 py-3">
               <button
                 onClick={onToggleCollapse}
-                title="Mostrar barra lateral"
-                aria-label="Mostrar barra lateral"
+                title={t("sidebar.show")}
+                aria-label={t("sidebar.show")}
                 className="mb-1 grid size-8 place-items-center rounded-lg dashboard-hover"
               >
                 <PhosonLogo size={22} showText={false} />
               </button>
-              <IconButton icon={SquarePen} label="Nueva sesión" onClick={onNew} />
+              <IconButton icon={SquarePen} label={t("sessions.new")} onClick={onNew} />
               <IconButton
                 icon={Search}
-                label="Buscar sesiones"
+                label={t("sessions.search")}
+                shortcut={shortcutLabel("K")}
                 onClick={() => {
                   onToggleCollapse?.();
                   setSearching(true);
                 }}
               />
-              <IconButton icon={MessageSquare} label="Sesiones" onClick={onToggleCollapse} />
-              <IconButton
-                icon={Users}
-                label="Swarms de agentes"
-                onClick={onOpenSwarm}
-                className={section === "swarm" ? "bg-[var(--phoson-surface-2)] text-foreground" : undefined}
-              />
+              <IconButton icon={MessageSquare} label={t("sessions.title")} onClick={onToggleCollapse} />
 
               <div className="flex-1" />
 
               <ThemeToggle />
-              <IconButton icon={Settings} label="Ajustes" onClick={onOpenSettings} />
+              <IconButton icon={Settings} label={t("sidebar.settings")} onClick={onOpenSettings} />
 
+              {/* El modelo/proveedor son marcas que pone el engine: no se traducen. */}
               <div
                 title={model ? `${model}${provider ? " · " + provider : ""}` : "Phoson"}
                 className="mt-1 grid size-8 shrink-0 place-items-center rounded-full border border-[var(--dashboard-border)]"
@@ -319,7 +323,8 @@ export function Sidebar({
                 <div className="min-w-0 flex-1 pl-1">{brandBlock}</div>
                 <IconButton
                   icon={Search}
-                  label="Buscar sesiones"
+                  label={t("sessions.search")}
+                  shortcut={shortcutLabel("K")}
                   onClick={() => {
                     // Al cerrar, limpia el filtro: si no, la lista quedaría
                     // filtrada sin caja visible y sin forma evidente de limpiarla.
@@ -328,10 +333,10 @@ export function Sidebar({
                   }}
                 />
                 {onToggleCollapse && (
-                  <IconButton icon={PanelLeft} label="Ocultar barra lateral" onClick={onToggleCollapse} />
+                  <IconButton icon={PanelLeft} label={t("sidebar.hide")} onClick={onToggleCollapse} />
                 )}
                 {mobile && (
-                  <IconButton icon={X} label="Cerrar" onClick={onDismiss} />
+                  <IconButton icon={X} label={t("common:actions.close")} onClick={onDismiss} />
                 )}
               </div>
 
@@ -349,7 +354,7 @@ export function Sidebar({
                           setQuery("");
                         }
                       }}
-                      placeholder="Buscar sesiones…"
+                      placeholder={t("sessions.searchPlaceholder")}
                       className="h-8 text-xs"
                     />
                   </div>
@@ -357,38 +362,29 @@ export function Sidebar({
               )}
 
               <div className="px-2 pb-1 pt-1">
-                <Row icon={SquarePen} label="Nueva sesión" primary onClick={onNew} />
-                <Row
-                  icon={Users}
-                  label="Swarms de agentes"
-                  active={section === "swarm"}
-                  onClick={onOpenSwarm}
-                  trailing={
-                    <span className="shrink-0 rounded-full border border-violet/40 bg-violet/10 px-1.5 py-0.5 text-[0.58rem] font-medium text-violet-soft">
-                      Pronto
-                    </span>
-                  }
-                />
+                <Row icon={SquarePen} label={t("sessions.new")} primary onClick={onNew} />
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto pb-3">
                 {openRows.length > 0 && (
                   <>
-                    <SectionLabel>Abiertas</SectionLabel>
+                    <SectionLabel>{t("sessions.open")}</SectionLabel>
                     <div className="space-y-0.5 px-2">
                       {openRows.map((key) => (
                         <Row
                           key={key}
                           icon={MessageSquare}
                           label={titleOf(sessions[key])}
-                          active={key === activeKey && section === "chat"}
+                          active={key === activeKey}
                           onClick={() => onSelect(key)}
                           trailing={
                             <span className="flex shrink-0 items-center gap-1.5">
                               {sessions[key]?.sending && <RunningDot />}
                               {(sessions[key]?.subagents.length ?? 0) > 0 && (
                                 <span
-                                  title={`Subagentes en curso (${sessions[key]?.subagents.length})`}
+                                  title={t("sessions.subagents", {
+                                    count: sessions[key]?.subagents.length ?? 0,
+                                  })}
                                   className="flex items-center gap-0.5 text-violet"
                                 >
                                   <Bot className="size-3" />
@@ -399,8 +395,8 @@ export function Sidebar({
                               )}
                               {(sessions[key]?.confirmations.length ?? 0) > 0 && (
                                 <span
-                                  title="Esta sesión espera tu respuesta"
-                                  className="text-amber-500"
+                                  title={t("sessions.awaitingAnswer")}
+                                  className="text-warning"
                                 >
                                   <AlertTriangle className="size-3" />
                                 </span>
@@ -422,7 +418,7 @@ export function Sidebar({
 
                 {savedRows.length > 0 && (
                   <>
-                    <SectionLabel>Guardadas</SectionLabel>
+                    <SectionLabel>{t("sessions.saved")}</SectionLabel>
                     <div className="space-y-0.5 px-2">
                       {savedRows.map((s) => (
                         <Row
@@ -439,7 +435,7 @@ export function Sidebar({
                                 <span
                                   role="button"
                                   tabIndex={0}
-                                  aria-label="Confirmar eliminar sesión"
+                                  aria-label={t("sessions.deleteConfirm")}
                                   onClick={() => void deleteSaved(s.id)}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter" || e.key === " ") {
@@ -450,12 +446,12 @@ export function Sidebar({
                                   }}
                                   className="rounded px-1.5 py-0.5 text-[0.65rem] text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                 >
-                                  {deletingId === s.id ? "…" : "Eliminar"}
+                                  {deletingId === s.id ? "…" : t("common:actions.delete")}
                                 </span>
                                 <span
                                   role="button"
                                   tabIndex={0}
-                                  aria-label="Cancelar borrado"
+                                  aria-label={t("sessions.deleteCancel")}
                                   onClick={() => setConfirmId(null)}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter" || e.key === " ") {
@@ -466,7 +462,7 @@ export function Sidebar({
                                   }}
                                   className="rounded px-1.5 py-0.5 text-[0.65rem] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                 >
-                                  No
+                                  {t("common:words.no")}
                                 </span>
                               </span>
                             ) : (
@@ -478,8 +474,8 @@ export function Sidebar({
                                 <span
                                   role="button"
                                   tabIndex={0}
-                                  title="Eliminar sesión"
-                                  aria-label="Eliminar sesión"
+                                  title={t("sessions.delete")}
+                                  aria-label={t("sessions.delete")}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setConfirmId(s.id);
@@ -505,7 +501,7 @@ export function Sidebar({
                 )}
 
                 {q && openRows.length === 0 && savedRows.length === 0 && (
-                  <p className="px-3 py-4 text-xs text-muted-foreground">Sin resultados.</p>
+                  <p className="px-3 py-4 text-xs text-muted-foreground">{t("sessions.empty")}</p>
                 )}
               </div>
 
@@ -521,7 +517,7 @@ export function Sidebar({
                   </div>
                 </div>
                 <ThemeToggle />
-                <IconButton icon={Settings} label="Ajustes" onClick={onOpenSettings} />
+                <IconButton icon={Settings} label={t("sidebar.settings")} onClick={onOpenSettings} />
               </div>
             </>
           )}

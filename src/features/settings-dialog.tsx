@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, phoson } from "@/bridge/client";
@@ -40,17 +41,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { REASONING_EFFORTS, effortLabel } from "@/lib/reasoning";
-import { PROVIDER_META, providerLabel } from "@/lib/providers";
+import { PROVIDER_META, providerLabel, providerNote } from "@/lib/providers";
 import { hideToTray, isCloseToTrayEnabled, setCloseToTrayPref } from "@/lib/desktop";
+import { useLocale } from "@/lib/i18n";
 import { logPath, openLogFolder } from "@/lib/log";
 import { checkForUpdates, currentVersion, installPendingUpdate, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
-
-const SOURCE_LABEL: Record<string, string> = {
-  file: "archivo",
-  env: "entorno",
-  default: "sin configurar",
-};
 
 type SectionId =
   | "models"
@@ -62,15 +58,20 @@ type SectionId =
   | "appearance"
   | "about";
 
-const SECTIONS: { id: SectionId; label: string; icon: ComponentType<{ className?: string }> }[] = [
-  { id: "models", label: "Modelos", icon: Cpu },
-  { id: "providers", label: "Proveedores", icon: KeyRound },
-  { id: "local", label: "Servidores locales", icon: Server },
-  { id: "mcp", label: "MCP", icon: Plug },
-  { id: "agent", label: "Agente y sesiones", icon: ShieldCheck },
-  { id: "desktop", label: "Escritorio", icon: AppWindow },
-  { id: "appearance", label: "Apariencia", icon: Palette },
-  { id: "about", label: "Acerca de", icon: Info },
+/**
+ * Secciones de la izquierda. Aquí solo viven el id y el icono: la etiqueta se
+ * resuelve con `t("sections.<id>")` dentro del componente, porque a nivel de
+ * módulo todavía no hay idioma activo.
+ */
+const SECTIONS: { id: SectionId; icon: ComponentType<{ className?: string }> }[] = [
+  { id: "models", icon: Cpu },
+  { id: "providers", icon: KeyRound },
+  { id: "local", icon: Server },
+  { id: "mcp", icon: Plug },
+  { id: "agent", icon: ShieldCheck },
+  { id: "desktop", icon: AppWindow },
+  { id: "appearance", icon: Palette },
+  { id: "about", icon: Info },
 ];
 
 /** Plantillas de servidores MCP comunes (rellenan el formulario). */
@@ -117,12 +118,11 @@ const MCP_PRESETS = [
   },
 ];
 
-/** Opciones de "Notificar al terminar" (mismos valores que `notify_on_completion`). */
-const NOTIFY_MODES: { value: string; label: string }[] = [
-  { value: "desktop", label: "Notificación del sistema" },
-  { value: "bell", label: "Sonido" },
-  { value: "off", label: "Sin aviso" },
-];
+/**
+ * Opciones de "Notificar al terminar" (mismos valores que `notify_on_completion`;
+ * la etiqueta de cada una va al catálogo como `desktop.notifyMode.<valor>`).
+ */
+const NOTIFY_MODES = ["desktop", "bell", "off"] as const;
 
 interface SettingsDialogProps {
   open: boolean;
@@ -138,7 +138,13 @@ export function SettingsDialog({
   sessionId,
   onRestartOnboarding,
 }: SettingsDialogProps) {
+  // `common` entra en el array para poder reutilizar sus claves (`common:…`):
+  // las claves tipadas no cruzan namespaces sin el prefijo.
+  const { t } = useTranslation(["settings", "common"]);
   const { theme, setTheme } = useTheme();
+  // Idioma de la interfaz: `setLocale` persiste la elección y refresca el menú
+  // nativo de la bandeja (ver `lib/i18n.ts`).
+  const [locale, setLocale] = useLocale();
   const [section, setSection] = useState<SectionId>("models");
   const [config, setConfig] = useState<ConfigView | null>(null);
   const [loading, setLoading] = useState(false);
@@ -170,7 +176,7 @@ export function SettingsDialog({
       setUpdate(found);
       setUpToDate(found === null);
     } catch (e) {
-      toast.error("No se pudo buscar actualizaciones", { description: String(e) });
+      toast.error(t("toasts.updateCheckFailed"), { description: String(e) });
     } finally {
       setChecking(false);
     }
@@ -182,7 +188,7 @@ export function SettingsDialog({
     try {
       await installPendingUpdate(setProgress);
     } catch (e) {
-      toast.error("La actualización falló", { description: String(e) });
+      toast.error(t("toasts.installFailed"), { description: String(e) });
       setInstalling(false);
     }
   };
@@ -195,7 +201,7 @@ export function SettingsDialog({
     phoson
       .getConfig(sessionId)
       .then(setConfig)
-      .catch((e) => toast.error("No se pudo cargar la configuración", { description: String(e) }))
+      .catch((e) => toast.error(t("toasts.configLoadFailed"), { description: String(e) }))
       .finally(() => setLoading(false));
     phoson
       .mcpGet(sessionId)
@@ -222,7 +228,7 @@ export function SettingsDialog({
       const res = await phoson.mcpSave(sessionId, name, server);
       setMcp(res.mcp);
     } catch (e) {
-      toast.error("No se pudo guardar el servidor MCP", { description: String(e) });
+      toast.error(t("toasts.mcpSaveFailed"), { description: String(e) });
     }
   };
 
@@ -231,16 +237,16 @@ export function SettingsDialog({
     try {
       const res = await phoson.mcpRemove(sessionId, name);
       setMcp(res.mcp);
-      toast.success(`Servidor ${name} eliminado`);
+      toast.success(t("toasts.mcpRemoved", { name }));
     } catch (e) {
-      toast.error("No se pudo eliminar el servidor", { description: String(e) });
+      toast.error(t("toasts.mcpRemoveFailed"), { description: String(e) });
     }
   };
 
   const addServer = async () => {
     const name = form.name.trim();
     if (!name) {
-      toast.error("Ponle un nombre al servidor");
+      toast.error(t("toasts.mcpNameRequired"));
       return;
     }
     // env: una entrada `CLAVE=valor` por línea.
@@ -261,7 +267,7 @@ export function SettingsDialog({
     });
     setForm({ name: "", transport: "stdio", command: "", args: "", url: "", env: "" });
     setFormOpen(false);
-    toast.success("Servidor MCP añadido", { description: name });
+    toast.success(t("toasts.mcpAdded"), { description: name });
   };
 
   const save = async () => {
@@ -288,10 +294,10 @@ export function SettingsDialog({
         secrets,
         baseUrls,
       )) as { path?: string };
-      toast.success("Configuración guardada", { description: res?.path ?? "~/.phoson/config.toml" });
+      toast.success(t("toasts.saved"), { description: res?.path ?? "~/.phoson/config.toml" });
       onOpenChange(false);
     } catch (e) {
-      toast.error("No se pudo guardar", { description: String(e) });
+      toast.error(t("toasts.saveFailed"), { description: String(e) });
     } finally {
       setSaving(false);
     }
@@ -322,10 +328,13 @@ export function SettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="px-5 py-4">
-          <DialogTitle className="text-base">Configuración</DialogTitle>
+          <DialogTitle className="text-base">{t("dialog.title")}</DialogTitle>
           <DialogDescription className="text-xs">
-            Ajustes del engine, compartidos con el{" "}
-            <span className="text-violet-soft">phoson-cli</span>.
+            <Trans
+              t={t}
+              i18nKey="dialog.subtitle"
+              components={{ cli: <span className="text-violet-soft" /> }}
+            />
           </DialogDescription>
         </DialogHeader>
         <Separator />
@@ -333,7 +342,7 @@ export function SettingsDialog({
         <div className="flex h-[min(68vh,540px)] min-h-0 min-w-0">
           {/* ── Navegación de secciones ─────────────────────────────── */}
           <nav className="w-52 shrink-0 space-y-0.5 border-r border-[var(--dashboard-border)] p-2">
-            {SECTIONS.map(({ id, label, icon: Icon }) => {
+            {SECTIONS.map(({ id, icon: Icon }) => {
               const active = id === section;
               return (
                 <button
@@ -347,7 +356,7 @@ export function SettingsDialog({
                   )}
                 >
                   <Icon className={cn("size-4 shrink-0", active ? "text-violet" : "opacity-70")} />
-                  <span className="truncate">{label}</span>
+                  <span className="truncate">{t(`sections.${id}`)}</span>
                 </button>
               );
             })}
@@ -358,7 +367,7 @@ export function SettingsDialog({
             <div className="p-5">
               {loading || !config ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="size-3.5 animate-spin" /> Cargando…
+                  <Loader2 className="size-3.5 animate-spin" /> {t("common:state.loading")}
                 </div>
               ) : (
                 <>
@@ -366,11 +375,11 @@ export function SettingsDialog({
                   {section === "models" && (
                     <div className="space-y-5">
                       <SectionTitle
-                        title="Modelos"
-                        hint="El selector rápido está en el composer del chat."
+                        title={t("models.title")}
+                        hint={t("models.hint")}
                       />
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Proveedor activo</Label>
+                        <Label className="text-xs">{t("models.provider")}</Label>
                         <Select
                           value={config.provider}
                           onValueChange={(v) => patch({ provider: v })}
@@ -391,21 +400,23 @@ export function SettingsDialog({
                         </Select>
                         {config.providers.length > activeProviders.length && (
                           <p className="text-[0.68rem] text-muted-foreground">
-                            {activeProviders.length} de {config.providers.length} proveedores: solo
-                            los que tienen credencial.
+                            {t("models.providerCount", {
+                              available: activeProviders.length,
+                              total: config.providers.length,
+                            })}
                             <button
                               type="button"
                               onClick={() => setSection("providers")}
                               className="ml-1 text-violet underline-offset-2 hover:underline"
                             >
-                              Añadir claves
+                              {t("models.addKeys")}
                             </button>
                           </p>
                         )}
                       </div>
 
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Modelo principal</Label>
+                        <Label className="text-xs">{t("models.primary")}</Label>
                         <Input
                           className="h-9 font-mono text-xs"
                           value={config.model}
@@ -414,19 +425,19 @@ export function SettingsDialog({
                       </div>
 
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Modelo de sub-agentes</Label>
+                        <Label className="text-xs">{t("models.subagent")}</Label>
                         <Input
                           className="h-9 font-mono text-xs"
                           value={config.subagentModel}
                           onChange={(e) => patch({ subagentModel: e.target.value })}
                         />
                         <p className="text-[0.68rem] text-muted-foreground">
-                          Es el que ejecuta los tools en paralelo.
+                          {t("models.subagentHint")}
                         </p>
                       </div>
 
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Esfuerzo de razonamiento</Label>
+                        <Label className="text-xs">{t("models.reasoning")}</Label>
                         <Select
                           value={config.reasoningEffort ?? "auto"}
                           onValueChange={(v) => patch({ reasoningEffort: v === "auto" ? null : v })}
@@ -437,6 +448,9 @@ export function SettingsDialog({
                           <SelectContent>
                             {["auto", ...REASONING_EFFORTS].map((e) => (
                               <SelectItem key={e} value={e} className="text-xs">
+                                {/* `effortLabel` resuelve el idioma en cada llamada:
+                                    el `useTranslation` de arriba ya re-renderiza al
+                                    cambiarlo, así que la etiqueta sale reactiva. */}
                                 {effortLabel(e === "auto" ? null : e)}
                               </SelectItem>
                             ))}
@@ -450,8 +464,8 @@ export function SettingsDialog({
                   {section === "providers" && (
                     <div className="space-y-5">
                       <SectionTitle
-                        title="Claves de API"
-                        hint="Solo escritura: nunca se muestran las claves guardadas."
+                        title={t("providers.title")}
+                        hint={t("providers.hint")}
                       />
                       <div className="space-y-2">
                         {keyProviders.map((p) => (
@@ -463,18 +477,18 @@ export function SettingsDialog({
                             <span
                               className={cn(
                                 "flex w-24 shrink-0 items-center gap-1 text-[0.65rem]",
-                                p.hasKey ? "text-emerald-500" : "text-muted-foreground",
+                                p.hasKey ? "text-success" : "text-muted-foreground",
                               )}
                             >
                               {p.hasKey ? <Check className="size-3" /> : <KeyRound className="size-3" />}
-                              {SOURCE_LABEL[p.source] ?? p.source}
+                              {t(`providers.source.${p.source}`)}
                             </span>
                             {PROVIDER_META[p.id]?.keysUrl && (
                               <a
                                 href={PROVIDER_META[p.id].keysUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                title="Obtener clave"
+                                title={t("providers.getKey")}
                                 className="shrink-0 text-muted-foreground transition-colors hover:text-violet"
                               >
                                 <ExternalLink className="size-3" />
@@ -483,17 +497,21 @@ export function SettingsDialog({
                             <Input
                               type="password"
                               className="h-7 font-mono text-xs"
-                              placeholder={p.hasKey ? "•••••••• (definida)" : "nueva clave…"}
+                              placeholder={
+                                p.hasKey ? t("providers.keyDefined") : t("providers.keyPlaceholder")
+                              }
                               value={keyDrafts[p.id] ?? ""}
                               onChange={(e) => setKeyDrafts((d) => ({ ...d, [p.id]: e.target.value }))}
                             />
                           </div>
                         ))}
                       </div>
-                      {PROVIDER_META.bedrock?.note && (
+                      {/* La nota es texto del catálogo: se resuelve en el idioma
+                          activo (el `useTranslation` de arriba re-renderiza al cambiarlo). */}
+                      {providerNote("bedrock") && (
                         <p className="text-[0.68rem] text-muted-foreground">
                           <span className="text-foreground/70">AWS Bedrock:</span>{" "}
-                          {PROVIDER_META.bedrock.note}.
+                          {providerNote("bedrock")}.
                         </p>
                       )}
                     </div>
@@ -503,8 +521,8 @@ export function SettingsDialog({
                   {section === "local" && (
                     <div className="space-y-5">
                       <SectionTitle
-                        title="Servidores locales"
-                        hint="vLLM, Ollama, LM Studio y OmniRoute se direccionan por URL."
+                        title={t("local.title")}
+                        hint={t("local.hint")}
                       />
                       <div className="space-y-2">
                         {localProviders.map((p) => (
@@ -515,7 +533,7 @@ export function SettingsDialog({
                             </span>
                             <Input
                               className="h-7 font-mono text-xs"
-                              placeholder="http://localhost:…"
+                              placeholder={t("local.urlPlaceholder")}
                               value={urlDrafts[p.id] ?? p.baseUrl ?? ""}
                               onChange={(e) => setUrlDrafts((d) => ({ ...d, [p.id]: e.target.value }))}
                             />
@@ -530,20 +548,20 @@ export function SettingsDialog({
                     <div className="space-y-5">
                       <div className="flex items-start justify-between gap-4">
                         <SectionTitle
-                          title="MCP — Model Context Protocol"
-                          hint="Servidores de herramientas externas; el engine los recarga al guardar."
+                          title={t("mcp.title")}
+                          hint={t("mcp.hint")}
                         />
                         <Button
                           size="sm"
                           className="h-8 shrink-0 gap-1.5 bg-violet text-xs text-white hover:bg-violet/90"
                           onClick={() => setFormOpen((o) => !o)}
                         >
-                          <Plus className="size-3.5" /> Añadir
+                          <Plus className="size-3.5" /> {t("common:actions.add")}
                         </Button>
                       </div>
 
                       <Row
-                        label="Habilitar MCP"
+                        label={t("mcp.enable")}
                         hint={mcp?.configPath ?? "~/.phoson/mcps.json"}
                       >
                         <Switch
@@ -553,20 +571,22 @@ export function SettingsDialog({
                       </Row>
 
                       {mcp && !mcp.sdkAvailable && (
-                        <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-[0.68rem] text-amber-600 dark:text-amber-400">
-                          El paquete <span className="font-mono">mcp</span> no está instalado en el
-                          entorno del engine. Instálalo con{" "}
-                          <span className="font-mono">
-                            pip install &quot;phoson-engine-minimal[mcp]&quot;
-                          </span>
-                          .
+                        <p className="rounded-lg bg-warning/10 px-3 py-2 text-[0.68rem] text-warning">
+                          <Trans
+                            t={t}
+                            i18nKey="mcp.sdkMissing"
+                            components={{
+                              pkg: <span className="font-mono" />,
+                              cmd: <span className="font-mono" />,
+                            }}
+                          />
                         </p>
                       )}
 
                       <div className="space-y-2">
                         {(mcp?.servers ?? []).length === 0 && (
                           <p className="text-[0.7rem] text-muted-foreground">
-                            Sin servidores configurados.
+                            {t("mcp.empty")}
                           </p>
                         )}
                         {(mcp?.servers ?? []).map((s) => (
@@ -595,7 +615,7 @@ export function SettingsDialog({
                             />
                             <button
                               onClick={() => void removeServer(s.name)}
-                              title="Eliminar"
+                              title={t("common:actions.delete")}
                               className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-destructive"
                             >
                               <Trash2 className="size-3.5" />
@@ -607,18 +627,18 @@ export function SettingsDialog({
                       {formOpen && (
                         <div className="space-y-4 rounded-xl border border-[var(--dashboard-border)] p-4">
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-xs font-medium">Nuevo servidor</span>
+                            <span className="text-xs font-medium">{t("mcp.newServer")}</span>
                             <button
                               onClick={() => setFormOpen(false)}
                               className="text-[0.7rem] text-muted-foreground transition-colors hover:text-foreground"
                             >
-                              Cancelar
+                              {t("common:actions.cancel")}
                             </button>
                           </div>
 
                           <div>
                             <Label className="text-[0.7rem] text-muted-foreground">
-                              Empezar desde una plantilla
+                              {t("mcp.template")}
                             </Label>
                             <div className="mt-1.5 flex flex-wrap gap-1.5">
                               {MCP_PRESETS.map((preset) => (
@@ -643,18 +663,18 @@ export function SettingsDialog({
                             </div>
                           </div>
 
-                          <Field label="Nombre" hint="Identificador único del servidor">
+                          <Field label={t("common:words.name")} hint={t("mcp.nameHint")}>
                             <Input
                               className="h-8 text-xs"
-                              placeholder="p. ej. filesystem"
+                              placeholder={t("mcp.namePlaceholder")}
                               value={form.name}
                               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                             />
                           </Field>
 
                           <Field
-                            label="Transporte"
-                            hint="stdio para procesos locales; sse/http para servidores remotos"
+                            label={t("mcp.transport")}
+                            hint={t("mcp.transportHint")}
                           >
                             <Select
                               value={form.transport}
@@ -675,8 +695,8 @@ export function SettingsDialog({
 
                           {form.transport === "stdio" ? (
                             <Field
-                              label="Comando y argumentos"
-                              hint="Se ejecutan tal cual, como en la terminal"
+                              label={t("mcp.command")}
+                              hint={t("mcp.commandHint")}
                             >
                               <div className="flex gap-2">
                                 <Input
@@ -696,10 +716,10 @@ export function SettingsDialog({
                               </div>
                             </Field>
                           ) : (
-                            <Field label="URL" hint="Endpoint del servidor remoto">
+                            <Field label={t("mcp.url")} hint={t("mcp.urlHint")}>
                               <Input
                                 className="h-8 font-mono text-xs"
-                                placeholder="https://host/mcp"
+                                placeholder={t("mcp.urlPlaceholder")}
                                 value={form.url}
                                 onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
                               />
@@ -707,12 +727,12 @@ export function SettingsDialog({
                           )}
 
                           <Field
-                            label="Variables de entorno"
-                            hint="Una por línea: CLAVE=valor. Se guardan en mcps.json y no se muestran de vuelta."
+                            label={t("mcp.env")}
+                            hint={t("mcp.envHint")}
                           >
                             <textarea
                               className="h-16 w-full resize-none rounded-md border border-[var(--dashboard-border)] bg-transparent p-2 font-mono text-[0.7rem] outline-none focus:border-violet"
-                              placeholder="GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…"
+                              placeholder={t("mcp.envPlaceholder")}
                               value={form.env}
                               onChange={(e) => setForm((f) => ({ ...f, env: e.target.value }))}
                             />
@@ -720,14 +740,14 @@ export function SettingsDialog({
 
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="sm" onClick={() => setFormOpen(false)}>
-                              Cancelar
+                              {t("common:actions.cancel")}
                             </Button>
                             <Button
                               size="sm"
                               className="gap-1.5 bg-violet text-xs text-white hover:bg-violet/90"
                               onClick={() => void addServer()}
                             >
-                              <Plus className="size-3.5" /> Añadir servidor
+                              <Plus className="size-3.5" /> {t("mcp.addServer")}
                             </Button>
                           </div>
                         </div>
@@ -738,10 +758,10 @@ export function SettingsDialog({
                   {/* Agente y sesiones */}
                   {section === "agent" && (
                     <div className="space-y-5">
-                      <SectionTitle title="Agente y sesiones" />
+                      <SectionTitle title={t("agent.title")} />
                       <Row
-                        label="Modo seguro"
-                        hint="Pide confirmación antes de ejecutar comandos (bash)."
+                        label={t("agent.safeMode")}
+                        hint={t("agent.safeModeHint")}
                       >
                         <Switch
                           checked={config.safeMode}
@@ -750,7 +770,7 @@ export function SettingsDialog({
                       </Row>
                       <Separator />
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Carpeta de sesiones</Label>
+                        <Label className="text-xs">{t("agent.sessionsDir")}</Label>
                         <Input
                           className="h-8 font-mono text-xs opacity-70"
                           value={config.sessionsDir}
@@ -764,12 +784,12 @@ export function SettingsDialog({
                   {section === "desktop" && (
                     <div className="space-y-5">
                       <SectionTitle
-                        title="Escritorio"
-                        hint="Avisos del sistema y bandeja del sistema (Windows)."
+                        title={t("desktop.title")}
+                        hint={t("desktop.hint")}
                       />
                       <Row
-                        label="Notificar al terminar"
-                        hint="Cómo avisar cuando un turno termina (o pide confirmación) en segundo plano."
+                        label={t("desktop.notify")}
+                        hint={t("desktop.notifyHint")}
                       >
                         <Select
                           value={config.notifyOnCompletion || "desktop"}
@@ -779,17 +799,17 @@ export function SettingsDialog({
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {NOTIFY_MODES.map((n) => (
-                              <SelectItem key={n.value} value={n.value} className="text-xs">
-                                {n.label}
+                            {NOTIFY_MODES.map((mode) => (
+                              <SelectItem key={mode} value={mode} className="text-xs">
+                                {t(`desktop.notifyMode.${mode}`)}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </Row>
                       <Row
-                        label="Cerrar a la bandeja"
-                        hint="Al cerrar la ventana la app sigue viva en la bandeja del sistema. Salir por su menú."
+                        label={t("desktop.closeToTray")}
+                        hint={t("desktop.closeToTrayHint")}
                       >
                         <Switch
                           checked={closeToTray}
@@ -801,8 +821,8 @@ export function SettingsDialog({
                       </Row>
                       {isTauri() && (
                         <Row
-                          label="Enviar a la bandeja ahora"
-                          hint="Oculta la ventana; el agente y los turnos siguen ejecutándose."
+                          label={t("desktop.sendToTray")}
+                          hint={t("desktop.sendToTrayHint")}
                         >
                           <Button
                             size="sm"
@@ -810,7 +830,7 @@ export function SettingsDialog({
                             className="gap-1.5"
                             onClick={() => void hideToTray()}
                           >
-                            <AppWindow className="size-3.5" /> Enviar
+                            <AppWindow className="size-3.5" /> {t("common:actions.send")}
                           </Button>
                         </Row>
                       )}
@@ -821,15 +841,15 @@ export function SettingsDialog({
                   {section === "appearance" && (
                     <div className="space-y-5">
                       <SectionTitle
-                        title="Apariencia"
-                        hint="Preferencia local de la app (no se guarda en config.toml)."
+                        title={t("appearance.title")}
+                        hint={t("appearance.hint")}
                       />
                       <div className="flex flex-wrap gap-6">
                         {(
                           [
-                            { id: "light", label: "Claro", Icon: Sun },
-                            { id: "dark", label: "Oscuro", Icon: Moon },
-                            { id: "system", label: "Sistema", Icon: Monitor },
+                            { id: "light", label: t("appearance.theme.light"), Icon: Sun },
+                            { id: "dark", label: t("appearance.theme.dark"), Icon: Moon },
+                            { id: "system", label: t("appearance.theme.system"), Icon: Monitor },
                           ] as const
                         ).map(({ id, label, Icon }) => (
                           <button
@@ -848,15 +868,49 @@ export function SettingsDialog({
                         ))}
                       </div>
 
+                      {/* Idioma: mismo patrón que el selector de tema (fila de
+                          botones, el activo en violeta). Los nombres de los
+                          idiomas van en su propio idioma y NO se traducen, por
+                          eso no viven en el catálogo. */}
+                      <div className="space-y-1.5">
+                        <div>
+                          <div className="text-xs">{t("appearance.language")}</div>
+                          <div className="text-[0.65rem] text-muted-foreground">
+                            {t("appearance.languageHint")}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-6">
+                          {(
+                            [
+                              { id: "es", label: "Español" }, // i18n-ignore: cada idioma en su idioma
+                              { id: "en", label: "English" }, // i18n-ignore: idem
+                            ] as const
+                          ).map(({ id, label }) => (
+                            <button
+                              key={id}
+                              onClick={() => setLocale(id)}
+                              className={cn(
+                                "flex items-center gap-2.5 text-sm transition-colors",
+                                locale === id
+                                  ? "text-violet"
+                                  : "text-muted-foreground hover:text-foreground",
+                              )}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
                       {onRestartOnboarding && (
                         <>
                           <Separator />
                           <Row
-                            label="Asistente inicial"
-                            hint="Vuelve a mostrar el onboarding de primera configuración."
+                            label={t("appearance.onboarding")}
+                            hint={t("appearance.onboardingHint")}
                           >
                             <Button size="sm" variant="ghost" onClick={onRestartOnboarding}>
-                              Ver de nuevo
+                              {t("appearance.restart")}
                             </Button>
                           </Row>
                         </>
@@ -868,16 +922,16 @@ export function SettingsDialog({
                   {section === "about" && (
                     <div className="space-y-5">
                       <SectionTitle
-                        title="Acerca de"
-                        hint="Actualizaciones firmadas servidas desde el feed de releases."
+                        title={t("about.title")}
+                        hint={t("about.hint")}
                       />
-                      <Row label="Versión instalada" hint="Phoson Desktop">
+                      <Row label={t("about.installed")} hint="Phoson Desktop">
                         <span className="font-mono text-xs text-muted-foreground">v{version}</span>
                       </Row>
 
                       <Row
-                        label="Registro de acciones"
-                        hint="Diagnóstico local: cada acción, RPC y error (JSONL rotativo). Nada sale de tu equipo."
+                        label={t("about.logs")}
+                        hint={t("about.logsHint")}
                       >
                         <div className="flex items-center gap-2">
                           {logFilePath && (
@@ -895,7 +949,7 @@ export function SettingsDialog({
                             onClick={() => void openLogFolder()}
                           >
                             <FolderOpen className="size-3.5" />
-                            Abrir carpeta
+                            {t("about.openFolder")}
                           </Button>
                         </div>
                       </Row>
@@ -905,8 +959,12 @@ export function SettingsDialog({
                       {update ? (
                         <div className="space-y-3">
                           <p className="text-sm text-foreground">
-                            Nueva versión disponible:{" "}
-                            <span className="font-medium text-violet">v{update.version}</span>
+                            <Trans
+                              t={t}
+                              i18nKey="about.updateAvailable"
+                              values={{ version: update.version }}
+                              components={{ version: <span className="font-medium text-violet" /> }}
+                            />
                           </p>
                           {update.notes && (
                             <p className="max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-[var(--phoson-surface-2)] p-3 text-xs text-muted-foreground">
@@ -932,21 +990,17 @@ export function SettingsDialog({
                             ) : (
                               <RefreshCw className="size-3.5" />
                             )}
-                            Descargar e instalar
+                            {t("about.download")}
                           </Button>
                         </div>
                       ) : (
                         <Row
-                          label="Actualizaciones"
-                          hint={
-                            upToDate
-                              ? "Tienes la última versión."
-                              : "Busca una versión más reciente."
-                          }
+                          label={t("about.updates")}
+                          hint={upToDate ? t("about.upToDate") : t("about.checkUpdate")}
                         >
                           <Button size="sm" variant="ghost" disabled={checking} onClick={() => void runUpdateCheck()}>
                             {checking ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-                            Buscar
+                            {t("common:actions.search")}
                           </Button>
                         </Row>
                       )}
@@ -964,7 +1018,7 @@ export function SettingsDialog({
             ~/.phoson/config.toml
           </span>
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-            Cancelar
+            {t("common:actions.cancel")}
           </Button>
           <Button
             size="sm"
@@ -972,7 +1026,7 @@ export function SettingsDialog({
             disabled={saving || loading || !config}
             onClick={() => void save()}
           >
-            {saving ? <Loader2 className="size-3.5 animate-spin" /> : null} Guardar
+            {saving ? <Loader2 className="size-3.5 animate-spin" /> : null} {t("common:actions.save")}
           </Button>
         </div>
       </DialogContent>

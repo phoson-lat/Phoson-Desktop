@@ -17,7 +17,7 @@ function NoticeLine({ kind, message }: { kind: string; message: string }) {
       className={cn(
         "flex items-start gap-2 rounded-lg border px-3 py-2 text-[0.8125rem]",
         kind === "warn"
-          ? "border-amber-500/30 text-amber-500"
+          ? "border-warning/30 text-warning"
           : kind === "error"
             ? "border-destructive/30 text-destructive"
             : "border-dashboard-border-soft text-muted-foreground",
@@ -64,7 +64,7 @@ function PluginBlockCard({ block }: { block: PluginBlock }) {
             {(block.items ?? []).map((item) => (
               <li key={item.id} className="flex items-start gap-2 text-[0.8125rem]">
                 {item.completed ? (
-                  <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
+                  <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-success" />
                 ) : (
                   <Circle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                 )}

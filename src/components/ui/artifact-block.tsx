@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { Code2, GitBranch, Globe, X, Eye, Code } from "lucide-react"
 import { useTheme } from "next-themes"
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 
 /** Tema con el que se inicializó mermaid (global): evita re-init en cada render. */
@@ -12,20 +13,29 @@ let mermaidInitedTheme: string | null = null
 
 type ArtifactType = "html" | "mermaid"
 
+/** Claves del catálogo para la etiqueta (`label`) y el título del panel. */
+type ArtifactLabelKey = "artifacts.labels.html" | "artifacts.labels.mermaid"
+type ArtifactTitleKey = "artifacts.titles.html" | "artifacts.titles.mermaid"
+/** Claves del catálogo para los estados de construcción del diagrama. */
+type MermaidBuildingKey = "artifacts.buildingDiagram" | "artifacts.renderingDiagram"
+
 const TYPE_CONFIG: Record<ArtifactType, {
-  label: string
+  labelKey: ArtifactLabelKey
+  titleKey: ArtifactTitleKey
   Icon: React.FC<{ className?: string }>
   headerCls: string
   badgeCls: string
 }> = {
   html: {
-    label: "HTML",
+    labelKey: "artifacts.labels.html",
+    titleKey: "artifacts.titles.html",
     Icon: ({ className }) => <Globe className={className} />,
     headerCls: "from-orange-500/[0.07] to-amber-500/[0.04] dark:from-orange-500/[0.12] dark:to-amber-500/[0.06] border-orange-500/20",
     badgeCls: "bg-orange-500/10 text-orange-600 dark:text-orange-300 border-orange-500/25",
   },
   mermaid: {
-    label: "Diagram",
+    labelKey: "artifacts.labels.mermaid",
+    titleKey: "artifacts.titles.mermaid",
     Icon: ({ className }) => <GitBranch className={className} />,
     headerCls: "from-blue-500/[0.07] to-cyan-500/[0.04] dark:from-blue-500/[0.12] dark:to-cyan-500/[0.06] border-blue-500/20",
     badgeCls: "bg-blue-500/10 text-blue-600 dark:text-blue-300 border-blue-500/25",
@@ -41,7 +51,8 @@ function ArtifactCard({
   headerActions?: React.ReactNode
   children: React.ReactNode
 }) {
-  const { label, Icon, headerCls, badgeCls } = TYPE_CONFIG[type]
+  const { t } = useTranslation("chat")
+  const { labelKey, Icon, headerCls, badgeCls } = TYPE_CONFIG[type]
 
   return (
     <div className="my-3 overflow-hidden rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shadow-sm backdrop-blur-sm">
@@ -55,7 +66,7 @@ function ArtifactCard({
             "text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border",
             badgeCls,
           )}>
-            {label}
+            {t(labelKey)}
           </span>
         </div>
         {headerActions && (
@@ -82,7 +93,8 @@ function SidePanel({
   type: ArtifactType
   children: React.ReactNode
 }) {
-  const { label, Icon, headerCls, badgeCls } = TYPE_CONFIG[type]
+  const { t } = useTranslation("chat")
+  const { titleKey, Icon, headerCls, badgeCls } = TYPE_CONFIG[type]
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -110,7 +122,7 @@ function SidePanel({
                 "text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border",
                 badgeCls,
               )}>
-                {label} Artifact
+                {t(titleKey)}
               </DialogPrimitive.Title>
             </div>
             <DialogPrimitive.Close className="rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.07] transition-colors">
@@ -149,6 +161,8 @@ function htmlArtifactBase(dark: boolean): string {
 }
 
 export function HtmlArtifact({ code, streaming = false }: { code: string; streaming?: boolean }) {
+  // `common` entra en el array para poder reutilizar sus claves (`common:…`).
+  const { t } = useTranslation(["chat", "common"])
   const { resolvedTheme } = useTheme()
   const [panelOpen, setPanelOpen] = useState(false)
   const doc = htmlArtifactBase(resolvedTheme === "dark") + code
@@ -161,7 +175,7 @@ export function HtmlArtifact({ code, streaming = false }: { code: string; stream
         <div className="relative flex items-center justify-center" style={{ height: 170 }}>
           <div className="phoson-shimmer pointer-events-none absolute inset-0 opacity-70" />
           <p className="relative text-[11px] text-muted-foreground tracking-wide">
-            Building preview
+            {t("artifacts.buildingPreview")}
             <span className="phoson-dots">
               <span>.</span>
               <span>.</span>
@@ -182,7 +196,7 @@ export function HtmlArtifact({ code, streaming = false }: { code: string; stream
             className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors rounded-md px-2 py-1 hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
           >
             <Code2 className="size-3" />
-            <span>Open</span>
+            <span>{t("common:actions.open")}</span>
           </button>
         }
       >
@@ -193,13 +207,13 @@ export function HtmlArtifact({ code, streaming = false }: { code: string; stream
             sandbox="allow-scripts"
             className="w-full h-full border-0 bg-[var(--phoson-surface)]"
             style={{ pointerEvents: "none" }}
-            title="HTML preview"
+            title={t("artifacts.htmlPreview")}
           />
           {/* Click-to-open overlay */}
           <button
             onClick={() => setPanelOpen(true)}
             className="absolute inset-0 w-full h-full bg-transparent cursor-pointer"
-            aria-label="Open HTML artifact"
+            aria-label={t("artifacts.openHtml")}
           />
           {/* Bottom fade */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[var(--dashboard-panel)] to-transparent" />
@@ -211,7 +225,7 @@ export function HtmlArtifact({ code, streaming = false }: { code: string; stream
           srcDoc={doc}
           sandbox="allow-scripts"
           className="w-full h-full border-0 bg-[var(--phoson-surface)]"
-          title="HTML artifact"
+          title={t("artifacts.titles.html")}
         />
       </SidePanel>
     </>
@@ -221,7 +235,8 @@ export function HtmlArtifact({ code, streaming = false }: { code: string; stream
 /* ── Mermaid ─────────────────────────────────────────────────────── */
 
 /** Shown while mermaid code is still streaming in, or while mermaid renders. */
-function MermaidBuilding({ label = "Building diagram" }: { label?: string }) {
+function MermaidBuilding({ labelKey = "artifacts.buildingDiagram" }: { labelKey?: MermaidBuildingKey }) {
+  const { t } = useTranslation("chat")
   return (
     <div className="relative flex flex-col items-center justify-center gap-5 py-10 px-6 select-none">
       {/* Barrido de brillo continuo */}
@@ -272,7 +287,7 @@ function MermaidBuilding({ label = "Building diagram" }: { label?: string }) {
       </div>
 
       <p className="text-[11px] text-muted-foreground tracking-wide">
-        {label}
+        {t(labelKey)}
         <span className="phoson-dots">
           <span>.</span>
           <span>.</span>
@@ -332,7 +347,7 @@ function MermaidRenderer({ code }: { code: string }) {
   if (!svg) {
     // No usar un texto muerto: mantenemos la animación de construcción mientras
     // se carga/renderiza mermaid (el chunk es grande en el primer uso).
-    return <MermaidBuilding label="Rendering diagram" />
+    return <MermaidBuilding labelKey="artifacts.renderingDiagram" />
   }
 
   return (
@@ -344,6 +359,7 @@ function MermaidRenderer({ code }: { code: string }) {
 }
 
 export function MermaidArtifact({ code, streaming }: { code: string; streaming?: boolean }) {
+  const { t } = useTranslation("chat")
   const [showCode, setShowCode] = useState(false)
 
   return (
@@ -356,9 +372,9 @@ export function MermaidArtifact({ code, streaming }: { code: string; streaming?:
             className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors rounded-md px-2 py-1 hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
           >
             {showCode ? (
-              <><Eye className="size-3" /><span>Diagram</span></>
+              <><Eye className="size-3" /><span>{t("artifacts.toggleDiagram")}</span></>
             ) : (
-              <><Code className="size-3" /><span>Code</span></>
+              <><Code className="size-3" /><span>{t("artifacts.toggleCode")}</span></>
             )}
           </button>
         )

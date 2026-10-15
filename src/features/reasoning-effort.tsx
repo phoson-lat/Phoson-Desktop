@@ -1,5 +1,6 @@
 import { Gauge } from "lucide-react";
 import { useEffect, useState, type CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 
 import { phoson } from "@/bridge/client";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -123,6 +124,10 @@ interface ReasoningEffortProps {
  * el run (`make_live_scheduler`), así que el cambio aplica sin reiniciar nada.
  */
 export function ReasoningEffortPicker({ sessionId, className }: ReasoningEffortProps) {
+  // El `t` del idioma activo: además de traducir, suscribe el componente a los
+  // cambios de idioma, que es lo que hace reactivas las etiquetas de `effortLabel`
+  // (y los accesores de providers): resuelven el idioma en cada llamada.
+  const { t } = useTranslation("system");
   const [effort, setEffort] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(false);
@@ -174,7 +179,7 @@ export function ReasoningEffortPicker({ sessionId, className }: ReasoningEffortP
             "flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors dashboard-hover hover:text-foreground",
             className,
           )}
-          title={`Esfuerzo de razonamiento (${shortcutLabel("E")})`}
+          title={t("effort.tip", { key: shortcutLabel("E") })}
           disabled={!ready}
         >
           <Gauge className="size-3.5" style={{ color }} />
@@ -189,7 +194,7 @@ export function ReasoningEffortPicker({ sessionId, className }: ReasoningEffortP
           style={{ "--effort-color": color } as CSSProperties}
         >
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Razonamiento</span>
+            <span className="text-muted-foreground">{t("effort.title")}</span>
             <span style={{ color }}>{effortLabel(effort)}</span>
           </div>
 
@@ -219,7 +224,7 @@ export function ReasoningEffortPicker({ sessionId, className }: ReasoningEffortP
               index < 0 ? "text-violet" : "text-muted-foreground",
             )}
           >
-            Auto — usa el perfil del modelo
+            {t("effort.autoHint")}
           </button>
         </div>
       </PopoverContent>

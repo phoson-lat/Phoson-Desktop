@@ -8,6 +8,7 @@
 import { useEffect, useRef } from "react";
 
 import { phoson } from "@/bridge/client";
+import i18n from "@/lib/i18n";
 import { cleanSessionTitle } from "@/lib/session-title";
 import { messageText, type SessionView } from "@/stores/session";
 import { notifyTurnEnd, type NotifyMode } from "@/lib/desktop";
@@ -16,7 +17,8 @@ import { notifyTurnEnd, type NotifyMode } from "@/lib/desktop";
 function preview(view: SessionView): string {
   const last = [...view.messages].reverse().find((m) => m.role === "assistant");
   const text = last ? messageText(last).trim() : "";
-  if (!text) return "Turno finalizado.";
+  // Aviso nativo: el idioma se resuelve al disparar la notificación.
+  if (!text) return i18n.t("system:notify.turnEnded");
   return text.length > 120 ? `${text.slice(0, 120)}…` : text;
 }
 
@@ -46,6 +48,7 @@ export function useTurnNotifications(
   useEffect(() => {
     for (const [key, view] of Object.entries(sessions)) {
       const before = prev.current[key] ?? { sending: false, confirms: 0 };
+      // "Phoson" es la marca: no se traduce.
       const title = cleanSessionTitle(view.title) || "Phoson";
 
       // Fin de turno: sending pasa de true a false.
@@ -59,8 +62,8 @@ export function useTurnNotifications(
       if (view.confirmations.length > before.confirms) {
         void notifyTurnEnd(
           mode.current,
-          `${title} · respuesta pendiente`,
-          "El agente espera tu respuesta para continuar.",
+          `${title} · ${i18n.t("system:notify.replyPending")}`,
+          i18n.t("system:notify.replyBody"),
         );
       }
 

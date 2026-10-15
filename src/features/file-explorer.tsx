@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, phoson } from "@/bridge/client";
@@ -65,6 +66,8 @@ export function FileExplorer({
   onOpenFile,
   overlay = false,
 }: FileExplorerProps) {
+  // `common` entra en el array para poder reutilizar sus claves (`common:…`).
+  const { t } = useTranslation(["chrome", "common"]);
   const [path, setPath] = useState(cwd);
   const [data, setData] = useState<FsListResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -114,7 +117,7 @@ export function FileExplorer({
       <aside
         role={overlay ? "dialog" : undefined}
         aria-modal={overlay || undefined}
-        aria-label="Explorador de archivos"
+        aria-label={t("explorer.ariaLabel")}
         className={cn(
           "dashboard-panel flex shrink-0 flex-col border-[var(--dashboard-border)]",
           overlay
@@ -125,17 +128,17 @@ export function FileExplorer({
       {/* Cabecera */}
       <div className="flex items-center gap-2 px-3 py-2.5">
         <FolderOpen className="size-4 text-violet" />
-        <span className="flex-1 text-sm font-medium">Archivos</span>
+        <span className="flex-1 text-sm font-medium">{t("explorer.title")}</span>
         <button
           onClick={() => void load(path)}
-          title="Recargar"
+          title={t("explorer.reload")}
           className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
         >
           <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
         </button>
         <button
           onClick={onClose}
-          title="Cerrar"
+          title={t("common:actions.close")}
           className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
         >
           <X className="size-3.5" />
@@ -145,7 +148,7 @@ export function FileExplorer({
       {/* Workspace del agente */}
       <div className="mx-3 mb-2 rounded-lg bg-[var(--phoson-surface-2)] px-2.5 py-2">
         <div className="flex items-center gap-1.5 text-[0.62rem] uppercase tracking-wide text-muted-foreground">
-          Espacio de trabajo
+          {t("explorer.workspaceSection")}
         </div>
         <div className="mt-0.5 truncate text-xs text-foreground/85" title={cwd}>
           {basename(cwd)}
@@ -155,7 +158,7 @@ export function FileExplorer({
             onClick={() => onSetCwd(data.path)}
             className="mt-1.5 flex items-center gap-1 text-[0.68rem] text-violet hover:underline"
           >
-            <Check className="size-3" /> Usar esta carpeta
+            <Check className="size-3" /> {t("explorer.useThisFolder")}
           </button>
         )}
       </div>
@@ -224,11 +227,11 @@ export function FileExplorer({
                   <button
                     onClick={() =>
                       void openWithPreferredEditor(fullPath).catch((err) =>
-                        toast.error("No se pudo abrir en el editor", { description: String(err) }),
+                        toast.error(t("explorer.openEditorError"), { description: String(err) }),
                       )
                     }
-                    title="Abrir en el editor"
-                    aria-label={`Abrir ${e.name} en el editor`}
+                    title={t("explorer.openInEditor")}
+                    aria-label={t("explorer.openInEditorA11y", { name: e.name })}
                     className="absolute right-1 top-1/2 grid size-5.5 -translate-y-1/2 place-items-center rounded text-muted-foreground opacity-0 transition-opacity dashboard-hover group-hover:opacity-100 hover:text-foreground"
                   >
                     <CodeXml className="size-3.5" />
@@ -241,12 +244,12 @@ export function FileExplorer({
 
         {loading && !data && (
           <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" /> Cargando…
+            <Loader2 className="size-3.5 animate-spin" /> {t("common:state.loading")}
           </div>
         )}
         {data?.truncated && (
           <p className="px-2 py-2 text-[0.65rem] text-muted-foreground">
-            Mostrando las primeras 400 entradas.
+            {t("explorer.truncated")}
           </p>
         )}
       </div>

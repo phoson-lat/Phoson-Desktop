@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -46,6 +47,8 @@ import {
   Wand2,
 } from "lucide-react";
 
+import chat from "@/locales/es/chat.json";
+
 /**
  * Presentación humana de las herramientas: verbo, icono y "sobre qué actúa".
  *
@@ -58,6 +61,10 @@ import {
  * segundo plano, SSH, memoria, swarm, preguntas y transcripción — y las de MCP,
  * que son dinámicas (`mcp__servidor__tool`, `mcp_<servidor>_<tool>`): ésas caen en
  * una regla de prefijo («usando MCP») porque no pueden enumerarse.
+ *
+ * Los verbos ya no viven aquí: van al catálogo (`chat:tools.verbs.<tool>`, con el
+ * nombre de la tool como clave) y se resuelven con la `t` del idioma activo; este
+ * módulo solo aporta el icono y el detalle («sobre qué actúa»), que son datos.
  */
 
 export interface ToolPresentation {
@@ -66,76 +73,93 @@ export interface ToolPresentation {
   icon: LucideIcon;
 }
 
-const PRESENTATION: Record<string, ToolPresentation> = {
+/**
+ * Icono por tool (mismas familias que `_TOOL_VERBS` / `_TOOL_ICONS` del CLI).
+ * Las claves de este mapa son también las claves válidas de `tools.verbs`, así
+ * que sirven para decidir el verbo sin salirse del tipado del catálogo.
+ */
+const ICONS: Record<string, LucideIcon> = {
   // ── Nativas (mismas familias que `_TOOL_VERBS` / `_TOOL_ICONS`) ─────────────
-  read_file: { verb: "leyendo archivo", icon: BookOpen },
-  write_file: { verb: "escribiendo archivo", icon: FilePen },
-  patch_file: { verb: "editando archivo", icon: Wand2 },
-  list_dir: { verb: "listando carpeta", icon: FolderOpen },
-  grep: { verb: "buscando en archivos", icon: Search },
-  glob: { verb: "buscando archivos", icon: Files },
-  view_image: { verb: "viendo imagen", icon: Image },
-  bash: { verb: "ejecutando comando", icon: Terminal },
-  skill: { verb: "cargando skill", icon: Scroll },
-  web_search: { verb: "buscando en la web", icon: Globe },
-  web_fetch: { verb: "descargando página", icon: Globe },
-  agent: { verb: "lanzando subagente", icon: Users },
-  agents: { verb: "lanzando subagentes", icon: Users },
+  read_file: BookOpen,
+  write_file: FilePen,
+  patch_file: Wand2,
+  list_dir: FolderOpen,
+  grep: Search,
+  glob: Files,
+  view_image: Image,
+  bash: Terminal,
+  skill: Scroll,
+  web_search: Globe,
+  web_fetch: Globe,
+  agent: Users,
+  agents: Users,
 
   // ── Plugin computeruse: primitivas de ratón/teclado/pantalla ───────────────
-  computer_screenshot: { verb: "capturando pantalla", icon: Monitor },
-  computer_move: { verb: "moviendo el cursor", icon: MousePointer },
-  computer_click: { verb: "haciendo clic en pantalla", icon: MousePointerClick },
-  computer_drag: { verb: "arrastrando en pantalla", icon: Move },
-  computer_scroll: { verb: "desplazando la pantalla", icon: ArrowDownUp },
-  computer_type: { verb: "escribiendo texto", icon: Type },
-  computer_key: { verb: "pulsando teclas", icon: Keyboard },
-  computer_wait: { verb: "esperando un momento", icon: Hourglass },
+  computer_screenshot: Monitor,
+  computer_move: MousePointer,
+  computer_click: MousePointerClick,
+  computer_drag: Move,
+  computer_scroll: ArrowDownUp,
+  computer_type: Type,
+  computer_key: Keyboard,
+  computer_wait: Hourglass,
 
   // ── Plugin de trabajos en segundo plano ────────────────────────────────────
-  run_bg_job: { verb: "lanzando tarea en segundo plano", icon: Rocket },
-  list_bg_jobs: { verb: "listando tareas en segundo plano", icon: ListChecks },
-  stop_bg_job: { verb: "deteniendo tarea en segundo plano", icon: CircleStop },
-  wait_bg_jobs: { verb: "esperando tareas en segundo plano", icon: Timer },
+  run_bg_job: Rocket,
+  list_bg_jobs: ListChecks,
+  stop_bg_job: CircleStop,
+  wait_bg_jobs: Timer,
 
   // ── Plugin SSH ─────────────────────────────────────────────────────────────
-  ssh_exec: { verb: "ejecutando por SSH", icon: SquareTerminal },
-  ssh_hosts: { verb: "listando hosts SSH", icon: Network },
-  ssh_copy_local_to_remote: { verb: "subiendo archivo por SSH", icon: Upload },
-  ssh_copy_remote_to_local: { verb: "descargando archivo por SSH", icon: Download },
+  ssh_exec: SquareTerminal,
+  ssh_hosts: Network,
+  ssh_copy_local_to_remote: Upload,
+  ssh_copy_remote_to_local: Download,
 
   // ── Plugin de memoria (clave/valor y semántica) ────────────────────────────
-  memory_read: { verb: "leyendo de memoria", icon: Database },
-  memory_write: { verb: "guardando en memoria", icon: Save },
-  memory_delete: { verb: "borrando de memoria", icon: Trash2 },
-  memory_list: { verb: "listando memoria", icon: List },
-  remember: { verb: "recordando", icon: Brain },
-  recall: { verb: "recuperando recuerdo", icon: BrainCircuit },
-  forget: { verb: "olvidando", icon: Eraser },
+  memory_read: Database,
+  memory_write: Save,
+  memory_delete: Trash2,
+  memory_list: List,
+  remember: Brain,
+  recall: BrainCircuit,
+  forget: Eraser,
 
   // ── Plugin swarm ───────────────────────────────────────────────────────────
-  swarm_create: { verb: "creando enjambre", icon: UsersRound },
-  swarm_assign: { verb: "asignando tarea al enjambre", icon: UserPlus },
-  swarm_message: { verb: "enviando mensaje al enjambre", icon: Send },
-  swarm_status: { verb: "consultando estado del enjambre", icon: Activity },
-  swarm_collect: { verb: "recogiendo resultados del enjambre", icon: Inbox },
-  swarm_dissolve: { verb: "disolviendo enjambre", icon: UserMinus },
+  swarm_create: UsersRound,
+  swarm_assign: UserPlus,
+  swarm_message: Send,
+  swarm_status: Activity,
+  swarm_collect: Inbox,
+  swarm_dissolve: UserMinus,
 
   // ── Otros plugins ──────────────────────────────────────────────────────────
-  questions: { verb: "preguntando al usuario", icon: MessageCircle },
-  transcribe_audio: { verb: "transcribiendo audio", icon: Mic },
+  questions: MessageCircle,
+  transcribe_audio: Mic,
 };
+
+/** Claves de verbo del catálogo, derivadas del propio JSON (type-safe). */
+type VerbName = keyof typeof chat.tools.verbs;
+
+/**
+ * Las claves de `ICONS` son exactamente las tools con verbo propio en el
+ * catálogo, así que este chequeo da el narrowing a `VerbName` sin castings.
+ */
+const hasOwnVerb = (name: string): name is VerbName => name in ICONS;
 
 /** Tools de MCP: nombre dinámico (`mcp_server_tool`), así que va por prefijo. */
 const MCP_NAME = /^mcp[_-]/i;
 
-const MCP_PRESENTATION: ToolPresentation = { verb: "usando MCP", icon: Plug };
+const MCP_ICON = Plug;
+const UNKNOWN_ICON = Sparkles;
 
 /**
  * `snake_case` / `kebab-case` / `camelCase` → texto legible.
  *
- * Fallback para tools de plugins desconocidos (o de terceros): el identificador
- * crudo nunca debe llegar tal cual a una UI en español.
+ * Fallback para tools desconocidas (plugins de terceros): su verbo en el catálogo
+ * es «usando {{name}}», así que aquí solo se deja legible el identificador. Si no
+ * queda ni una letra (nombre vacío o solo signos) se devuelve el nombre tal cual:
+ * es lo único que hay que enseñar.
  */
 const humanize = (name: string): string => {
   const words = name
@@ -143,12 +167,22 @@ const humanize = (name: string): string => {
     .replace(/[_\-.\s]+/g, " ")
     .trim()
     .toLowerCase();
-  return words || "herramienta";
+  return words || name;
 };
 
-export const toolPresentation = (name: string): ToolPresentation =>
-  PRESENTATION[name] ??
-  (MCP_NAME.test(name) ? MCP_PRESENTATION : { verb: `usando ${humanize(name)}`, icon: Sparkles });
+/**
+ * Verbo e icono de una tool. El verbo sale del catálogo (`tools.verbs`): con la
+ * unión de claves derivada del JSON, el nombre de la tool es una clave válida y
+ * el resto cae en `mcp` (por prefijo) o en `unknown` («usando {{name}}»).
+ */
+export const toolPresentation = (name: string, t: TFunction<"chat">): ToolPresentation => {
+  const mcp = MCP_NAME.test(name);
+  const key: VerbName = hasOwnVerb(name) ? name : mcp ? "mcp" : "unknown";
+  return {
+    verb: t(`tools.verbs.${key}`, { name: humanize(name) }),
+    icon: ICONS[name] ?? (mcp ? MCP_ICON : UNKNOWN_ICON),
+  };
+};
 
 /** Máximo del detalle de una línea (igual que el CLI). */
 const MAX_DETAIL = 72;

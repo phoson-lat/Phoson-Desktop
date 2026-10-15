@@ -29,6 +29,15 @@
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: #ffffff;
 
+  /* Estados semánticos: un único sitio para el color de aviso/éxito/error.
+     Contraste comprobado sobre `--background` y `--phoson-surface` en claro. */
+  --warning: #b45309;
+  --warning-foreground: #ffffff;
+  --success: #047857;
+  --success-foreground: #ffffff;
+  --danger: #b91c1c;
+  --danger-foreground: #ffffff;
+
   --border: #e5e5e5;
   --input: #ebebeb;
   --ring: #5b2eff;
@@ -83,6 +92,14 @@
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: #ffffff;
 
+  /* Estados semánticos (oscuro): tonos 400 para mantener contraste real. */
+  --warning: #fbbf24;
+  --warning-foreground: #1a1a1a;
+  --success: #34d399;
+  --success-foreground: #1a1a1a;
+  --danger: #f87171;
+  --danger-foreground: #1a1a1a;
+
   --border: #262626;
   --input: #262626;
   --ring: #5b2eff;
@@ -129,6 +146,12 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

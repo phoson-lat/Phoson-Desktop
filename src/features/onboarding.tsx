@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 
 import { phoson } from "@/bridge/client";
 import type { ModelOption, ProviderStatus } from "@/bridge/protocol";
@@ -19,12 +20,19 @@ import { PhosonLogo } from "@/components/phoson-logo";
 import { ProviderLogo } from "@/components/provider-logo";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { BASE_URL_DEFAULTS, PROVIDER_META as PROVIDERS } from "@/lib/providers";
+import { BASE_URL_DEFAULTS, PROVIDER_META as PROVIDERS, providerHint, providerNote } from "@/lib/providers";
 import { cn } from "@/lib/utils";
 
 /** Etiquetas y enlaces de claves por proveedor (los ids coinciden con el engine). */
 
-const STEPS = ["Bienvenida", "Proveedor", "Modelo", "Preferencias", "Listo"];
+/**
+ * Pasos del asistente: `id` marca el progreso y el pie, y la etiqueta visible
+ * de cada uno se resuelve en `stepNav` (dentro del componente, porque necesita `t`).
+ */
+const STEPS = ["welcome", "provider", "model", "prefs", "done"] as const;
+
+/** Argumentos de la bienvenida, en orden (fija el escalonado de la animación). */
+const FEATURES = ["providers", "skills", "storage"] as const;
 
 /** Retardo de entrada escalonado (para animar los textos). */
 const at = (ms: number) => ({ animationDelay: `${ms}ms` });
@@ -36,6 +44,10 @@ interface OnboardingProps {
 }
 
 export function Onboarding({ sessionId, onDone }: OnboardingProps) {
+  const { t } = useTranslation("onboarding");
+  // `common` se consulta con su propio `t`: las claves tipadas no cruzan
+  // namespaces con el prefijo `common:`.
+  const { t: tCommon } = useTranslation("common");
   const { setTheme, theme } = useTheme();
   const [step, setStep] = useState(0);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
@@ -154,7 +166,14 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
   };
 
   const current = status(providerId);
+  /** Nombre comercial y URL de las claves del proveedor elegido. */
   const meta = PROVIDERS[providerId];
+  /**
+   * Frases del catálogo para ese proveedor. Se resuelven **en cada render** (el
+   * `t` de arriba ya suscribe el componente al cambio de idioma).
+   */
+  const metaHint = providerHint(providerId);
+  const metaNote = providerNote(providerId);
   /** El backend confirma qué admite cada proveedor (clave y/o base_url). */
   const showKey = current?.supportsKey ?? true;
   const showUrl = current?.supportsBaseUrl ?? Boolean(BASE_URL_DEFAULTS[providerId]);
@@ -162,6 +181,19 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
   const activeValue = target === "main" ? model : subagentModel;
   const setActiveTargetModel = (id: string) =>
     target === "main" ? setModel(id) : setSubagentModel(id);
+  /** En el resumen pintamos el nombre del tema, no el id que usa next-themes. */
+  const themeLabel =
+    theme === "light" || theme === "dark" || theme === "system"
+      ? t(`steps.prefs.theme.${theme}`)
+      : t("steps.prefs.theme.system");
+  /** Nombre de cada paso en la cabecera; dos son genéricos y se reutilizan de `common`. */
+  const stepNav: Record<(typeof STEPS)[number], string> = {
+    welcome: t("steps.welcome.nav"),
+    provider: t("steps.provider.nav"),
+    model: tCommon("words.model"),
+    prefs: t("steps.prefs.nav"),
+    done: tCommon("actions.done"),
+  };
 
   return (
     <div className="dashboard-shell-overlay fixed inset-0 z-[100] overflow-y-auto">
@@ -170,9 +202,9 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
         <header className="phoson-text-in flex items-center gap-3">
           <PhosonLogo size={22} showText={false} />
           <div className="flex-1 text-xs text-muted-foreground">
-            Paso {step + 1} de {STEPS.length}
+            {t("progress", { current: step + 1, total: STEPS.length })}
             <span className="mx-2 opacity-40">/</span>
-            <span className="text-foreground">{STEPS[step]}</span>
+            <span className="text-foreground">{stepNav[STEPS[step]]}</span>
           </div>
           <div className="flex gap-1.5">
             {STEPS.map((s, i) => (
@@ -188,8 +220,8 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
           </div>
           <button
             onClick={onDone}
-            title="Configurar más tarde"
-            aria-label="Cerrar y configurar más tarde"
+            title={t("close.title")}
+            aria-label={t("close.ariaLabel")}
             className="ml-2 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
           >
             <X className="size-4" />
@@ -205,27 +237,30 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                 <div className="space-y-6">
                   <PhosonLogo size={96} animated showText={false} className="phoson-pop" />
                   <h1 className={cn(ANIM, "text-4xl font-semibold leading-tight tracking-tight sm:text-5xl")} style={at(80)}>
-                    Bienvenido a
+                    {t("steps.welcome.title")}
                     <br />
                     Phoson Desktop
                   </h1>
                   <p className={cn(ANIM, "max-w-lg text-base text-muted-foreground")} style={at(180)}>
-                    El mismo engine y los mismos plugins que el{" "}
-                    <span className="text-violet-soft">phoson-cli</span>, ahora en tu escritorio.
+                    <Trans
+                      ns="onboarding"
+                      i18nKey="steps.welcome.tagline"
+                      components={{ cli: <span className="text-violet-soft" /> }}
+                    />
                   </p>
                 </div>
 
                 <ul className="space-y-6 lg:pl-10">
-                  {[
-                    { t: "Tus proveedores", d: "Conecta OpenAI, Anthropic, OpenRouter… o un modelo local con vLLM." },
-                    { t: "Agent skills", d: "Tools, MCP, plugins, sub-agentes y sesiones ramificables." },
-                    { t: "Todo en ~/.phoson", d: "La misma configuración y sesiones que el CLI: sin duplicar nada." },
-                  ].map((f, i) => (
-                    <li key={f.t} className={cn(ANIM, "flex gap-4")} style={at(260 + i * 90)}>
+                  {FEATURES.map((f, i) => (
+                    <li key={f} className={cn(ANIM, "flex gap-4")} style={at(260 + i * 90)}>
                       <Check className="mt-1 size-4 shrink-0 text-violet" />
                       <div>
-                        <div className="text-sm font-medium">{f.t}</div>
-                        <div className="text-sm text-muted-foreground">{f.d}</div>
+                        <div className="text-sm font-medium">
+                          {t(`steps.welcome.features.${f}.title`)}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {t(`steps.welcome.features.${f}.body`)}
+                        </div>
                       </div>
                     </li>
                   ))}
@@ -238,11 +273,14 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               <div className="space-y-8">
                 <div className="space-y-2">
                   <h1 className={cn(ANIM, "text-3xl font-semibold tracking-tight")} style={at(60)}>
-                    Elige un proveedor
+                    {t("steps.provider.title")}
                   </h1>
                   <p className={cn(ANIM, "max-w-2xl text-sm text-muted-foreground")} style={at(140)}>
-                    Tu clave se guarda en <span className="font-mono">~/.phoson/config.toml</span> y
-                    nunca se muestra de vuelta.
+                    <Trans
+                      ns="onboarding"
+                      i18nKey="steps.provider.body"
+                      components={{ path: <span className="font-mono" /> }}
+                    />
                   </p>
                 </div>
 
@@ -270,7 +308,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                           className={selected ? "text-violet" : "opacity-80"}
                         />
                         <span className="min-w-0 flex-1 truncate">{meta.label}</span>
-                        {st?.hasKey && <Check className="size-3.5 shrink-0 text-emerald-500" />}
+                        {st?.hasKey && <Check className="size-3.5 shrink-0 text-success" />}
                       </button>
                     );
                   })}
@@ -281,7 +319,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                       <div className="space-y-2">
                         <div className={cn(ANIM, "flex items-center gap-3")} style={at(560)}>
                           <label className="text-xs text-muted-foreground">
-                            API key de {meta?.label ?? providerId}
+                            {t("steps.provider.keyLabel", { provider: meta?.label ?? providerId })}
                           </label>
                           {meta?.keysUrl && (
                             <a
@@ -290,7 +328,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                               rel="noreferrer"
                               className="flex items-center gap-1 text-xs text-violet hover:underline"
                             >
-                              obtener <ExternalLink className="size-3" />
+                              {t("steps.provider.keyLink")} <ExternalLink className="size-3" />
                             </a>
                           )}
                         </div>
@@ -301,7 +339,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                             ANIM,
                             "w-full border-b border-[var(--dashboard-border)] bg-transparent py-2 font-mono text-sm outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-violet",
                           )}
-                          placeholder={current?.hasKey ? "•••••••• ya configurada — déjalo vacío" : "sk-…"}
+                          placeholder={current?.hasKey ? t("steps.provider.keyPlaceholderExisting") : "sk-…"}
                           value={apiKey}
                           onChange={(e) => setApiKey(e.target.value)}
                         />
@@ -314,7 +352,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                           className={cn(ANIM, "block text-xs text-muted-foreground")}
                           style={at(640)}
                         >
-                          Base URL
+                          {t("steps.provider.baseUrlLabel")}
                         </label>
                         <input
                           style={at(660)}
@@ -329,14 +367,14 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                       </div>
                     )}
 
-                    {meta?.note && (
+                    {metaNote && (
                       <p className={cn(ANIM, "text-xs text-muted-foreground")} style={at(700)}>
-                        {meta.note}
+                        {metaNote}
                       </p>
                     )}
-                    {meta?.hint && (
+                    {metaHint && (
                       <p className={cn(ANIM, "text-xs text-muted-foreground")} style={at(700)}>
-                        {meta.hint}
+                        {metaHint}
                       </p>
                     )}
                   </div>
@@ -349,16 +387,19 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               <div className="space-y-8">
                 <div className="space-y-2">
                   <h1 className={cn(ANIM, "text-3xl font-semibold tracking-tight")} style={at(60)}>
-                    Elige los modelos
+                    {t("steps.model.title")}
                   </h1>
                   <p className={cn(ANIM, "max-w-2xl text-sm text-muted-foreground")} style={at(140)}>
                     {models.length > 0
-                      ? `${models.length} modelos disponibles en ${providerId}.`
+                      ? t("steps.model.available", { count: models.length, provider: providerId })
                       : error
-                        ? "No se pudo listar el proveedor; escribe el id del modelo."
-                        : "Cargando modelos…"}{" "}
-                    El <span className="text-foreground/80">sub-agente</span> es el que ejecuta los
-                    tools en paralelo.
+                        ? t("steps.model.listError")
+                        : t("steps.model.loading")}{" "}
+                    <Trans
+                      ns="onboarding"
+                      i18nKey="steps.model.subagentNote"
+                      components={{ sub: <span className="text-foreground/80" /> }}
+                    />
                   </p>
                 </div>
 
@@ -366,8 +407,8 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                 <div className="grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
                   {(
                     [
-                      { id: "main" as const, label: "Modelo principal", value: model },
-                      { id: "sub" as const, label: "Modelo de sub-agentes", value: subagentModel },
+                      { id: "main" as const, label: t("steps.model.target.main"), value: model },
+                      { id: "sub" as const, label: t("steps.model.target.sub"), value: subagentModel },
                     ] as const
                   ).map(({ id, label, value }, i) => (
                     <button
@@ -395,7 +436,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                         {label}
                       </div>
                       <div className="mt-1 truncate font-mono text-[0.7rem] text-foreground/80">
-                        {value || "sin definir"}
+                        {value || t("unset")}
                       </div>
                     </button>
                   ))}
@@ -409,7 +450,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                     ANIM,
                     "w-full border-b border-[var(--dashboard-border)] bg-transparent py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-violet",
                   )}
-                  placeholder="Buscar modelo…"
+                  placeholder={t("steps.model.search")}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
@@ -448,8 +489,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
 
                   <div className="space-y-2 lg:border-l lg:border-[var(--dashboard-border)] lg:pl-10">
                   <p className={cn(ANIM, "text-xs text-muted-foreground")} style={at(260)}>
-                    O escribe el id para{" "}
-                    {target === "main" ? "el modelo principal" : "los sub-agentes"}
+                    {t(target === "main" ? "steps.model.typeId.main" : "steps.model.typeId.sub")}
                   </p>
                   <input
                     style={at(320)}
@@ -457,12 +497,12 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                       ANIM,
                       "mt-1 w-full border-b border-[var(--dashboard-border)] bg-transparent py-2 font-mono text-sm outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-violet",
                     )}
-                    placeholder="p. ej. anthropic/claude-sonnet-4.5"
+                    placeholder={t("steps.model.idPlaceholder")}
                     value={activeValue}
                     onChange={(e) => setActiveTargetModel(e.target.value)}
                   />
                   <p className={cn(ANIM, "text-xs text-muted-foreground")} style={at(380)}>
-                    {target === "main" ? "Principal" : "Sub-agentes"}:{" "}
+                    {t(target === "main" ? "steps.model.summary.main" : "steps.model.summary.sub")}:{" "}
                     <span className="font-mono text-foreground/80">{activeValue || "—"}</span>
                   </p>
                   </div>
@@ -475,23 +515,23 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               <div className="space-y-10">
                 <div className="space-y-2">
                   <h1 className={cn(ANIM, "text-3xl font-semibold tracking-tight")} style={at(60)}>
-                    Preferencias
+                    {t("steps.prefs.title")}
                   </h1>
                   <p className={cn(ANIM, "text-sm text-muted-foreground")} style={at(140)}>
-                    Puedes cambiarlas cuando quieras desde Ajustes.
+                    {t("steps.prefs.body")}
                   </p>
                 </div>
 
                 <div className="grid gap-12 sm:grid-cols-2">
                   <div>
                     <div className={cn(ANIM, "text-xs text-muted-foreground")} style={at(200)}>
-                      Tema
+                      {t("steps.prefs.theme.label")}
                     </div>
                     <div className="mt-4 flex flex-wrap gap-8">
                       {[
-                        { id: "light", label: "Claro", Icon: Sun },
-                        { id: "dark", label: "Oscuro", Icon: Moon },
-                        { id: "system", label: "Sistema", Icon: Monitor },
+                        { id: "light", label: t("steps.prefs.theme.light"), Icon: Sun },
+                        { id: "dark", label: t("steps.prefs.theme.dark"), Icon: Moon },
+                        { id: "system", label: t("steps.prefs.theme.system"), Icon: Monitor },
                       ].map(({ id, label, Icon }, i) => (
                         <button
                           key={id}
@@ -513,10 +553,10 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                   <div className={cn(ANIM, "flex items-start justify-between gap-6")} style={at(320)}>
                     <div>
                       <div className="flex items-center gap-2 text-sm">
-                        <ShieldCheck className="size-4 text-violet" /> Modo seguro
+                        <ShieldCheck className="size-4 text-violet" /> {t("steps.prefs.safeMode.title")}
                       </div>
                       <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                        Pide confirmación antes de ejecutar comandos (bash) y acciones sensibles.
+                        {t("steps.prefs.safeMode.body")}
                       </p>
                     </div>
                     <Switch checked={safeMode} onCheckedChange={setSafeMode} />
@@ -530,20 +570,24 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               <div className="mx-auto max-w-2xl space-y-8 text-center">
                 <PhosonLogo size={72} animated showText={false} className="phoson-pop mx-auto" />
                 <h1 className={cn(ANIM, "text-3xl font-semibold tracking-tight")} style={at(120)}>
-                  Todo listo
+                  {t("steps.done.title")}
                 </h1>
                 <div className="phoson-stagger mx-auto max-w-md divide-y divide-[var(--dashboard-border)] text-left text-sm">
-                  <Row label="Proveedor" value={PROVIDERS[providerId]?.label ?? providerId} />
-                  <Row label="Modelo principal" value={model || "sin definir"} />
-                  <Row label="Sub-agentes" value={subagentModel || "sin definir"} />
-                  <Row label="Tema" value={theme ?? "system"} />
-                  <Row label="Modo seguro" value={safeMode ? "activado" : "desactivado"} />
+                  <Row label={t("steps.provider.nav")} value={PROVIDERS[providerId]?.label ?? providerId} />
+                  <Row label={t("steps.model.target.main")} value={model || t("unset")} />
+                  <Row label={t("steps.model.summary.sub")} value={subagentModel || t("unset")} />
+                  <Row label={t("steps.prefs.theme.label")} value={themeLabel} />
+                  <Row
+                    label={t("steps.prefs.safeMode.title")}
+                    value={safeMode ? t("steps.prefs.safeMode.on") : t("steps.prefs.safeMode.off")}
+                  />
                 </div>
                 <p className={cn(ANIM, "text-xs text-muted-foreground")} style={at(220)}>
-                  Prueba con{" "}
-                  <span className="font-mono text-foreground/80">
-                    Muéstrame una demo de todo lo que sabes renderizar.
-                  </span>
+                  <Trans
+                    ns="onboarding"
+                    i18nKey="steps.done.tryPrompt"
+                    components={{ prompt: <span className="font-mono text-foreground/80" /> }}
+                  />
                 </p>
               </div>
             )}
@@ -561,7 +605,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               onClick={() => setStep((s) => s - 1)}
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-              Atrás
+              {tCommon("actions.back")}
             </button>
           ) : null}
           <div className="flex-1" />
@@ -570,12 +614,12 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               onClick={() => setStep(3)}
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-              Saltar por ahora
+              {t("actions.skip")}
             </button>
           )}
           {step === 0 && (
             <Button className="h-10 gap-2 bg-violet px-5 text-white hover:bg-violet/90" onClick={() => setStep(1)}>
-              Continuar <ArrowRight className="size-4" />
+              {tCommon("actions.continue")} <ArrowRight className="size-4" />
             </Button>
           )}
           {step === 1 && (
@@ -585,7 +629,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               onClick={() => void saveProvider()}
             >
               {busy ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
-              Guardar y continuar
+              {t("actions.saveAndContinue")}
             </Button>
           )}
           {step === 2 && (
@@ -594,7 +638,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               disabled={busy}
               onClick={() => void saveModel()}
             >
-              Continuar <ArrowRight className="size-4" />
+              {tCommon("actions.continue")} <ArrowRight className="size-4" />
             </Button>
           )}
           {step === 3 && (
@@ -603,7 +647,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               disabled={busy}
               onClick={() => void savePrefs()}
             >
-              Continuar <ArrowRight className="size-4" />
+              {tCommon("actions.continue")} <ArrowRight className="size-4" />
             </Button>
           )}
           {step === 4 && (
@@ -611,7 +655,7 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
               className="h-10 gap-2 bg-violet px-5 text-white hover:bg-violet/90"
               onClick={onDone}
             >
-              Empezar a usar Phoson <ArrowRight className="size-4" />
+              {t("actions.start")} <ArrowRight className="size-4" />
             </Button>
           )}
         </footer>

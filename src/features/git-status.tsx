@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, openExternal } from "@/bridge/client";
@@ -55,6 +56,8 @@ interface GitStatusProps {
  * cambia se recarga el estado completo. Nada se muestra si no es un repo.
  */
 export function GitStatus({ workspace, running }: GitStatusProps) {
+  // `common` entra en el array para poder reutilizar sus claves (`common:…`).
+  const { t } = useTranslation(["tools", "common"]);
   const [status, setStatus] = useState<GitStatusInfo | null>(null);
   const [open, setOpen] = useState(false);
   /** Acción git en curso ("fetch" | "pull" | "push" | "checkout"). */
@@ -104,10 +107,10 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
 
   const dirty = status.staged + status.modified + status.untracked + status.conflicted;
   const counts: Array<[string, number, string?]> = [
-    ["Preparados", status.staged],
-    ["Modificados", status.modified],
-    ["Sin seguimiento", status.untracked],
-    ["Conflictos", status.conflicted, "text-red-500"],
+    [t("git.staged"), status.staged],
+    [t("git.modified"), status.modified],
+    [t("git.untracked"), status.untracked],
+    [t("git.conflicted"), status.conflicted, "text-danger"],
   ];
 
   const runAction = async (action: "fetch" | "pull" | "push") => {
@@ -117,7 +120,7 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
       toast.success(`git ${action}`, { description: out.slice(0, 200) });
       reload();
     } catch (e) {
-      toast.error(`git ${action} falló`, { description: String(e).slice(0, 300) });
+      toast.error(t("git.actionError", { action }), { description: String(e).slice(0, 300) });
     } finally {
       setBusy(null);
     }
@@ -137,13 +140,13 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
     setBusy("checkout");
     try {
       await gitCheckout(workspace, branch, create);
-      toast.success(create ? `Rama ${branch} creada` : `Cambiado a ${branch}`);
+      toast.success(create ? t("git.branchCreated", { branch }) : t("git.switchedTo", { branch }));
       setShowBranches(false);
       setNewBranch("");
       setBranches(null);
       reload();
     } catch (e) {
-      toast.error("No se pudo cambiar de rama", { description: String(e).slice(0, 300) });
+      toast.error(t("git.switchError"), { description: String(e).slice(0, 300) });
     } finally {
       setBusy(null);
     }
@@ -155,13 +158,13 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
     setDiffLoading(true);
     gitDiff(workspace)
       .then(setDiffData)
-      .catch((e) => toast.error("No se pudo obtener el diff", { description: String(e) }))
+      .catch((e) => toast.error(t("git.diffError"), { description: String(e) }))
       .finally(() => setDiffLoading(false));
   };
 
   const openFileAt = (file: string, line?: number) =>
     openWithPreferredEditor(`${workspace}/${file}`, line).catch((e) =>
-      toast.error("No se pudo abrir en el editor", { description: String(e) }),
+      toast.error(t("editor.openError"), { description: String(e) }),
     );
 
   const diffFiles = diffData ? parseGitDiff(diffData.diff) : [];
@@ -172,14 +175,14 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
         <PopoverTrigger asChild>
           <button
             className="flex min-w-0 shrink items-center gap-1.5 rounded transition-colors hover:text-foreground"
-            title="Estado de git"
-            aria-label="Estado de git"
+            title={t("git.statusTitle")}
+            aria-label={t("git.statusTitle")}
           >
             <span className="shrink-0 opacity-40">·</span>
             <GitBranch className="size-3 shrink-0 opacity-70" />
             <span className="truncate">{status.branch}</span>
             {dirty > 0 && (
-              <span className={status.conflicted > 0 ? "shrink-0 text-red-500" : "shrink-0 text-amber-500 dark:text-amber-400"}>
+              <span className={status.conflicted > 0 ? "shrink-0 text-danger" : "shrink-0 text-warning"}>
                 ●{dirty}
               </span>
             )}
@@ -196,18 +199,18 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
               <span className="min-w-0 flex-1 truncate font-medium">{status.branch}</span>
               <button
                 className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-                title="Copiar nombre de rama"
+                title={t("git.copyBranch")}
                 onClick={() => {
                   void navigator.clipboard
                     .writeText(status.branch)
-                    .then(() => toast.success("Rama copiada"));
+                    .then(() => toast.success(t("git.copied")));
                 }}
               >
                 <Copy className="size-3.5" />
               </button>
               <button
                 className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-                title="Cambiar o crear rama"
+                title={t("git.switchBranch")}
                 onClick={toggleBranches}
               >
                 {busy === "checkout" ? (
@@ -223,7 +226,7 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
               <div className="space-y-1 rounded-md border border-[var(--dashboard-border)] p-1.5">
                 <div className="max-h-36 overflow-y-auto">
                   {branches === null ? (
-                    <p className="px-1.5 py-1 text-muted-foreground">Cargando ramas…</p>
+                    <p className="px-1.5 py-1 text-muted-foreground">{t("git.loadingBranches")}</p>
                   ) : (
                     branches.map((b) => (
                       <button
@@ -249,7 +252,7 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && newBranch.trim()) void switchBranch(newBranch.trim(), true);
                     }}
-                    placeholder="nueva-rama"
+                    placeholder={t("git.newBranchPlaceholder")}
                     className="h-6.5 flex-1 px-1.5 text-xs"
                   />
                   <Button
@@ -259,7 +262,7 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
                     disabled={!newBranch.trim() || busy !== null}
                     onClick={() => void switchBranch(newBranch.trim(), true)}
                   >
-                    Crear
+                    {t("git.create")}
                   </Button>
                 </div>
               </div>
@@ -267,7 +270,7 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
 
             {status.upstream && (
               <div className="flex items-baseline justify-between gap-4">
-                <span className="text-muted-foreground">Upstream</span>
+                <span className="text-muted-foreground">{t("git.upstream")}</span>
                 <span className="truncate font-mono text-foreground/85">
                   {status.upstream}
                   {(status.ahead > 0 || status.behind > 0) && (
@@ -281,7 +284,7 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
 
             {status.lastCommit && (
               <div className="flex items-baseline justify-between gap-4">
-                <span className="shrink-0 text-muted-foreground">Último commit</span>
+                <span className="shrink-0 text-muted-foreground">{t("git.lastCommit")}</span>
                 <span className="min-w-0 text-right">
                   <span className="block truncate text-foreground/85" title={status.lastCommit}>
                     {status.lastCommit}
@@ -325,13 +328,13 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
               {counts.map(([label, n, cls]) => (
                 <div key={label} className="flex items-baseline justify-between gap-4">
                   <span className="text-muted-foreground">{label}</span>
-                  <span className={`font-mono tabular-nums ${n > 0 ? (cls ?? "text-amber-500 dark:text-amber-400") : "text-foreground/50"}`}>
+                  <span className={`font-mono tabular-nums ${n > 0 ? (cls ?? "text-warning") : "text-foreground/50"}`}>
                     {n}
                   </span>
                 </div>
               ))}
               {dirty === 0 && (
-                <p className="text-muted-foreground">Árbol de trabajo limpio ✓</p>
+                <p className="text-muted-foreground">{t("git.clean")}</p>
               )}
             </div>
 
@@ -341,7 +344,7 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
                 className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
               >
                 <FileDiff className="size-3.5" />
-                Ver cambios
+                {t("git.viewChanges")}
               </button>
             )}
 
@@ -351,7 +354,7 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
                 onClick={() => void openExternal(status.remoteWeb!)}
               >
                 <ExternalLink className="size-3.5" />
-                Abrir repositorio remoto
+                {t("git.openRemote")}
               </button>
             )}
           </div>
@@ -364,20 +367,20 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
           <div className="flex items-center gap-2 px-4 py-3">
             <FileDiff className="size-4 shrink-0 text-violet" />
             <DialogTitle className="truncate text-sm font-medium">
-              Cambios en {status.branch}
+              {t("git.changesIn", { branch: status.branch })}
             </DialogTitle>
             {diffData?.truncated && (
-              <span className="shrink-0 text-[0.68rem] text-amber-500">· diff cortado por tamaño</span>
+              <span className="shrink-0 text-[0.68rem] text-warning">{t("git.diffTruncated")}</span>
             )}
           </div>
 
           <div className="max-h-[min(70vh,560px)] min-h-[160px] overflow-y-auto border-t border-[var(--dashboard-border)] px-4 pb-4">
             {diffLoading && !diffData ? (
               <div className="flex items-center gap-2 py-6 text-xs text-muted-foreground">
-                <Loader2 className="size-3.5 animate-spin" /> Obteniendo cambios…
+                <Loader2 className="size-3.5 animate-spin" /> {t("git.loadingDiff")}
               </div>
             ) : diffFiles.length === 0 && (diffData?.untracked.length ?? 0) === 0 ? (
-              <p className="py-6 text-xs text-muted-foreground">No hay cambios que mostrar.</p>
+              <p className="py-6 text-xs text-muted-foreground">{t("git.emptyDiff")}</p>
             ) : (
               <>
                 {diffFiles.map((f) => (
@@ -392,17 +395,17 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
                 {(diffData?.untracked.length ?? 0) > 0 && (
                   <div className="mt-3">
                     <p className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">
-                      Sin seguimiento
+                      {t("git.untracked")}
                     </p>
                     <div className="mt-1 space-y-0.5">
                       {diffData!.untracked.map((f) => (
                         <button
                           key={f}
                           onClick={() => void openFileAt(f)}
-                          title="Abrir en el editor"
+                          title={t("editor.openInEditor")}
                           className="flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left font-mono text-[0.72rem] text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
                         >
-                          <FilePlus2 className="size-3 shrink-0 text-emerald-500" />
+                          <FilePlus2 className="size-3 shrink-0 text-success" />
                           <span className="truncate">{f}</span>
                         </button>
                       ))}
