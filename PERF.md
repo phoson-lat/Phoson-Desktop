@@ -173,6 +173,7 @@ solo el **primer** arranque tras instalar paga el coste.
 | **onedir, 1.er arranque** (máquina ya "caliente") | ~1.1 s |
 | **onedir, arranques siguientes** | **~0.45 s** |
 | onedir, desde la `.app` real (RPC del front) | ~0.33 s |
+| onedir, app instalada vía updater (`/Applications`) | **~0.45 s** |
 | dev (venv del engine) | ~0.7 s |
 
 > El 1.er arranque medido (~1.1 s) es optimista: esta máquina ya había validado
