@@ -86,7 +86,7 @@ interface VoiceInputOptions {
  * Mientras se sondea el motor del sidecar, `supported` es false y el botón se
  * deshabilita un instante; al resolverse, se habilita o se explica el motivo en
  * `error`. `status` trae avisos transitorios del sidecar (p. ej. la descarga
- * inicial del modelo, que tarda ~15 s y ocurre sin salidas visibles).
+ * inicial del modelo, con porcentaje: «Descargando… 42%»).
  */
 export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   const webCtor = useRef<(new () => SpeechRecognitionLike) | null>(getCtor());
@@ -210,13 +210,31 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
     detach();
     // Escucha interino/final del sidecar (mismo contrato que Web Speech).
     unsubRef.current = await phoson.onNotify((envelope) => {
-      const params = envelope.params as { sessionId?: string; text?: string; final?: boolean; message?: string };
+      const params = envelope.params as {
+        sessionId?: string;
+        text?: string;
+        final?: boolean;
+        message?: string;
+        phase?: string;
+        percent?: number;
+      };
       if (params.sessionId !== sessionId) return;
       if (envelope.method === "stt.partial") {
         setStatus(null);
         textRef.current(String(params.text ?? ""), Boolean(params.final));
       } else if (envelope.method === "stt.progress") {
-        setStatus(params.message ?? null);
+        // El texto lo elige el UI por `phase` (i18n); el `message` del sidecar
+        // queda como fallback para engines que aún no manden `phase`.
+        const phase = typeof params.phase === "string" ? params.phase : "";
+        setStatus(
+          phase === "loading"
+            ? i18n.t("chat:composer.voice.loading")
+            : phase === "downloading"
+              ? i18n.t("chat:composer.voice.downloading", { percent: params.percent ?? 0 })
+              : phase === "ready"
+                ? i18n.t("chat:composer.voice.ready")
+                : params.message ?? null,
+        );
       } else if (envelope.method === "stt.error") {
         setError(params.message ?? i18n.t("system:voice.engineFailed"));
         setStatus(null);

@@ -15,6 +15,9 @@ Notificaciones:
 - ``stt.progress`` ``{sessionId, phase, message}`` — aviso transitorio del motor
   (carga/descarga del modelo). La primera captura baja ~100 MB del modelo de
   Moonshine con el stderr nativo silenciado: sin esto, la UI parece colgada.
+  ``phase``: ``"loading"`` (preparando la sesión), ``"downloading"``
+  (descargando el modelo; lleva ``percent`` 0-100) y ``"ready"`` (modelo
+  disponible).
 
 Mismo contrato ``interino/final`` que la Web Speech API, para que el hook de
 dictado del frontend sea agnóstico al motor.
@@ -41,6 +44,7 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import Any, Callable
 
 log = logging.getLogger("phoson_bridge")
@@ -52,6 +56,12 @@ _STOP_TIMEOUT = 4.0
 #: sesión ONNX: 10-20 s sin ninguna salida visible (el motor silencia el stderr
 #: nativo). Se avisa de la espera para que la UI no parezca colgada.
 _LOADING_MESSAGE = "Cargando el modelo de dictado (la primera vez se descarga)…"
+_DOWNLOADING_MESSAGE = "Descargando el modelo de dictado…"
+_READY_MESSAGE = "Modelo de dictado listo."
+
+#: Segundos antes de pintar progreso de descarga: con la caché caliente el
+#: «recalentado» del modelo termina en milisegundos y no debe mostrar barra.
+_DOWNLOAD_GRACE_SECONDS = 0.75
 
 _MISSING_RUNTIME = (
     "El runtime de dictado (moonshine-voice) no está instalado. "
@@ -143,6 +153,74 @@ class SttManager:
             return importlib.import_module("phoson_plugin_stt")
         except ImportError:
             return None
+
+    def _download_model(
+        self,
+        language: str,
+        session_key: str,
+        emit: Callable[[str, dict[str, Any]], None],
+    ) -> bool:
+        """Descarga (si falta) el modelo de Moonshine de ``language``, con progreso.
+
+        Se llama ANTES de abrir la sesión de micrófono — la primera captura de
+        un idioma baja ~100 MB sin ninguna salida visible (el motor silencia el
+        stderr nativo), y con esto la UI muestra ``stt.progress`` con
+        ``phase="downloading"`` y ``percent`` 0-100 en vez del aviso genérico de
+        «cargando». ``emit`` debe ser thread-safe: el método corre en un hilo
+        aparte y el loop hace el marshal.
+
+        Devuelve ``True`` solo si hubo descarga visible (la caché caliente
+        «recalienta» en milisegundos y no debe pintar barras). Cualquier fallo
+        devuelve ``False`` sin emitir nada: la captura reintenta la misma
+        descarga y reporta el error una sola vez por ``stt.error``.
+        """
+        try:
+            moonshine = importlib.import_module("moonshine_voice")
+        except ImportError:
+            return False
+        get_model = getattr(moonshine, "get_model_for_language", None)
+        if get_model is None:
+            # Runtime sin API pública de descarga: el flujo viejo (aviso de
+            # «cargando») sigue siendo válido.
+            return False
+        arch = None
+        if self._model_arch is not None:
+            arch_enum = getattr(moonshine, "ModelArch", None)
+            if arch_enum is None:
+                return False
+            try:
+                # La misma arquitectura que usará la captura, para calentar
+                # exactamente el mismo modelo.
+                arch = arch_enum(self._model_arch)
+            except ValueError:
+                return False
+        started = time.monotonic()
+        reported = False
+
+        def _on_progress(fraction: float, _file: str) -> None:
+            nonlocal reported
+            if time.monotonic() - started < _DOWNLOAD_GRACE_SECONDS:
+                return
+            reported = True
+            percent = max(0, min(100, round(fraction * 100)))
+            emit(
+                "stt.progress",
+                {
+                    "sessionId": session_key,
+                    "phase": "downloading",
+                    "percent": percent,
+                    "message": _DOWNLOADING_MESSAGE,
+                },
+            )
+
+        try:
+            # `on_progress` silencia las barras tqdm de la librería y da una
+            # fracción 0-1 que cubre modelo + corrector ortográfico.
+            get_model(language, arch, on_progress=_on_progress)
+        except Exception as exc:  # noqa: BLE001 — la captura reintentará y reportará
+            log.info("pre-descarga del modelo de dictado no disponible: %s", exc)
+            return False
+        return reported
 
     def _engine(self) -> tuple[Any | None, str | None]:
         """Devuelve ``(SttEngine | None, razón-de-fallo | None)``, construido una vez.
@@ -290,20 +368,40 @@ class SttManager:
             {"sessionId": key, "phase": "loading", "message": _LOADING_MESSAGE},
         )
 
-        worker = asyncio.ensure_future(
-            asyncio.to_thread(
-                engine.transcribe_microphone,
-                language,
-                None,
-                stop=stop,
-                on_line=captured.append,
-                on_partial=lambda text: partial.__setitem__("text", text),
-            )
-        )
+        # Pre-descarga con progreso (ver `_download_model`). El marshal va con
+        # `call_soon_threadsafe` porque `self._emit` toca la cola asyncio del
+        # loop, que no es thread-safe.
+        loop = asyncio.get_running_loop()
 
+        def _emit_threadsafe(method: str, params: dict[str, Any]) -> None:
+            loop.call_soon_threadsafe(self._emit, method, params)
+
+        worker: asyncio.Future[str] | None = None
         emitted = 0
         last_partial = ""
         try:
+            downloaded = await asyncio.to_thread(
+                self._download_model, language, key, _emit_threadsafe
+            )
+            if downloaded:
+                self._emit(
+                    "stt.progress",
+                    {"sessionId": key, "phase": "ready", "message": _READY_MESSAGE},
+                )
+            if stop.is_set():
+                # El usuario cortó el dictado mientras bajaba el modelo.
+                self._emit("stt.done", {"sessionId": key, "text": ""})
+                return
+            worker = asyncio.ensure_future(
+                asyncio.to_thread(
+                    engine.transcribe_microphone,
+                    language,
+                    None,
+                    stop=stop,
+                    on_line=captured.append,
+                    on_partial=lambda text: partial.__setitem__("text", text),
+                )
+            )
             while not worker.done():
                 await asyncio.sleep(0.15)
                 emitted = self._emit_new_lines(key, captured, emitted)
@@ -314,7 +412,8 @@ class SttManager:
             text = await worker
         except asyncio.CancelledError:
             stop.set()
-            worker.cancel()
+            if worker is not None:
+                worker.cancel()
             raise
         except Exception as exc:  # noqa: BLE001 — un fallo de audio no tumba el bridge
             log.warning("dictado falló: %s", exc)

@@ -14,7 +14,10 @@
       "defaultModel": "default model",
       "browser": "Voice dictation (browser)",
       "checking": "Checking the dictation engine…",
-      "unsupported": "Dictation is not supported on this system"
+      "unsupported": "Dictation is not supported on this system",
+      "loading": "Loading the dictation model…",
+      "downloading": "Downloading the dictation model… {{percent}}%",
+      "ready": "Dictation model ready."
     },
     "send": {
       "title": "Send (Enter)",
