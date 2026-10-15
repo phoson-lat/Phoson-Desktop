@@ -139,6 +139,58 @@ Medido aparte: `list_session_metas` sobre los 144 ficheros (48 252 líneas) = **
 > Medir el cold start en el **build de release** (no en `dev`, que es más lento
 > por StrictMode y sin minificar). Método en §2.
 
+---
+
+## 6. Arranque del sidecar congelado: causa raíz y fix (2026-10-15, macOS arm64)
+
+**Síntoma**: la app abre la ventana en ~1–2 s, pero el primer `initialize` al
+sidecar empaquetado (PyInstaller onefile, 58 MB) tardaba **~10.5 s** en cada
+arranque. En dev (`python -m phoson_bridge`) el mismo arranque cuesta ~0.7 s.
+
+**Diagnóstico** (con `sample` sobre el proceso hijo del bootloader):
+
+- Extracción onefile: ~240 ms (no era el problema).
+- El resto (~10 s) se iba en `dlopen → dyld mapSegments → fcntl`: el kernel de
+  macOS **validando la firma de cada `.so`** (91 libs + Python.framework).
+- El onefile re-extrae copias **nuevas** en `${TMPDIR}/_MEI…` en cada arranque:
+  vnodes nuevos → el kernel revalida todas las firmas cada vez. El trabajo real
+  de importar es ~0.2 s (comprobado: onedir en caliente arranca en 0.19 s).
+- Un onefile mínimo ("hello") tarda ~2.5 s fijos; un onefile de 58 MB con 50 MB
+  de datos inerte, lo mismo: el coste escala con el **número de `.so`**, no con
+  el tamaño del binario.
+
+**Fix**: migrar el sidecar de onefile a **onedir**, empaquetado como
+`bundle.resources` (antes `externalBin`, que exigía un único binario). Los
+archivos quedan dentro del bundle y el kernel cachea la validación por vnode:
+solo el **primer** arranque tras instalar paga el coste.
+
+**Verificación del bundle real** (2026-10-15, `.app` construido con
+`pnpm tauri build --config src-tauri/tauri.release.conf.json`, firma ad-hoc):
+
+| Escenario | `initialize` (spawn → respuesta) |
+|---|---|
+| onefile, cada arranque | ~10.2 s |
+| **onedir, 1.er arranque** (máquina ya "caliente") | ~1.1 s |
+| **onedir, arranques siguientes** | **~0.45 s** |
+| onedir, desde la `.app` real (RPC del front) | ~0.33 s |
+| dev (venv del engine) | ~0.7 s |
+
+> El 1.er arranque medido (~1.1 s) es optimista: esta máquina ya había validado
+> vnodes equivalentes de builds anteriores. En una instalación limpia el primer
+> arranque paga la validación de firmas una única vez (del orden de segundos);
+> todos los siguientes quedan en ~0.4–0.5 s.
+
+**Nota de build (gotcha local)**: si una build anterior de la era onefile dejó
+`src-tauri/target/release/phoson-bridge` como *archivo* (el sidecar onefile de
+`externalBin`), la nueva build falla en `tauri-build` con
+`Not a directory (os error 20)` al copiar los recursos (el árbol onedir quiere
+crear el *directorio* `phoson-bridge/` en esa misma ruta). Solución: borrar ese
+archivo (o `cargo clean`). No ocurre en CI, que siempre parte de un `target/`
+limpio.
+
+Idle del sidecar (engine construido, sin actividad): **178 MB RSS, 0 % CPU**
+(60 s de muestreo) — referencia para valorar alternativas tipo daemon.
+
 ## 5.b Estado de las mejoras de rendimiento
 
 - ✅ `session.list`: caché + single-flight (bridge) → de ~3.2 s × N a ~0 salvo la
