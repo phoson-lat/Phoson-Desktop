@@ -1,0 +1,26 @@
+{
+  "subtitle": "Tu agente autónomo, en el escritorio. Mismo engine y mismos plugins que el <cli>phoson-cli</cli>.",
+  "shortcutHint": "Pulsa <kbd>{{shortcut}}</kbd> para buscar acciones y sesiones",
+  "recent": {
+    "title": "Recientes"
+  },
+  "suggestions": {
+    "engineArchitecture": "Resume la arquitectura de phoson-engine-minimal",
+    "sessionController": "¿Cómo desacopla la UI el SessionController?",
+    "listSessions": "Lista las sesiones guardadas"
+  },
+  "commands": {
+    "model": "Elegir modelo",
+    "sessions": "Listar sesiones",
+    "compact": "Compactar contexto"
+  },
+  "demo": {
+    "user": "Muéstrame una demo de todo lo que sabes renderizar.",
+    "assistant": "# Renderizado enriquecido\n\nEste bloque comprueba **negrita**, *cursiva*, ~~tachado~~, `código inline` y un [enlace](https://phoson.lat).\n\n## Código con resaltado (shiki)\n\n```ts\nconst sink = new GuiSink(sessionKey, emit);\nconst controller = new SessionController(config, sink);\nawait controller.run_turn('hola');\n```\n\n## Diagrama (mermaid)\n\n```mermaid\nflowchart LR\n  UI[WebView] -->|rpc| R[Relay Rust]\n  R -->|stdin| Py[SessionController]\n  Py -->|agent.event| R\n  R -->|phoson://message| UI\n```\n\n## Matemáticas (KaTeX)\n\nInline: $c = \\sum_i t_i \\cdot p_i$. Y en bloque:\n\n$$\\text{ctx}_{libre} = W - \\sum_{i=1}^{n} t_i$$\n\n## Tabla (GFM)\n\n| Pieza | Rol |\n|---|---|\n| `GuiSink` | Eventos del engine |\n| `GuiConfirmation` | Permisos |\n| `SessionManager` | Multi-sesión |\n\n## Lista de tareas\n\n- [x] Markdown GFM\n- [x] LaTeX\n- [x] Mermaid\n- [x] Artifacts HTML\n\n## Artifact HTML\n\n```html\n<div style='padding:14px;border-radius:12px;background:#5b2eff22;border:1px solid #5b2eff55'>\n  <strong>Artifact HTML</strong> — se renderiza aislado y sanitizado (sin scripts ni iframes).\n</div>\n```\n\n> Cita de ejemplo. Todo esto pasa por el mismo `AgentEventSink`.",
+    "genericReply": "Estás en **modo demo** (sin backend).\n\nEnvía `Muéstrame una demo de todo lo que sabes renderizar.` para ver markdown, código, LaTeX, mermaid y artifacts HTML.",
+    "reasoning": "El usuario quiere ver todo lo que la interfaz sabe renderizar: markdown, código, LaTeX, mermaid y artifacts HTML. Voy a preparar un ejemplo completo que recorra cada capacidad, cuidando que el orden de los bloques sea claro y verificable. ",
+    "sttUnavailable": "Dictado no disponible en el modo demo.",
+    "notAFile": "no es un archivo: {{path}}",
+    "readme": "# Proyecto\n\nDemo del **visor** de código.\n\n- resaltado con shiki\n- modo edición\n"
+  }
+}

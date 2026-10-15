@@ -1,0 +1,69 @@
+{
+  "images": {
+    "loading": "Cargando imagen…",
+    "loadFailed": "No se pudo cargar la imagen",
+    "readFailed": "No se pudo leer la imagen",
+    "openFailed": "No se pudo abrir la imagen",
+    "openInSystem": "Abrir en el visor del sistema",
+    "zoomTitle": "{{name}} — ver en grande",
+    "zoomAria": "Ver {{name}} en grande",
+    "zoomDescription": "Vista ampliada de la imagen adjunta",
+    "defaultName": "imagen"
+  },
+  "voice": {
+    "micDenied": "Permiso de micrófono denegado",
+    "noSpeech": "No se detectó voz",
+    "dictationError": "Dictado: {{code}}",
+    "startFailed": "No se pudo iniciar el dictado",
+    "engineFailed": "Fallo de dictado"
+  },
+  "notify": {
+    "turnEnded": "Turno finalizado.",
+    "replyPending": "respuesta pendiente",
+    "replyBody": "El agente espera tu respuesta para continuar.",
+    "errorTag": "error"
+  },
+  "effort": {
+    "auto": "Auto",
+    "low": "Bajo",
+    "medium": "Medio",
+    "high": "Alto",
+    "xhigh": "Muy alto",
+    "max": "Máximo",
+    "title": "Razonamiento",
+    "tip": "Esfuerzo de razonamiento ({{key}})",
+    "autoHint": "Auto — usa el perfil del modelo"
+  },
+  "providers": {
+    "openrouter": {
+      "hint": "Recomendado: cientos de modelos con una sola clave"
+    },
+    "ollama": {
+      "hint": "Local: no necesita clave"
+    },
+    "github": {
+      "hint": "Usa un token personal de GitHub"
+    },
+    "alibaba": {
+      "hint": "Usa una clave de DashScope / Model Studio (Qwen)"
+    },
+    "lmstudio": {
+      "hint": "Local: no necesita clave"
+    },
+    "vllm": {
+      "hint": "Clave opcional si tu servidor no la exige"
+    },
+    "omniroute": {
+      "hint": "Clave opcional según tu despliegue"
+    },
+    "bedrock": {
+      "note": "Usa tus credenciales de AWS (perfil o variables de entorno)"
+    }
+  },
+  "updater": {
+    "none": "No hay actualización pendiente"
+  },
+  "editors": {
+    "noneInstalled": "No se encontró ningún editor instalado"
+  }
+}

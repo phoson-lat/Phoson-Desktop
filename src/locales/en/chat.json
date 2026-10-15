@@ -1,0 +1,142 @@
+{
+  "thinking": "Thinking",
+  "composer": {
+    "placeholder": {
+      "listening": "Listening…",
+      "team": "Write to the team…",
+      "message": "Write a message…  (Enter sends · Shift/Ctrl+Enter for a new line)"
+    },
+    "dropFiles": "Drop the files to attach them",
+    "attachFiles": "Attach files",
+    "voice": {
+      "stop": "Stop dictation",
+      "engine": "Voice dictation ({{detail}})",
+      "defaultModel": "default model",
+      "browser": "Voice dictation (browser)",
+      "checking": "Checking the dictation engine…",
+      "unsupported": "Dictation is not supported on this system"
+    },
+    "send": {
+      "title": "Send (Enter)",
+      "aria": "Send message"
+    },
+    "stop": {
+      "title": "Stop generation (Esc)",
+      "aria": "Stop generation"
+    },
+    "disclaimer": "The agent can run tools. Review sensitive actions."
+  },
+  "message": {
+    "copyUser": "Copy your message",
+    "copyReply": "Copy response",
+    "regenerate": "Regenerate",
+    "turnFailed": "The turn failed",
+    "noDetail": "The engine gave no further detail.",
+    "stoppedByYou": "Stopped by you"
+  },
+  "artifacts": {
+    "labels": {
+      "html": "HTML",
+      "mermaid": "Diagram"
+    },
+    "titles": {
+      "html": "HTML artifact",
+      "mermaid": "Diagram artifact"
+    },
+    "buildingPreview": "Building preview",
+    "htmlPreview": "HTML preview",
+    "openHtml": "Open HTML artifact",
+    "buildingDiagram": "Building diagram",
+    "renderingDiagram": "Rendering diagram",
+    "toggleDiagram": "Diagram",
+    "toggleCode": "Code"
+  },
+  "code": {
+    "copy": "Copy code"
+  },
+  "questions": {
+    "title": "The agent is asking",
+    "multiSelect": "multiple options",
+    "other": "Other…",
+    "answer": "Answer"
+  },
+  "reasoning": {
+    "contextError": "useReasoning must be used inside <Reasoning>",
+    "duration": {
+      "instant": "less than 1 s",
+      "seconds": "{{seconds}} s",
+      "minutes": "{{minutes}} min {{seconds}} s",
+      "moment": "a moment",
+      "label": "Thought for {{duration}}"
+    }
+  },
+  "uploads": {
+    "removeReference": "Remove reference",
+    "removeNamed": "Remove {{name}}",
+    "openInViewer": "Open in the system viewer",
+    "openNamed": "Open {{name}}"
+  },
+  "tools": {
+    "verbs": {
+      "read_file": "reading file",
+      "write_file": "writing file",
+      "patch_file": "editing file",
+      "list_dir": "listing folder",
+      "grep": "searching inside files",
+      "glob": "searching for files",
+      "view_image": "viewing image",
+      "bash": "running command",
+      "skill": "loading skill",
+      "web_search": "searching the web",
+      "web_fetch": "fetching page",
+      "agent": "launching subagent",
+      "agents": "launching subagents",
+      "computer_screenshot": "capturing screen",
+      "computer_move": "moving the cursor",
+      "computer_click": "clicking on screen",
+      "computer_drag": "dragging on screen",
+      "computer_scroll": "scrolling the screen",
+      "computer_type": "typing text",
+      "computer_key": "pressing keys",
+      "computer_wait": "waiting a moment",
+      "run_bg_job": "starting background job",
+      "list_bg_jobs": "listing background jobs",
+      "stop_bg_job": "stopping background job",
+      "wait_bg_jobs": "waiting for background jobs",
+      "ssh_exec": "running over SSH",
+      "ssh_hosts": "listing SSH hosts",
+      "ssh_copy_local_to_remote": "uploading file over SSH",
+      "ssh_copy_remote_to_local": "downloading file over SSH",
+      "memory_read": "reading from memory",
+      "memory_write": "saving to memory",
+      "memory_delete": "deleting from memory",
+      "memory_list": "listing memory",
+      "remember": "remembering",
+      "recall": "recalling memory",
+      "forget": "forgetting",
+      "swarm_create": "creating swarm",
+      "swarm_assign": "assigning task to swarm",
+      "swarm_message": "messaging the swarm",
+      "swarm_status": "checking swarm status",
+      "swarm_collect": "collecting swarm results",
+      "swarm_dissolve": "dissolving swarm",
+      "questions": "asking the user",
+      "transcribe_audio": "transcribing audio",
+      "mcp": "using MCP",
+      "unknown": "using {{name}}"
+    },
+    "writeFile": {
+      "created": "created · full file",
+      "updated": "updated · full file"
+    }
+  },
+  "errors": {
+    "attachFailed": "Could not attach: {{names}}",
+    "turnRun": "Could not run the turn: {{reason}}",
+    "turnCode": "The engine returned “{{code}}”.",
+    "turnNoDetail": "The turn failed with no further detail from the engine.",
+    "undoFailed": "Could not undo the last turn.",
+    "originalFolderMissing": "The original folder for this session no longer exists: the current workspace is used instead.",
+    "engineInit": "could not initialize the engine"
+  }
+}

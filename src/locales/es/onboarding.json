@@ -1,0 +1,86 @@
+{
+  "progress": "Paso {{current}} de {{total}}",
+  "unset": "sin definir",
+  "close": {
+    "title": "Configurar más tarde",
+    "ariaLabel": "Cerrar y configurar más tarde"
+  },
+  "actions": {
+    "skip": "Saltar por ahora",
+    "saveAndContinue": "Guardar y continuar",
+    "start": "Empezar a usar Phoson"
+  },
+  "steps": {
+    "welcome": {
+      "nav": "Bienvenida",
+      "title": "Bienvenido a",
+      "tagline": "El mismo engine y los mismos plugins que el <cli>phoson-cli</cli>, ahora en tu escritorio.",
+      "features": {
+        "providers": {
+          "title": "Tus proveedores",
+          "body": "Conecta OpenAI, Anthropic, OpenRouter… o un modelo local con vLLM."
+        },
+        "skills": {
+          "title": "Agent skills",
+          "body": "Tools, MCP, plugins, sub-agentes y sesiones ramificables."
+        },
+        "storage": {
+          "title": "Todo en ~/.phoson",
+          "body": "La misma configuración y sesiones que el CLI: sin duplicar nada."
+        }
+      }
+    },
+    "provider": {
+      "nav": "Proveedor",
+      "title": "Elige un proveedor",
+      "body": "Tu clave se guarda en <path>~/.phoson/config.toml</path> y nunca se muestra de vuelta.",
+      "keyLabel": "API key de {{provider}}",
+      "keyLink": "obtener",
+      "keyPlaceholderExisting": "•••••••• ya configurada — déjalo vacío",
+      "baseUrlLabel": "Base URL"
+    },
+    "model": {
+      "title": "Elige los modelos",
+      "available_one": "{{count}} modelo disponible en {{provider}}.",
+      "available_other": "{{count}} modelos disponibles en {{provider}}.",
+      "listError": "No se pudo listar el proveedor; escribe el id del modelo.",
+      "loading": "Cargando modelos…",
+      "subagentNote": "El <sub>sub-agente</sub> es el que ejecuta los tools en paralelo.",
+      "target": {
+        "main": "Modelo principal",
+        "sub": "Modelo de sub-agentes"
+      },
+      "search": "Buscar modelo…",
+      "typeId": {
+        "main": "O escribe el id para el modelo principal",
+        "sub": "O escribe el id para los sub-agentes"
+      },
+      "idPlaceholder": "p. ej. anthropic/claude-sonnet-4.5",
+      "summary": {
+        "main": "Principal",
+        "sub": "Sub-agentes"
+      }
+    },
+    "prefs": {
+      "nav": "Preferencias",
+      "title": "Preferencias",
+      "body": "Puedes cambiarlas cuando quieras desde Ajustes.",
+      "theme": {
+        "label": "Tema",
+        "light": "Claro",
+        "dark": "Oscuro",
+        "system": "Sistema"
+      },
+      "safeMode": {
+        "title": "Modo seguro",
+        "body": "Pide confirmación antes de ejecutar comandos (bash) y acciones sensibles.",
+        "on": "activado",
+        "off": "desactivado"
+      }
+    },
+    "done": {
+      "title": "Todo listo",
+      "tryPrompt": "Prueba con <prompt>Muéstrame una demo de todo lo que sabes renderizar.</prompt>"
+    }
+  }
+}

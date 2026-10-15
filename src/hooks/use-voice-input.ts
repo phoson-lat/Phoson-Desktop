@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isTauri, phoson } from "@/bridge/client";
 import type { SttStatus } from "@/bridge/protocol";
+import i18n, { useLocale } from "@/lib/i18n";
+import { speechLocale } from "@/lib/locale";
 
 /** Subconjunto de la Web Speech API que usamos. */
 interface SpeechRecognitionLike {
@@ -27,15 +29,20 @@ const getCtor = (): (new () => SpeechRecognitionLike) | null => {
 };
 
 /**
- * Idioma del dictado: el del sistema, si el motor lo admite.
+ * Idioma del dictado: el de la interfaz, si el motor lo admite.
+ *
+ * `preferred` es una etiqueta BCP-47 (normalmente `speechLocale(locale)`, que ya
+ * respeta la variante de la webview: `es-MX` → `es`). Antes esto miraba
+ * `navigator.language` por su cuenta, con lo que el dictado podía ir en un
+ * idioma distinto al de la interfaz.
  *
  * `null` significa "que decida el sidecar" (su `config.toml` /
  * `PHOSON_STT_LANGUAGE`, o `es`): forzar un idioma que Moonshine no conoce es
- * peor que respetar el configurado. Coincide `es-MX` → `es` y `en-GB` → `en`.
+ * peor que respetar el configurado.
  */
-export const pickSttLanguage = (supported: string[]): string | null => {
+export const pickSttLanguage = (supported: string[], preferred?: string): string | null => {
   if (supported.length === 0) return null;
-  const nav = (typeof navigator === "undefined" ? "" : navigator.language || "").toLowerCase();
+  const nav = (preferred || (typeof navigator === "undefined" ? "" : navigator.language) || "").toLowerCase();
   if (!nav) return null;
   const codes = supported.map((code) => [code, code.toLowerCase()] as const);
   const exact = codes.find(([, key]) => key === nav);
@@ -98,6 +105,14 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   const unsubRef = useRef<(() => void) | null>(null);
   const textRef = useRef(onText);
   textRef.current = onText;
+  /**
+   * Idioma de la interfaz. Va por ref (no por dependencia) para que cambiar de
+   * idioma no vuelva a sondear el motor: basta con que el próximo dictado use
+   * el idioma nuevo.
+   */
+  const [uiLocale] = useLocale();
+  const localeRef = useRef(uiLocale);
+  localeRef.current = uiLocale;
 
   const detach = () => {
     unsubRef.current?.();
@@ -123,7 +138,7 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
       .then((probe: SttStatus) => {
         if (cancelled) return;
         setEngineSupported(probe.supported);
-        const language = pickSttLanguage(probe.languages);
+        const language = pickSttLanguage(probe.languages, speechLocale(localeRef.current));
         languageRef.current = language;
         setEngine({ language: language ?? probe.language ?? null, model: probe.modelName ?? null });
         if (probe.supported) setError(null);
@@ -148,7 +163,7 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
 
   const startWeb = useCallback((Ctor: new () => SpeechRecognitionLike) => {
     const rec = new Ctor();
-    rec.lang = typeof navigator !== "undefined" ? navigator.language || "es-ES" : "es-ES";
+    rec.lang = speechLocale(localeRef.current);
     rec.continuous = true;
     rec.interimResults = true;
 
@@ -166,12 +181,14 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
     };
     rec.onerror = (event) => {
       const code = event?.error ?? "error";
+      // Avisos que pinta el compositor (línea de aviso): se resuelven al fallar,
+      // con el idioma activo entonces (`i18n.t`, no un hook: esto es un callback).
       setError(
         code === "not-allowed" || code === "service-not-allowed"
-          ? "Permiso de micrófono denegado"
+          ? i18n.t("system:voice.micDenied")
           : code === "no-speech"
-            ? "No se detectó voz"
-            : `Dictado: ${code}`,
+            ? i18n.t("system:voice.noSpeech")
+            : i18n.t("system:voice.dictationError", { code }),
       );
       setListening(false);
     };
@@ -201,7 +218,7 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
       } else if (envelope.method === "stt.progress") {
         setStatus(params.message ?? null);
       } else if (envelope.method === "stt.error") {
-        setError(params.message ?? "Fallo de dictado");
+        setError(params.message ?? i18n.t("system:voice.engineFailed"));
         setStatus(null);
         setListening(false);
         detach();
@@ -213,7 +230,7 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
     });
     const result = await phoson.sttStart(sessionId, languageRef.current ?? undefined);
     if (!result.ok) {
-      setError(result.reason ?? "No se pudo iniciar el dictado");
+      setError(result.reason ?? i18n.t("system:voice.startFailed"));
       setStatus(null);
       detach();
       return;
@@ -257,9 +274,11 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
       return;
     }
     setError(
+      // Mismo mensaje que el título del botón (`chat:composer.voice.*`): se
+      // reutiliza la clave en vez de duplicar el texto en dos catálogos.
       checking
-        ? "Comprobando el motor de dictado…"
-        : "Este sistema no soporta dictado por voz",
+        ? i18n.t("chat:composer.voice.checking")
+        : i18n.t("chat:composer.voice.unsupported"),
     );
   }, [engineSupported, checking, startWeb, startEngine]);
 

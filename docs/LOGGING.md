@@ -42,7 +42,6 @@ Una línea por evento:
 | `app.start` / `app.ready`     | app    | arranque y app lista                       |
 | `ui.click` / `ui.key`         | dom    | interacción del usuario (nivel `debug`)    |
 | `ui.change`                   | dom    | cambio en un input (valor truncado)        |
-| `ui.section`                  | app    | cambio de sección (chat/swarm)             |
 | `attach.drop` / `attach.add`  | app    | arrastrar/adjuntar archivos                |
 | `turn.send` / `turn.done`     | app/engine | turno enviado y terminado (con duración y tools) |
 | `turn.cancel` / `turn.regenerate` | app | control del turno                       |

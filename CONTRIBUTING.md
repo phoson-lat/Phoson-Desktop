@@ -46,9 +46,11 @@ the mic button tooltip):
 `PHOSON_STT_MODEL_ARCH` takes a name (`tiny`, `base`, `tiny-streaming`,
 `base-streaming`, `small-streaming`, `medium-streaming`) or its number (0–5);
 a bad value leaves dictation disabled with a message that says what to fix.
-The language the UI sends on `stt.start` wins over all three, so the app follows
-the interface language (`es-MX` → `es`); if it maps to nothing Moonshine knows,
-the configured language is used instead.
+The language the UI sends on `stt.start` wins over all three, so dictation
+follows the **interface language** — the one resolved in `src/lib/locale.ts`
+(your choice in Settings → Appearance, else the OS/webview, see
+[Localization](#localization-i18n)); `es-MX` → `es`. If it maps to nothing
+Moonshine knows, the configured language is used instead.
 
 Two mic-free diagnostics, useful on a packaged build:
 
@@ -86,12 +88,73 @@ scripts/build-sidecar.sh        # PyInstaller onedir → src-tauri/binaries/phos
 
 ```bash
 pnpm build                    # tsc + vite build
+pnpm check:i18n               # locale parity + untranslated UI strings
 cd src-tauri && cargo check && cd ..
 python -m py_compile bridge/phoson_bridge/*.py
 python bridge/tests/smoke.py            # y el resto de bridge/tests/*.py
 ```
 
 CI (`.github/workflows/ci.yml`) runs these on every push/PR.
+
+## Localization (i18n)
+
+The UI runs on `i18next` + `react-i18next`. **`src/locales/es/*.json` is the
+source of truth**; `en/` mirrors it key by key.
+
+- **Where keys live** — one JSON file per namespace (`common`, `chrome`, `chat`,
+  `welcome`, `onboarding`, `palette`, `settings`, `system`, `tools`) under
+  `src/locales/<locale>/`. `src/locales/<locale>/index.ts` aggregates them and
+  `src/lib/i18n.ts` bundles every namespace: no backend, no lazy loading, so
+  `t()` is synchronous and no component paints a raw key for a frame.
+- **In components** — `const { t } = useTranslation("settings")` picks the
+  namespace, `t("appearance.language")` the key. Plurals use the i18next v4
+  suffixes with a `count` (`t("x.files", { count })` → `files_one` /
+  `files_other`).
+- **Typed keys** — `src/i18n.d.ts` derives the key union from the `es` tree, so a
+  typo'd key or a wrong namespace is a **`tsc` error**, never a raw string in the
+  UI. `en` is deliberately untyped; the script below checks its parity.
+- **Language resolution** (`src/lib/locale.ts`) — an explicit choice in
+  `localStorage` (`phoson.locale`, set from **Settings → Appearance**) always
+  wins; otherwise the OS locale (`system_locale` Rust command), then
+  `navigator.languages`, then `en`. The OS step is not redundant: on macOS the
+  webview of an unlocalized app reports `en` even on a Spanish Mac. The resolved
+  locale also drives `<html lang>` and the dictation tag (`speechLocale`: Web
+  Speech `lang` and the sidecar's `stt.start`), which never falls back to a
+  *different* language — dictating in the wrong one transcribes gibberish.
+- **Native labels** — the tray menu and its notice are drawn by Rust, where
+  i18next cannot reach; `src/lib/native-labels.ts` pushes the translated labels
+  through `set_native_labels` and re-syncs on `languageChanged`.
+
+```bash
+pnpm check:i18n             # key parity + placeholders + leftover Spanish
+pnpm check:i18n -- --list   # also prints every suspicious literal
+```
+
+`scripts/check-i18n.mjs` **fails** (exit 1) when a namespace file is missing on
+one side, when `en` lacks a key that `es` has (or carries an extra one), or when
+an interpolation placeholder differs between the two languages — the last one
+leaves a sentence lopsided in runtime and typing cannot see it. Plural suffixes
+are folded into one logical key (`foo_one` / `foo_other` → `foo_#`), so adding a
+plural form does not read as a new key.
+
+It also *warns* about Spanish-looking literals left in the JSX, with two
+intentional escapes:
+
+- comments and diagnostic logs (`console.*`, `logError`, `logWarn`, `logInfo`,
+  `logDebug`) are skipped — those are in **Spanish** by convention;
+- a line that must stay as it is gets an `i18n-ignore: <reason>` comment (a
+  language name is written in its own language):
+
+  ```tsx
+  { id: "es", label: "Español" }, // i18n-ignore: cada idioma en su idioma
+  ```
+
+**Adding a language** touches, in order: `src/locales/<lng>/` (copy `es/`,
+translate, `index.ts` included), the `resources` map in `src/lib/i18n.ts`,
+`SUPPORTED_LOCALES` / `htmlLang` / `SPEECH_TAGS` in `src/lib/locale.ts`,
+`LOCALE_DIRS` in `scripts/check-i18n.mjs`, and the options in the language
+selector of `src/features/settings-dialog.tsx`. Rust needs no change: it reports
+the OS locale and renders whatever labels the UI hands it.
 
 ## Style
 

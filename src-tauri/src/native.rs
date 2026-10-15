@@ -3,10 +3,88 @@
 //! sistema (tray) en Windows.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{LazyLock, RwLock};
 
-use tauri::{AppHandle, Manager};
+use serde::Deserialize;
+use tauri::menu::{Menu, MenuItem};
+use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
+
+/// Textos que la bandeja y las notificaciones nativas pintan **fuera** de la
+/// webview, donde el i18n del front no llega.
+///
+/// El front los manda ya traducidos (`set_native_labels`) al arrancar y en cada
+/// cambio de idioma. Los valores por defecto son el español con el que se
+/// escribió la app: si el front falla o tarda, el menú nunca queda vacío.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeLabels {
+    pub tray_show: String,
+    pub tray_hide: String,
+    pub tray_quit: String,
+    pub tooltip: String,
+    pub notice_title: String,
+    pub notice_body: String,
+}
+
+impl Default for NativeLabels {
+    fn default() -> Self {
+        Self {
+            tray_show: "Mostrar Phoson".into(),
+            tray_hide: "Enviar a la bandeja".into(),
+            tray_quit: "Salir de Phoson".into(),
+            tooltip: "Phoson Desktop".into(),
+            notice_title: "Phoson sigue en la bandeja".into(),
+            notice_body:
+                "El agente sigue ejecutándose. Haz clic en el icono de la bandeja para volver."
+                    .into(),
+        }
+    }
+}
+
+static LABELS: LazyLock<RwLock<NativeLabels>> = LazyLock::new(|| RwLock::new(NativeLabels::default()));
+
+/// Copia de las etiquetas activas (para el aviso de bandeja, que se dispara
+/// desde Rust y no puede pedírselas al front).
+pub fn labels() -> NativeLabels {
+    LABELS.read().map(|l| l.clone()).unwrap_or_default()
+}
+
+/// Menú de la bandeja con las etiquetas dadas. Se reconstruye entero al cambiar
+/// de idioma (`TrayIcon::set_menu`) en vez de mutar cada item: es más simple y
+/// no obliga a guardar los handles.
+pub fn build_tray_menu(handle: &AppHandle, l: &NativeLabels) -> tauri::Result<Menu<Wry>> {
+    let show = MenuItem::with_id(handle, "show", &l.tray_show, true, None::<&str>)?;
+    let hide = MenuItem::with_id(handle, "hide", &l.tray_hide, true, None::<&str>)?;
+    let quit = MenuItem::with_id(handle, "quit", &l.tray_quit, true, None::<&str>)?;
+    Menu::with_items(handle, &[&show, &hide, &quit])
+}
+
+/// Idioma del sistema operativo (`sys-locale`: preferencias en macOS, idioma de
+/// la UI en Windows, `LC_*` en Linux) o `None` si no se puede determinar.
+///
+/// Hace falta porque en macOS la webview **no** hereda el idioma del sistema si
+/// el bundle no está localizado: `navigator.language` devuelve `en` aunque el
+/// Mac esté en español. El front lo consulta antes que a la webview.
+#[tauri::command]
+pub fn system_locale() -> Option<String> {
+    sys_locale::get_locale()
+}
+
+/// Aplica las etiquetas nativas traducidas (menú de bandeja, tooltip y aviso).
+#[tauri::command]
+pub fn set_native_labels(app: AppHandle, labels: NativeLabels) {
+    if let Ok(mut current) = LABELS.write() {
+        *current = labels.clone();
+    }
+    if let Some(tray) = app.tray_by_id("main") {
+        if let Ok(menu) = build_tray_menu(&app, &labels) {
+            let _ = tray.set_menu(Some(menu));
+        }
+        let _ = tray.set_tooltip(Some(labels.tooltip.as_str()));
+    }
+}
 
 /// Si `true`, cerrar la ventana oculta a la bandeja en vez de salir.
 /// Lo fija el front (`set_close_to_tray`) según la preferencia del usuario.
@@ -34,11 +112,12 @@ pub fn hide_main_window(app: &AppHandle) {
         let _ = window.hide();
     }
     if !TRAY_HINT_SHOWN.swap(true, Ordering::Relaxed) {
+        let l = labels();
         let _ = app
             .notification()
             .builder()
-            .title("Phoson sigue en la bandeja")
-            .body("El agente sigue ejecutándose. Haz clic en el icono de la bandeja para volver.")
+            .title(l.notice_title)
+            .body(l.notice_body)
             .show();
     }
 }

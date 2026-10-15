@@ -14,6 +14,7 @@
  */
 
 import { Brain, ChevronDown } from "lucide-react";
+import type { TFunction } from "i18next";
 import {
   createContext,
   useContext,
@@ -23,9 +24,11 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
+import i18n from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /** Barrido de brillo sobre el texto (reutiliza el keyframe global). */
@@ -51,15 +54,24 @@ const ReasoningContext = createContext<ReasoningContextValue | null>(null);
 
 export function useReasoning(): ReasoningContextValue {
   const ctx = useContext(ReasoningContext);
-  if (!ctx) throw new Error("useReasoning debe usarse dentro de <Reasoning>");
+  // Error de programación, no de usuario: el literal vive en el catálogo para no
+  // dejar texto en español suelto en el módulo.
+  if (!ctx) throw new Error(i18n.t("chat:reasoning.contextError"));
   return ctx;
 }
 
-const formatDuration = (seconds: number): string => {
-  if (seconds < 1) return "menos de 1 s";
-  if (seconds < 60) return `${Math.round(seconds)} s`;
+/**
+ * Duración legible («menos de 1 s», «42 s», «2 min 5 s»). El formato va en el
+ * catálogo: aquí solo se elige la clave según el tramo.
+ */
+const formatDuration = (seconds: number, t: TFunction<"chat">): string => {
+  if (seconds < 1) return t("reasoning.duration.instant");
+  if (seconds < 60) return t("reasoning.duration.seconds", { seconds: Math.round(seconds) });
   const minutes = Math.floor(seconds / 60);
-  return `${minutes} min ${Math.round(seconds % 60)} s`;
+  return t("reasoning.duration.minutes", {
+    minutes,
+    seconds: Math.round(seconds % 60),
+  });
 };
 
 interface ReasoningProps {
@@ -148,6 +160,7 @@ export function Reasoning({
 }
 
 export function ReasoningTrigger({ className }: { className?: string }) {
+  const { t } = useTranslation("chat");
   const { isStreaming, isOpen, duration } = useReasoning();
   const done = !isStreaming && duration != null;
 
@@ -170,7 +183,7 @@ export function ReasoningTrigger({ className }: { className?: string }) {
         <span className="flex items-center font-medium">
           {isStreaming ? (
             <>
-              <span style={shimmerTextStyle}>Pensando</span>
+              <span style={shimmerTextStyle}>{t("thinking")}</span>
               <span className="phoson-dots ml-0.5 flex text-violet" aria-hidden>
                 <span>.</span>
                 <span>.</span>
@@ -178,7 +191,9 @@ export function ReasoningTrigger({ className }: { className?: string }) {
               </span>
             </>
           ) : (
-            <>Razonó durante {done ? formatDuration(duration!) : "un momento"}</>
+            t("reasoning.duration.label", {
+              duration: done ? formatDuration(duration!, t) : t("reasoning.duration.moment"),
+            })
           )}
         </span>
         <ChevronDown

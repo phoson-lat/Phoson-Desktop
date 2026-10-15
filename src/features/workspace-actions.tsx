@@ -1,5 +1,6 @@
 import { ChevronDown, CodeXml, SquareTerminal } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri } from "@/bridge/client";
@@ -46,6 +47,8 @@ const headerButton =
  * tiene FS).
  */
 export function WorkspaceActions({ workspace }: WorkspaceActionsProps) {
+  // `common` entra en el array para poder reutilizar sus claves (`common:…`).
+  const { t } = useTranslation(["chrome", "common"]);
   /** Editores detectados al montar. */
   const [editors, setEditors] = useState<EditorInfo[] | null>(null);
   /** Gestor de archivos del SO (icono + nombre del botón de carpeta). */
@@ -71,12 +74,12 @@ export function WorkspaceActions({ workspace }: WorkspaceActionsProps) {
 
   const reveal = () =>
     openFolder(workspace).catch((e) =>
-      toast.error("No se pudo abrir la carpeta", { description: String(e) }),
+      toast.error(t("workspace.openFolderError"), { description: String(e) }),
     );
 
   const terminal = () =>
     openTerminal(workspace).catch((e) =>
-      toast.error("No se pudo abrir la terminal", { description: String(e) }),
+      toast.error(t("workspace.openTerminalError"), { description: String(e) }),
     );
 
   const openEditor = (editor: EditorInfo, remember = false) => {
@@ -85,7 +88,8 @@ export function WorkspaceActions({ workspace }: WorkspaceActionsProps) {
       setPreferredEditorId(editor.id);
     }
     openInEditor(editor.id, workspace).catch((e) =>
-      toast.error(`No se pudo abrir ${editor.name}`, { description: String(e) }),
+      // El nombre del editor es una marca (VS Code, Zed…): va como placeholder.
+      toast.error(t("workspace.openEditorError", { editor: editor.name }), { description: String(e) }),
     );
   };
 
@@ -94,18 +98,20 @@ export function WorkspaceActions({ workspace }: WorkspaceActionsProps) {
   // Nombre corto para la cabecera: "Explorador de archivos" no cabe; el
   // tooltip conserva el nombre completo.
   const fmShort = fm?.id === "windows" ? "Explorer" : (fm?.name ?? null);
+  // Si el SO no reporta gestor de archivos, el tooltip usa un nombre genérico.
+  const fmTitle = fm?.name ?? t("workspace.fileManagerFallback");
 
   return (
     <div className="flex shrink-0 items-center gap-1">
       <span className="hidden text-[0.68rem] text-foreground/60 xl:inline dark:text-muted-foreground">
-        Abrir en
+        {t("workspace.openInGroup")}
       </span>
 
       <button
         className={cn(headerButton, "h-7 gap-1.5 px-1.5")}
         onClick={reveal}
-        title={`Abrir en ${fm?.name ?? "el gestor de archivos"}`}
-        aria-label={`Abrir en ${fm?.name ?? "el gestor de archivos"}`}
+        title={t("workspace.openInTarget", { target: fmTitle })}
+        aria-label={t("workspace.openInTarget", { target: fmTitle })}
       >
         <BrandLogo id={fm?.id ?? ""} size={15} />
         {fmShort && <span className="hidden text-[0.68rem] xl:inline">{fmShort}</span>}
@@ -114,11 +120,11 @@ export function WorkspaceActions({ workspace }: WorkspaceActionsProps) {
       <button
         className={cn(headerButton, "h-7 gap-1.5 px-1.5")}
         onClick={terminal}
-        title="Abrir una terminal aquí"
-        aria-label="Abrir una terminal aquí"
+        title={t("workspace.openTerminalHere")}
+        aria-label={t("workspace.openTerminalHere")}
       >
         <SquareTerminal className="size-[0.95rem]" />
-        <span className="hidden text-[0.68rem] xl:inline">Terminal</span>
+        <span className="hidden text-[0.68rem] xl:inline">{t("workspace.terminalLabel")}</span>
       </button>
 
       <div className="flex items-center">
@@ -126,8 +132,8 @@ export function WorkspaceActions({ workspace }: WorkspaceActionsProps) {
           className={cn(headerButton, "h-7 gap-1.5 rounded-r-none pl-1.5 pr-1")}
           onClick={primary ? () => openEditor(primary) : undefined}
           disabled={!primary}
-          title={primary ? `Abrir en ${primary.name}` : "No se encontraron editores"}
-          aria-label={primary ? `Abrir en ${primary.name}` : "No se encontraron editores"}
+          title={primary ? t("workspace.openInTarget", { target: primary.name }) : t("workspace.editors.none")}
+          aria-label={primary ? t("workspace.openInTarget", { target: primary.name }) : t("workspace.editors.none")}
         >
           {primary ? <BrandLogo id={primary.id} size={15} /> : <CodeXml className="size-4" />}
           {primary && <span className="hidden text-[0.68rem] xl:inline">{primary.name}</span>}
@@ -137,21 +143,21 @@ export function WorkspaceActions({ workspace }: WorkspaceActionsProps) {
           <DropdownMenuTrigger asChild>
             <button
               className={cn(headerButton, "h-7 rounded-l-none px-1")}
-              title="Elegir editor…"
-              aria-label="Elegir editor"
+              title={t("workspace.editors.choose")}
+              aria-label={t("workspace.editors.chooseA11y")}
             >
               <ChevronDown className="size-3" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel>Abrir en…</DropdownMenuLabel>
+            <DropdownMenuLabel>{t("workspace.editors.openInMenu")}</DropdownMenuLabel>
             {editors === null ? (
               <DropdownMenuItem disabled className="text-muted-foreground">
-                Detectando editores…
+                {t("workspace.editors.detecting")}
               </DropdownMenuItem>
             ) : editors.length === 0 ? (
               <DropdownMenuItem disabled className="text-muted-foreground">
-                No se encontraron editores
+                {t("workspace.editors.none")}
               </DropdownMenuItem>
             ) : (
               editors.map((editor) => (
@@ -163,7 +169,9 @@ export function WorkspaceActions({ workspace }: WorkspaceActionsProps) {
                   <BrandLogo id={editor.id} size={15} />
                   <span className="min-w-0 flex-1 truncate">{editor.name}</span>
                   {editor.id === primary?.id && (
-                    <span className="text-[0.62rem] text-muted-foreground">predeterminado</span>
+                    <span className="text-[0.62rem] text-muted-foreground">
+                      {t("workspace.editors.default")}
+                    </span>
                   )}
                 </DropdownMenuItem>
               ))

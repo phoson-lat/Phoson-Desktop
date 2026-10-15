@@ -16,6 +16,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { record } from "@/lib/perf";
 import { logEvent } from "@/lib/log";
 import { basenameOf } from "@/lib/files";
+import i18n from "@/lib/i18n";
 
 import type {
   Attachment,
@@ -33,12 +34,7 @@ import type {
   SttStartResult,
   Json,
 } from "./protocol";
-import { DEMO_ASSISTANT, DEMO_USER } from "../lib/demo-content";
-
-const GENERIC_REPLY =
-  "Estás en **modo demo** (sin backend).\n\n" +
-  "Envía `Muéstrame una demo de todo lo que sabes renderizar.` para ver " +
-  "markdown, código, LaTeX, mermaid y artifacts HTML.";
+import { demoAssistant, demoUser } from "../lib/demo-content";
 
 export interface Bridge {
   rpc<T = Json>(method: string, params?: Json, workspace?: string | null): Promise<T>;
@@ -143,9 +139,9 @@ class MockBridge implements Bridge {
             maskedCount: 70,
           },
           commands: [
-            { names: ["/model"], help: "Elegir modelo" },
-            { names: ["/sessions"], help: "Listar sesiones" },
-            { names: ["/compact"], help: "Compactar contexto" },
+            { names: ["/model"], help: i18n.t("welcome:commands.model") },
+            { names: ["/sessions"], help: i18n.t("welcome:commands.sessions") },
+            { names: ["/compact"], help: i18n.t("welcome:commands.compact") },
           ],
           defaultSessionId: "demo",
           onboarding: {
@@ -212,8 +208,12 @@ class MockBridge implements Bridge {
         return { cwd: MOCK_CWD } as unknown as T;
       case "fs.read": {
         const path = String(p.path);
-        const text = MOCK_FILES[path];
-        if (text === undefined) throw new Error(`no es un archivo: ${path}`);
+        const entry = MOCK_FILES[path];
+        if (entry === undefined) throw new Error(i18n.t("welcome:demo.notAFile", { path }));
+        // Las entradas perezosas (prosa de UI) se resuelven aquí, con el idioma
+        // activo en el momento de leer: al importar el módulo i18next todavía no
+        // tiene idioma y saldría la clave cruda.
+        const text = typeof entry === "function" ? entry() : entry;
         return {
           path,
           binary: false,
@@ -229,7 +229,9 @@ class MockBridge implements Bridge {
         // Modo demo: no hay sistema de archivos, se devuelve un SVG generado
         // (así las previsualizaciones tienen algo que pintar).
         const path = String(p.path);
-        const name = (path.split(/[\\/]/).pop() ?? "imagen").replace(/[^\x20-\x7E]/g, "?");
+        // El nombre por defecto se pinta dentro del SVG: es texto de UI.
+        const fallback = i18n.t("system:images.defaultName");
+        const name = (path.split(/[\\/]/).pop() ?? fallback).replace(/[^\x20-\x7E]/g, "?");
         const svg =
           `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240">` +
           `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
@@ -263,10 +265,10 @@ class MockBridge implements Bridge {
           listening: false,
           language: null,
           languages: [],
-          reason: "Dictado no disponible en el modo demo.",
+          reason: i18n.t("welcome:demo.sttUnavailable"),
         } as unknown as T;
       case "stt.start":
-        return { ok: false, supported: false, reason: "Dictado no disponible en el modo demo." } as unknown as T;
+        return { ok: false, supported: false, reason: i18n.t("welcome:demo.sttUnavailable") } as unknown as T;
       case "stt.stop":
         return { ok: true } as unknown as T;
       case "mcp.get":
@@ -385,13 +387,13 @@ class MockBridge implements Bridge {
 
   /**
    * Emula un turno streamando token a token. Si el prompt es el detonante de la
-   * demo (o menciona "demo"), streamea `DEMO_ASSISTANT` completo.
+   * demo (o menciona "demo"), streamea el markdown de `demoAssistant()` completo.
    */
   private simulateTurn(sessionId: string, text: string) {
     const normalized = text.trim().toLowerCase();
     const isDemo =
-      normalized === DEMO_USER.toLowerCase() || normalized.includes("demo");
-    const reply = isDemo ? DEMO_ASSISTANT : GENERIC_REPLY;
+      normalized === demoUser().toLowerCase() || normalized.includes("demo");
+    const reply = isDemo ? demoAssistant() : i18n.t("welcome:demo.genericReply");
 
     const ev = (event: Record<string, unknown>) =>
       this.emit("agent.event", { sessionId, event });
@@ -402,9 +404,7 @@ class MockBridge implements Bridge {
 
     // Razonamiento simulado (solo en la demo): hace visible el bloque "Reasoning"
     // y su indicador de "Pensando…" antes de que empiece el texto.
-    const thoughts = isDemo
-      ? "El usuario quiere ver todo lo que la interfaz sabe renderizar: markdown, código, LaTeX, mermaid y artifacts HTML. Voy a preparar un ejemplo completo que recorra cada capacidad, cuidando que el orden de los bloques sea claro y verificable. "
-      : "";
+    const thoughts = isDemo ? i18n.t("welcome:demo.reasoning") : "";
     let reasoningAt = 140;
     if (thoughts) {
       for (const chunk of thoughts.match(/.{1,18}/g) ?? []) {
@@ -511,12 +511,19 @@ const attachmentKindOf = (name: string): string | null => {
 
 let MOCK_CWD = "/home/me/proyecto";
 
-/** Contenido de archivos para el visor en modo demo. */
-const MOCK_FILES: Record<string, string> = {
+/**
+ * Contenido de archivos para el visor en modo demo.
+ *
+ * Una entrada puede ser una función: se resuelve **al leer** el archivo, con el
+ * idioma activo en ese momento. Hace falta para la prosa de UI (el README), que
+ * no puede resolverse al importar el módulo: i18next todavía no tiene idioma y
+ * lo que se guardaría es la clave cruda.
+ */
+const MOCK_FILES: Record<string, string | (() => string)> = {
   "/home/me/proyecto/package.json":
     '{\n  "name": "proyecto",\n  "version": "1.0.0",\n  "private": true\n}\n',
-  "/home/me/proyecto/README.md":
-    "# Proyecto\n\nDemo del **visor** de código.\n\n- resaltado con shiki\n- modo edición\n",
+  // El README lo pinta el visor de código, así que su prosa es UI traducible.
+  "/home/me/proyecto/README.md": () => i18n.t("welcome:demo.readme"),
   "/home/me/proyecto/vite.config.ts":
     'import { defineConfig } from "vite";\n\nexport default defineConfig({\n  server: { port: 1420 },\n});\n',
   "/home/me/proyecto/src/App.tsx":

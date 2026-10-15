@@ -81,30 +81,24 @@ core has no UI dependency, so the desktop app is a new *sink*, not a fork.
   its own tools.
 - **Voice dictation** — Web Speech API when available (Chromium/WebView2), or the
   engine's offline STT plugin (Moonshine) on WebKitGTK/WKWebView, via the sidecar.
+- **Interface in Spanish or English** — `i18next`; the language follows your
+  choice in **Settings → Appearance**, else the OS locale, else the webview, else
+  English. Native labels (tray menu and notice) are translated too, and dictation
+  follows the same language.
 - **Command palette** (`Ctrl/⌘+K`) — new session, undo turn, compact context,
   copy/export conversation, change theme, restart the project engine, and search
   sessions. **Reasoning effort** quick picker on `Ctrl/⌘+E`.
 - **Sub-agent progress** panel, context-window meter, model/provider pickers, MCP
   settings, first-run onboarding.
-- **Agent swarms** — define a team as a tree (a **master** plus specialised roles,
-  each with its own purpose, tool allowlist, model and token budget) and launch it:
-  the master creates the swarm through the engine's own `swarm_*` tools and
-  delegates. A **Messages** panel reconstructs the inter-agent traffic, with
-  `swarm_message` rendered as `@sender → @recipient` and `@` mentions highlighted.
-  Note the engine semantics: members are handed no messaging tools, so the master
-  is the only router and a message is delivered to the recipient's inbox on its
-  **next run** — it is routing, not live chat. The tree is **live**: each node
-  reflects its role's state (idle / assigned / messaged / running / error) derived
-  from the session's `swarm_*` tool calls, and an **Executions** tab keeps the
-  history of every launch (mission, time and the conversation it ran in). The
-  **Messages** panel also hosts a composer so you can write to the team: `@role`
-  routes the message to those members (the master is asked to pause them and
-  deliver it), while a message with no mention goes to the master/orchestrator.
-  The tree is drawn as an **editable graph** where each connection means
-  **bidirectional communication**: drag between a role's handles to connect or
-  disconnect it, and add roles with the floating **+** button (a modal). That
-  graph is **design-only** for now — the engine still routes through the master —
-  see `ENGINE_GAPS.md` (G1/G2).
+- **Agent swarms** — *not shipped in the UI yet.* The swarm workbench (editable
+  role tree, live node state, inter-agent **Messages** panel and **Executions**
+  history) still lives in `src/features/swarm/`, but it is **unreachable**: the
+  sidebar entry, the palette command and the `?swarm=1` deep link were removed
+  while the multi-agent orchestration is finished, so there is no entry point in
+  the app. The engine keeps shipping the `swarm_*` tools and their semantics —
+  members are handed no messaging tools, so the master is the only router and a
+  message is delivered to the recipient's inbox on its **next run** — and the
+  graph is still design-only (`ENGINE_GAPS.md`, G1/G2).
 - **Updates** — Tauri updater with a signed static feed.
 
 ## Requirements
@@ -160,13 +154,16 @@ The bundled sidecar ships the engine plugins `bgjobs`, `monitor`, `checkpoint`,
 
 ```
 src/            React app: stores, features, components, bridge client
+src/locales/    UI translations (es = source, en mirrors it) — see CONTRIBUTING
 src-tauri/      Rust shell: JSON-RPC transport, native commands, bundle config
 bridge/         Python sidecar (phoson_bridge) + PyInstaller spec
-scripts/        Tooling (sidecar build, icon generation)
+scripts/        Tooling (sidecar build, icon generation, i18n check)
 ```
 
 ## Documentation
 
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, PR checks and
+  [localization workflow](CONTRIBUTING.md#localization-i18n)
 - [`PLAN.md`](PLAN.md) — architecture plan and integration points
 - [`PROTOTYPE.md`](PROTOTYPE.md) — prototype notes
 - [`DISTRIBUTION.md`](DISTRIBUTION.md) — packaging, signing and updates

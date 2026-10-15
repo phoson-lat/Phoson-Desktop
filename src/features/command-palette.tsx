@@ -14,11 +14,11 @@ import {
   Settings,
   Sun,
   Undo2,
-  Users,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, killSidecar, phoson } from "@/bridge/client";
@@ -40,7 +40,6 @@ import { useSession, messageText } from "@/stores/session";
 interface CommandPaletteProps {
   onOpenSettings: () => void;
   onToggleExplorer: () => void;
-  onOpenSwarm: () => void;
 }
 
 /**
@@ -48,11 +47,9 @@ interface CommandPaletteProps {
  * atajo que antes solo enfocaba el buscador de la barra lateral, pero ahora lo
  * incluye (buscar y abrir sesiones) junto a acciones de uso frecuente.
  */
-export function CommandPalette({
-  onOpenSettings,
-  onToggleExplorer,
-  onOpenSwarm,
-}: CommandPaletteProps) {
+export function CommandPalette({ onOpenSettings, onToggleExplorer }: CommandPaletteProps) {
+  // `common` entra en el array para reutilizar su etiqueta «Enviar a la bandeja».
+  const { t } = useTranslation(["palette", "common"]);
   const [open, setOpen] = useState(false);
   const [saved, setSaved] = useState<SessionMeta[]>([]);
   const [candidates, setCandidates] = useState<Array<{ userNodeId: string; preview: string }>>([]);
@@ -110,7 +107,7 @@ export function CommandPalette({
   const conversation = view
     ? view.messages
         .map((m) =>
-          m.role === "user" ? `**Tú:** ${m.text}` : messageText(m),
+          m.role === "user" ? t("conversation.userTurn", { text: m.text }) : messageText(m),
         )
         .filter(Boolean)
         .join("\n\n")
@@ -118,18 +115,18 @@ export function CommandPalette({
 
   const copyConversation = () => {
     if (!conversation) {
-      toast.warning("No hay conversación que copiar");
+      toast.warning(t("toast.nothingToCopy"));
       return;
     }
     void navigator.clipboard
       .writeText(conversation)
-      .then(() => toast.success("Conversación copiada (Markdown)"))
-      .catch((e) => toast.error("No se pudo copiar", { description: String(e) }));
+      .then(() => toast.success(t("toast.copied")))
+      .catch((e) => toast.error(t("toast.copyError"), { description: String(e) }));
   };
 
   const exportConversation = async () => {
     if (!conversation) {
-      toast.warning("No hay conversación que exportar");
+      toast.warning(t("toast.nothingToExport"));
       return;
     }
     // Fuera de Tauri (demo) no hay diálogo nativo: al portapapeles.
@@ -139,14 +136,14 @@ export function CommandPalette({
     }
     try {
       const path = await save({
-        defaultPath: "conversacion.md",
+        defaultPath: t("export.defaultFileName"),
         filters: [{ name: "Markdown", extensions: ["md"] }],
       });
       if (!path) return; // cancelado
       await phoson.fsWrite(path, conversation);
-      toast.success("Conversación exportada", { description: path });
+      toast.success(t("toast.exported"), { description: path });
     } catch (e) {
-      toast.error("No se pudo exportar", { description: String(e) });
+      toast.error(t("toast.exportError"), { description: String(e) });
     }
   };
 
@@ -157,118 +154,119 @@ export function CommandPalette({
     <CommandDialog
       open={open}
       onOpenChange={setOpen}
-      title="Comandos"
-      description="Busca una acción o una sesión"
+      title={t("dialog.title")}
+      description={t("dialog.description")}
     >
-      <CommandInput placeholder="Busca una acción o una sesión…" />
+      <CommandInput placeholder={t("input.placeholder")} />
       <CommandList>
-        <CommandEmpty>Sin resultados.</CommandEmpty>
+        <CommandEmpty>{t("empty")}</CommandEmpty>
 
-        <CommandGroup heading="Acciones">
-          <CommandItem value="nueva sesion new chat" onSelect={() => run(() => void newSession())}>
-            <Plus /> Nueva sesión
+        <CommandGroup heading={t("groups.actions")}>
+          <CommandItem value={t("keywords.newSession")} onSelect={() => run(() => void newSession())}>
+            <Plus /> {t("commands.newSession")}
           </CommandItem>
           <CommandItem
-            value="swarm agentes multiagente equipo roles maestros arbol proximamente"
-            onSelect={() => run(onOpenSwarm)}
-          >
-            <Users /> Swarms de agentes · próximamente
-          </CommandItem>
-          <CommandItem
-            value="deshacer undo ultimo turno"
+            value={t("keywords.undoLastTurn")}
             onSelect={() =>
               run(() => {
                 void undoLastTurn().then((ok) =>
                   ok
-                    ? toast.success("Turno deshecho")
-                    : toast.warning("No se pudo deshacer el turno"),
+                    ? toast.success(t("toast.turnUndone"))
+                    : toast.warning(t("toast.turnUndoError")),
                 );
               })
             }
           >
-            <Undo2 /> Deshacer último turno
+            <Undo2 /> {t("commands.undoLastTurn")}
           </CommandItem>
           <CommandItem
-            value="compactar contexto comprimir resumen"
+            value={t("keywords.compactContext")}
             onSelect={() =>
               run(() => {
                 void compactContext().then((r) =>
                   r
-                    ? toast.success(`Contexto compactado (${r.before} → ${r.after} tokens)`)
-                    : toast.warning("No se pudo compactar el contexto"),
+                    ? toast.success(
+                        t("toast.contextCompacted", { before: r.before, after: r.after }),
+                      )
+                    : toast.warning(t("toast.contextCompactError")),
                 );
               })
             }
           >
-            <Layers /> Compactar contexto
+            <Layers /> {t("commands.compactContext")}
           </CommandItem>
-          <CommandItem value="copiar conversacion markdown export" onSelect={() => run(copyConversation)}>
-            <Copy /> Copiar conversación (Markdown)
+          <CommandItem value={t("keywords.copyConversation")} onSelect={() => run(copyConversation)}>
+            <Copy /> {t("commands.copyConversation")}
           </CommandItem>
           <CommandItem
-            value="exportar conversacion archivo file markdown guardar como"
+            value={t("keywords.exportConversation")}
             onSelect={() => run(() => void exportConversation())}
           >
-            <FileDown /> Exportar conversación (.md)…
+            <FileDown /> {t("commands.exportConversation")}
           </CommandItem>
           <CommandItem
-            value="reiniciar motor sidecar proceso restart reload"
+            value={t("keywords.restartEngine")}
             onSelect={() =>
               run(() => {
                 void killSidecar(cwd || null).then((killed) =>
                   killed
-                    ? toast.warning("Motor reiniciado", {
-                        description:
-                          "Se relanzará al volver a usarlo; las sesiones en memoria de ese proyecto se pierden.",
+                    ? toast.warning(t("toast.engineRestarted"), {
+                        description: t("toast.engineRestartedHint"),
                       })
-                    : toast.info("No había un motor que cerrar"),
+                    : toast.info(t("toast.engineNone")),
                 );
               })
             }
           >
-            <Power /> Reiniciar motor de este proyecto
+            <Power /> {t("commands.restartEngine")}
           </CommandItem>
-          <CommandItem value="explorador archivos files" onSelect={() => run(onToggleExplorer)}>
-            <FolderOpen /> Explorador de archivos
+          <CommandItem value={t("keywords.toggleExplorer")} onSelect={() => run(onToggleExplorer)}>
+            <FolderOpen /> {t("commands.toggleExplorer")}
           </CommandItem>
           {isTauri() && (
             <CommandItem
-              value="bandeja tray ocultar minimizar hide system tray"
+              value={t("keywords.hideToTray")}
               onSelect={() => run(() => void hideToTray())}
             >
-              <Minimize2 /> Enviar a la bandeja
+              {/* La etiqueta es la misma acción del menú de la bandeja: viene de `common`. */}
+              <Minimize2 /> {t("common:tray.hide")}
             </CommandItem>
           )}
-          <CommandItem value="ajustes settings config" onSelect={() => run(onOpenSettings)}>
-            <Settings /> Abrir ajustes
+          <CommandItem value={t("keywords.openSettings")} onSelect={() => run(onOpenSettings)}>
+            <Settings /> {t("commands.openSettings")}
           </CommandItem>
         </CommandGroup>
 
         <CommandSeparator />
-        <CommandGroup heading="Tema">
-          <CommandItem value="tema claro light" onSelect={() => run(() => setTheme("light"))}>
-            <Sun /> Claro
+        <CommandGroup heading={t("groups.theme")}>
+          <CommandItem value={t("keywords.themeLight")} onSelect={() => run(() => setTheme("light"))}>
+            <Sun /> {t("commands.themeLight")}
           </CommandItem>
-          <CommandItem value="tema oscuro dark" onSelect={() => run(() => setTheme("dark"))}>
-            <Moon /> Oscuro
+          <CommandItem value={t("keywords.themeDark")} onSelect={() => run(() => setTheme("dark"))}>
+            <Moon /> {t("commands.themeDark")}
           </CommandItem>
-          <CommandItem value="tema sistema system auto" onSelect={() => run(() => setTheme("system"))}>
-            <Monitor /> Sistema
+          <CommandItem value={t("keywords.themeSystem")} onSelect={() => run(() => setTheme("system"))}>
+            <Monitor /> {t("commands.themeSystem")}
           </CommandItem>
         </CommandGroup>
 
         {activeKey && candidates.length > 0 && (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Saltar a turno">
+            <CommandGroup heading={t("groups.jumpToTurn")}>
               {candidates.slice(-12).reverse().map((c) => (
                 <CommandItem
                   key={c.userNodeId}
-                  value={`saltar turno ${c.preview} ${c.userNodeId}`}
+                  value={t("keywords.jumpToTurn", {
+                    preview: c.preview,
+                    userNodeId: c.userNodeId,
+                  })}
                   onSelect={() =>
                     run(() => {
                       void jumpToTurn(c.userNodeId).then((ok) =>
-                        ok ? toast.success("Saltado al turno") : toast.warning("No se pudo saltar"),
+                        ok
+                          ? toast.success(t("toast.jumpedToTurn"))
+                          : toast.warning(t("toast.jumpError")),
                       );
                     })
                   }
@@ -283,7 +281,7 @@ export function CommandPalette({
         {openRows.length > 0 && (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Abiertas">
+            <CommandGroup heading={t("groups.open")}>
               {openRows.map((key) => {
                 const title = cleanSessionTitle(
                   sessions[key]?.messages.find((m) => m.role === "user")?.text,
@@ -294,7 +292,8 @@ export function CommandPalette({
                     value={`${title ?? key} ${key}`}
                     onSelect={() => run(() => setActive(key))}
                   >
-                    <MessageSquare /> {title?.slice(0, 60) || `Sesión ${key.slice(0, 6)}`}
+                    <MessageSquare />{" "}
+                    {title?.slice(0, 60) || t("session.fallbackTitle", { id: key.slice(0, 6) })}
                   </CommandItem>
                 );
               })}
@@ -305,7 +304,7 @@ export function CommandPalette({
         {savedRows.length > 0 && (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Guardadas">
+            <CommandGroup heading={t("groups.saved")}>
               {savedRows.slice(0, 30).map((s) => (
                 <CommandItem
                   key={s.id}

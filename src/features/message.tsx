@@ -1,5 +1,15 @@
-import { Loader2, Check, AlertTriangle, ChevronRight, Copy, RotateCcw } from "lucide-react";
+import {
+  Loader2,
+  Check,
+  AlertTriangle,
+  AlertCircle,
+  ChevronRight,
+  Copy,
+  RotateCcw,
+  Square,
+} from "lucide-react";
 import { memo, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DiffView } from "@/components/diff-view";
 import { ImageGrid } from "@/components/image-grid";
@@ -13,6 +23,7 @@ import {
   shimmerTextStyle,
 } from "@/components/ui/reasoning";
 import { ThinkingIndicator } from "@/components/thinking-indicator";
+import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { additionsRows, unifiedDiffRows } from "@/lib/diff";
 import { fileUrlToPath } from "@/lib/files";
 import { toolDetail, toolPresentation } from "@/lib/tool-labels";
@@ -21,6 +32,7 @@ import { messageText, type ChatMessage, type ToolCard } from "@/stores/session";
 
 /* ── Llamada a herramienta (fila discreta, expandible) ──────────────────── */
 function ToolRow({ tool }: { tool: ToolCard }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const Icon = tool.status === "running" ? Loader2 : tool.status === "error" ? AlertTriangle : Check;
   const args = tool.args as Record<string, unknown> | undefined;
@@ -30,8 +42,9 @@ function ToolRow({ tool }: { tool: ToolCard }) {
   // `file://…` (menciones): se normaliza a ruta local para leerla y abrirla.
   const imagePath = tool.name === "view_image" && filePath ? fileUrlToPath(filePath) : undefined;
   // La fila se lee como una acción ("leyendo archivo · src/App.tsx"), igual que
-  // en el CLI; el nombre crudo queda en el tooltip.
-  const presentation = useMemo(() => toolPresentation(tool.name), [tool.name]);
+  // en el CLI; el nombre crudo queda en el tooltip. El verbo viene del catálogo,
+  // así que `t` entra en las dependencias: al cambiar de idioma se recalcula.
+  const presentation = useMemo(() => toolPresentation(tool.name, t), [tool.name, t]);
   const detail = useMemo(() => toolDetail(tool.name, args), [tool.name, args]);
   const ToolIcon = presentation.icon;
 
@@ -57,13 +70,14 @@ function ToolRow({ tool }: { tool: ToolCard }) {
     if (tool.name === "write_file" && typeof a.content === "string") {
       const rows = additionsRows(a.content);
       if (rows.length === 0) return null;
-      const verb = tool.result?.trim().toLowerCase().startsWith("updated")
-        ? "actualizado"
-        : "creado";
-      return { rows, note: `${verb} · archivo completo` };
+      // La nota es una frase completa del catálogo (nada de concatenar aquí).
+      const note = tool.result?.trim().toLowerCase().startsWith("updated")
+        ? t("tools.writeFile.updated")
+        : t("tools.writeFile.created");
+      return { rows, note };
     }
     return null;
-  }, [args, tool.name, tool.status, tool.result]);
+  }, [args, tool.name, tool.status, tool.result, t]);
 
   return (
     <div className="my-1">
@@ -92,7 +106,7 @@ function ToolRow({ tool }: { tool: ToolCard }) {
           className={cn(
             "ml-auto size-3",
             tool.status === "running" && "animate-spin text-violet",
-            tool.status === "done" && "text-emerald-500",
+            tool.status === "done" && "text-success",
             tool.status === "error" && "text-destructive",
           )}
         />
@@ -119,7 +133,8 @@ function ToolRow({ tool }: { tool: ToolCard }) {
  * feedback real en vez de dejar la respuesta muda.
  */
 function ComposingRow({ tool }: { tool: string }) {
-  const { verb, icon: Icon } = toolPresentation(tool);
+  const { t } = useTranslation("chat");
+  const { verb, icon: Icon } = toolPresentation(tool, t);
   return (
     <div
       className="my-1 flex items-center gap-2 px-2 py-1 text-xs"
@@ -161,6 +176,39 @@ function MessageAction({
   );
 }
 
+/** Botón «copiar» con confirmación breve (agente y turno del usuario). */
+function CopyAction({ getText, label }: { getText: () => string; label: string }) {
+  const { t } = useTranslation("common");
+  const [copied, setCopied] = useState(false);
+  return (
+    <MessageAction
+      icon={copied ? Check : Copy}
+      label={copied ? t("actions.copied") : label}
+      onClick={() => {
+        void navigator.clipboard.writeText(getText()).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+    />
+  );
+}
+
+/**
+ * Bloque de texto del agente. Durante el streaming el valor que llega cambia cada
+ * ~32 ms (volcado del buffer en el store) y cada cambio re-ejecutaba remark +
+ * rehype + KaTeX sobre el bloque en curso; aquí se limita a ~140 ms y el valor
+ * final se pinta exacto al terminar el turno.
+ */
+function TextBlock({ text, streaming }: { text: string; streaming: boolean }) {
+  const shown = useThrottledValue(text, streaming);
+  return (
+    <div className="text-[0.9375rem] text-foreground">
+      <MarkdownRenderer content={shown} streaming={streaming} />
+    </div>
+  );
+}
+
 function MessageRowView({
   message,
   isLast,
@@ -170,10 +218,10 @@ function MessageRowView({
   isLast?: boolean;
   onRegenerate?: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
+  const { t } = useTranslation(["chat", "common"]);
   if (message.role === "user") {
     return (
-      <div className="flex flex-col items-end gap-1">
+      <div className="group/msg flex flex-col items-end gap-1">
         {message.images && message.images.length > 0 && (
           <ImageGrid paths={message.images} className="justify-end" />
         )}
@@ -183,6 +231,11 @@ function MessageRowView({
         {message.text.trim() ? (
           <div className="chat-bubble-user max-w-[76%] whitespace-pre-wrap">{message.text}</div>
         ) : null}
+        {/* Acciones del turno del usuario: antes solo el agente las tenía, así que
+            recopiar lo que escribiste obligaba a seleccionar el texto a mano. */}
+        <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/msg:opacity-100">
+          <CopyAction getText={() => message.text} label={t("message.copyUser")} />
+        </div>
       </div>
     );
   }
@@ -223,34 +276,58 @@ function MessageRowView({
             part.kind === "tool" ? (
               <ToolRow key={`tool-${part.tool.id}-${index}`} tool={part.tool} />
             ) : (
-              <div key={`text-${index}`} className="text-[0.9375rem] text-foreground">
-                <MarkdownRenderer
-                  content={part.text}
-                  // Solo el último bloque (el que aún llega) se renderiza en modo stream.
-                  streaming={message.status === "streaming" && index === lastIndex}
-                />
-              </div>
+              <TextBlock
+                key={`text-${index}`}
+                text={part.text}
+                // Solo el último bloque (el que aún llega) se renderiza en modo stream.
+                streaming={message.status === "streaming" && index === lastIndex}
+              />
             ),
           )}
           {composing ? <ComposingRow tool={composing} /> : null}
         </>
       )}
 
+      {/* Fallo del turno: se pinta aparte del contenido (el error NO es texto del
+          modelo) con la salida para reintentar desde el mismo sitio. */}
+      {message.status === "error" && (
+        <div
+          role="status"
+          className="mt-2 flex items-start gap-2 rounded-lg border border-danger/35 bg-danger/[0.07] px-3 py-2 text-xs"
+        >
+          <AlertCircle className="mt-px size-3.5 shrink-0 text-danger" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-danger">{t("message.turnFailed")}</p>
+            <p className="mt-0.5 break-words text-muted-foreground">
+              {message.error ?? t("message.noDetail")}
+            </p>
+          </div>
+          {isLast && onRegenerate && (
+            <button
+              onClick={onRegenerate}
+              className="shrink-0 rounded-md border border-danger/40 px-2 py-1 font-medium text-danger transition-colors hover:bg-danger/10"
+            >
+              {t("common:actions.retry")}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Turno detenido por el usuario: nota discreta (el contenido ya emitido se
+          conserva). «Continuar» necesitaría un turno de continuación en el engine. */}
+      {message.status === "cancelled" && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <Square className="size-3 shrink-0" aria-hidden />
+          <span>{t("message.stoppedByYou")}</span>
+        </div>
+      )}
+
       {/* Acciones (hover/focus): copiar siempre; regenerar solo el último turno. */}
       {message.status !== "streaming" && (
         <div className="mt-1 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/msg:opacity-100">
-          <MessageAction
-            icon={copied ? Check : Copy}
-            label={copied ? "Copiado" : "Copiar respuesta"}
-            onClick={() => {
-              void navigator.clipboard.writeText(messageText(message)).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              });
-            }}
-          />
+          <CopyAction getText={() => messageText(message)} label={t("message.copyReply")} />
           {isLast && onRegenerate && (
-            <MessageAction icon={RotateCcw} label="Regenerar" onClick={onRegenerate} />
+            <MessageAction icon={RotateCcw} label={t("message.regenerate")} onClick={onRegenerate} />
           )}
         </div>
       )}

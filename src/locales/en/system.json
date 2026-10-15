@@ -1,0 +1,69 @@
+{
+  "images": {
+    "loading": "Loading image…",
+    "loadFailed": "Couldn't load the image",
+    "readFailed": "Couldn't read the image",
+    "openFailed": "Couldn't open the image",
+    "openInSystem": "Open in the system viewer",
+    "zoomTitle": "{{name}} — view full size",
+    "zoomAria": "View {{name}} full size",
+    "zoomDescription": "Enlarged view of the attached image",
+    "defaultName": "image"
+  },
+  "voice": {
+    "micDenied": "Microphone permission denied",
+    "noSpeech": "No speech detected",
+    "dictationError": "Dictation: {{code}}",
+    "startFailed": "Couldn't start dictation",
+    "engineFailed": "Dictation failed"
+  },
+  "notify": {
+    "turnEnded": "Turn finished.",
+    "replyPending": "response pending",
+    "replyBody": "The agent is waiting for your reply to continue.",
+    "errorTag": "error"
+  },
+  "effort": {
+    "auto": "Auto",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "xhigh": "Very high",
+    "max": "Maximum",
+    "title": "Reasoning",
+    "tip": "Reasoning effort ({{key}})",
+    "autoHint": "Auto — uses the model profile"
+  },
+  "providers": {
+    "openrouter": {
+      "hint": "Recommended: hundreds of models with a single key"
+    },
+    "ollama": {
+      "hint": "Local: no key needed"
+    },
+    "github": {
+      "hint": "Uses a personal GitHub token"
+    },
+    "alibaba": {
+      "hint": "Uses a DashScope / Model Studio key (Qwen)"
+    },
+    "lmstudio": {
+      "hint": "Local: no key needed"
+    },
+    "vllm": {
+      "hint": "Key optional if your server doesn't require it"
+    },
+    "omniroute": {
+      "hint": "Key optional depending on your deployment"
+    },
+    "bedrock": {
+      "note": "Uses your AWS credentials (profile or environment variables)"
+    }
+  },
+  "updater": {
+    "none": "No pending update"
+  },
+  "editors": {
+    "noneInstalled": "No code editor was found"
+  }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { phoson } from "@/bridge/client";
+import i18n from "@/lib/i18n";
 import { isInlineSource } from "@/lib/files";
 
 /**
@@ -45,7 +46,9 @@ const bytesOf = (dataUrl: string): number => {
 /** Mensaje corto y sin prefijo técnico, para pintarlo junto a la miniatura. */
 function messageOf(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
-  const clean = raw.replace(/^Error:\s*/, "").trim() || "No se pudo leer la imagen";
+  // Texto de UI (lo pinta la miniatura), así que sale del catálogo; el resto del
+  // mensaje del sidecar se deja tal cual porque ya es el detalle del fallo.
+  const clean = raw.replace(/^Error:\s*/, "").trim() || i18n.t("system:images.readFailed");
   return clean.length > MAX_ERROR_CHARS ? `${clean.slice(0, MAX_ERROR_CHARS)}…` : clean;
 }
 

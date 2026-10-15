@@ -1,0 +1,142 @@
+{
+  "thinking": "Pensando",
+  "composer": {
+    "placeholder": {
+      "listening": "Escuchando…",
+      "team": "Escribe al equipo…",
+      "message": "Escribe un mensaje…  (Enter envía · Shift/Ctrl+Enter salto de línea)"
+    },
+    "dropFiles": "Suelta los archivos para adjuntarlos",
+    "attachFiles": "Adjuntar archivos",
+    "voice": {
+      "stop": "Detener dictado",
+      "engine": "Dictado por voz ({{detail}})",
+      "defaultModel": "modelo por defecto",
+      "browser": "Dictado por voz (navegador)",
+      "checking": "Comprobando el motor de dictado…",
+      "unsupported": "El dictado no está soportado en este sistema"
+    },
+    "send": {
+      "title": "Enviar (Enter)",
+      "aria": "Enviar mensaje"
+    },
+    "stop": {
+      "title": "Detener la generación (Esc)",
+      "aria": "Detener la generación"
+    },
+    "disclaimer": "El agente puede ejecutar herramientas. Revisa las acciones sensibles."
+  },
+  "message": {
+    "copyUser": "Copiar tu mensaje",
+    "copyReply": "Copiar respuesta",
+    "regenerate": "Regenerar",
+    "turnFailed": "El turno falló",
+    "noDetail": "El engine no dio más detalle.",
+    "stoppedByYou": "Detenido por ti"
+  },
+  "artifacts": {
+    "labels": {
+      "html": "HTML",
+      "mermaid": "Diagrama"
+    },
+    "titles": {
+      "html": "Artifact HTML",
+      "mermaid": "Artifact de diagrama"
+    },
+    "buildingPreview": "Preparando la vista previa",
+    "htmlPreview": "Vista previa HTML",
+    "openHtml": "Abrir el artifact HTML",
+    "buildingDiagram": "Preparando el diagrama",
+    "renderingDiagram": "Renderizando el diagrama",
+    "toggleDiagram": "Diagrama",
+    "toggleCode": "Código"
+  },
+  "code": {
+    "copy": "Copiar código"
+  },
+  "questions": {
+    "title": "El agente pregunta",
+    "multiSelect": "varias opciones",
+    "other": "Otro…",
+    "answer": "Responder"
+  },
+  "reasoning": {
+    "contextError": "useReasoning debe usarse dentro de <Reasoning>",
+    "duration": {
+      "instant": "menos de 1 s",
+      "seconds": "{{seconds}} s",
+      "minutes": "{{minutes}} min {{seconds}} s",
+      "moment": "un momento",
+      "label": "Razonó durante {{duration}}"
+    }
+  },
+  "uploads": {
+    "removeReference": "Quitar referencia",
+    "removeNamed": "Quitar {{name}}",
+    "openInViewer": "Abrir en el visor del sistema",
+    "openNamed": "Abrir {{name}}"
+  },
+  "tools": {
+    "verbs": {
+      "read_file": "leyendo archivo",
+      "write_file": "escribiendo archivo",
+      "patch_file": "editando archivo",
+      "list_dir": "listando carpeta",
+      "grep": "buscando en archivos",
+      "glob": "buscando archivos",
+      "view_image": "viendo imagen",
+      "bash": "ejecutando comando",
+      "skill": "cargando skill",
+      "web_search": "buscando en la web",
+      "web_fetch": "descargando página",
+      "agent": "lanzando subagente",
+      "agents": "lanzando subagentes",
+      "computer_screenshot": "capturando pantalla",
+      "computer_move": "moviendo el cursor",
+      "computer_click": "haciendo clic en pantalla",
+      "computer_drag": "arrastrando en pantalla",
+      "computer_scroll": "desplazando la pantalla",
+      "computer_type": "escribiendo texto",
+      "computer_key": "pulsando teclas",
+      "computer_wait": "esperando un momento",
+      "run_bg_job": "lanzando tarea en segundo plano",
+      "list_bg_jobs": "listando tareas en segundo plano",
+      "stop_bg_job": "deteniendo tarea en segundo plano",
+      "wait_bg_jobs": "esperando tareas en segundo plano",
+      "ssh_exec": "ejecutando por SSH",
+      "ssh_hosts": "listando hosts SSH",
+      "ssh_copy_local_to_remote": "subiendo archivo por SSH",
+      "ssh_copy_remote_to_local": "descargando archivo por SSH",
+      "memory_read": "leyendo de memoria",
+      "memory_write": "guardando en memoria",
+      "memory_delete": "borrando de memoria",
+      "memory_list": "listando memoria",
+      "remember": "recordando",
+      "recall": "recuperando recuerdo",
+      "forget": "olvidando",
+      "swarm_create": "creando enjambre",
+      "swarm_assign": "asignando tarea al enjambre",
+      "swarm_message": "enviando mensaje al enjambre",
+      "swarm_status": "consultando estado del enjambre",
+      "swarm_collect": "recogiendo resultados del enjambre",
+      "swarm_dissolve": "disolviendo enjambre",
+      "questions": "preguntando al usuario",
+      "transcribe_audio": "transcribiendo audio",
+      "mcp": "usando MCP",
+      "unknown": "usando {{name}}"
+    },
+    "writeFile": {
+      "created": "creado · archivo completo",
+      "updated": "actualizado · archivo completo"
+    }
+  },
+  "errors": {
+    "attachFailed": "No se pudieron adjuntar: {{names}}",
+    "turnRun": "No se pudo ejecutar el turno: {{reason}}",
+    "turnCode": "El engine devolvió «{{code}}».",
+    "turnNoDetail": "El turno falló sin más detalle del engine.",
+    "undoFailed": "No se pudo deshacer el último turno.",
+    "originalFolderMissing": "La carpeta original de esta sesión ya no existe: se usa el workspace actual.",
+    "engineInit": "no se pudo inicializar el engine"
+  }
+}

@@ -12,6 +12,7 @@ import {
 } from "@tauri-apps/plugin-notification";
 
 import { isTauri } from "@/bridge/client";
+import i18n from "@/lib/i18n";
 
 /** Cómo avisar al terminar un turno (misma semántica que `notify_on_completion`). */
 export type NotifyMode = "off" | "bell" | "desktop";
@@ -83,7 +84,9 @@ export async function notifyTurnEnd(
     return;
   }
   if (appInForeground()) return;
-  await desktopNotify(opts?.error ? `${title} · error` : title, body);
+  // El sufijo es texto de UI: se resuelve al avisar, con el idioma activo.
+  const failed = opts?.error ? ` · ${i18n.t("system:notify.errorTag")}` : "";
+  await desktopNotify(`${title}${failed}`, body);
 }
 
 /* ── Bandeja del sistema ─────────────────────────────────────────────── */
@@ -123,6 +126,25 @@ export async function hideToTray(): Promise<void> {
 export async function showMainWindow(): Promise<void> {
   if (!isTauri()) return;
   await invoke("show_window").catch(() => {});
+}
+
+/**
+ * Textos del menú de la bandeja y del aviso «sigue en la bandeja»: los pinta
+ * Rust, así que el front se los manda ya traducidos (`lib/i18n.ts`).
+ */
+export interface NativeLabels {
+  trayShow: string;
+  trayHide: string;
+  trayQuit: string;
+  tooltip: string;
+  noticeTitle: string;
+  noticeBody: string;
+}
+
+/** Aplica las etiquetas nativas traducidas (menú de bandeja y tooltip). */
+export async function setNativeLabels(labels: NativeLabels): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("set_native_labels", { labels }).catch(() => {});
 }
 
 /* ── Abrir el workspace fuera de la app ────────────────────────────────── */
@@ -203,7 +225,8 @@ export function installedEditors(): Promise<EditorInfo[]> {
 export async function openWithPreferredEditor(path: string, line?: number): Promise<void> {
   const editors = await installedEditors();
   const primary = editors.find((e) => e.id === preferredEditorId()) ?? editors[0];
-  if (!primary) throw new Error("No se encontró ningún editor instalado");
+  // El error lo pinta un toast, así que sale traducido desde aquí.
+  if (!primary) throw new Error(i18n.t("system:editors.noneInstalled"));
   await openInEditor(primary.id, path, line);
 }
 

@@ -1,0 +1,74 @@
+{
+  "actions": {
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "close": "Cerrar",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "retry": "Reintentar",
+    "delete": "Eliminar",
+    "remove": "Quitar",
+    "edit": "Editar",
+    "open": "Abrir",
+    "add": "Añadir",
+    "refresh": "Actualizar",
+    "search": "Buscar",
+    "send": "Enviar",
+    "stop": "Detener",
+    "continue": "Continuar",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "done": "Listo",
+    "confirm": "Confirmar",
+    "reset": "Restablecer",
+    "rename": "Renombrar",
+    "clear": "Limpiar",
+    "dismiss": "Descartar"
+  },
+  "state": {
+    "loading": "Cargando…",
+    "saving": "Guardando…",
+    "saved": "Guardado",
+    "error": "Error",
+    "empty": "Sin resultados",
+    "unknown": "Desconocido",
+    "unsaved": "Sin guardar"
+  },
+  "words": {
+    "name": "Nombre",
+    "path": "Ruta",
+    "folder": "Carpeta",
+    "model": "Modelo",
+    "version": "Versión",
+    "size": "Tamaño",
+    "yes": "Sí",
+    "no": "No",
+    "all": "Todos",
+    "none": "Ninguno",
+    "more": "Más",
+    "less": "Menos",
+    "show": "Mostrar",
+    "hide": "Ocultar",
+    "optional": "opcional",
+    "required": "obligatorio",
+    "folders_one": "{{count}} carpeta",
+    "folders_other": "{{count}} carpetas",
+    "files_one": "{{count}} archivo",
+    "files_other": "{{count}} archivos"
+  },
+  "a11y": {
+    "closeDialog": "Cerrar el diálogo",
+    "copyToClipboard": "Copiar al portapapeles",
+    "scrollToBottom": "Ir al final"
+  },
+  "tray": {
+    "show": "Mostrar Phoson",
+    "hide": "Enviar a la bandeja",
+    "quit": "Salir de Phoson",
+    "tooltip": "Phoson Desktop",
+    "notice": {
+      "title": "Phoson sigue en la bandeja",
+      "body": "El agente sigue ejecutándose. Haz clic en el icono de la bandeja para volver."
+    }
+  }
+}

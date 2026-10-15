@@ -8,6 +8,7 @@ import rehypeKatex from "rehype-katex"
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
 import { useTheme } from "next-themes"
 import { Check, Copy } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { highlight } from "@/lib/highlighter"
 import { HtmlArtifact, MermaidArtifact } from "@/components/ui/artifact-block"
@@ -100,6 +101,8 @@ function detectLanguage(code: string): string | undefined {
 }
 
 function CodeBlock({ code, language, streaming = false }: CodeBlockProps) {
+  // `common` entra en el array para poder reutilizar sus claves (`common:…`).
+  const { t } = useTranslation(["chat", "common"])
   const { resolvedTheme } = useTheme()
   const [highlightedHtml, setHighlightedHtml] = useState<string>("")
   const [copied, setCopied] = useState(false)
@@ -170,8 +173,8 @@ function CodeBlock({ code, language, streaming = false }: CodeBlockProps) {
         <button
           onClick={handleCopy}
           className="rounded p-1.5 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
-          title={copied ? "Copied" : "Copy code"}
-          aria-label={copied ? "Copied" : "Copy code"}
+          title={copied ? t("common:actions.copied") : t("code.copy")}
+          aria-label={copied ? t("common:actions.copied") : t("code.copy")}
         >
           {copied ? (
             <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />

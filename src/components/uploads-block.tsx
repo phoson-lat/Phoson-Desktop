@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   X,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { isTauri, openPath } from "@/bridge/client";
 import type { UploadedFile } from "@/bridge/protocol";
@@ -43,6 +44,7 @@ export function UploadedFiles({
   onRemove?: (path: string) => void;
   className?: string;
 }) {
+  const { t } = useTranslation("chat");
   if (files.length === 0) return null;
 
   return (
@@ -60,8 +62,8 @@ export function UploadedFiles({
             {onRemove ? (
               <button
                 onClick={() => onRemove(u.path)}
-                title="Quitar referencia"
-                aria-label={`Quitar ${u.name}`}
+                title={t("uploads.removeReference")}
+                aria-label={t("uploads.removeNamed", { name: u.name })}
                 className="shrink-0 transition-colors hover:text-destructive"
               >
                 <X className="size-3" />
@@ -70,8 +72,8 @@ export function UploadedFiles({
               isTauri() && (
                 <button
                   onClick={() => void openPath(u.path).catch(() => {})}
-                  title="Abrir en el visor del sistema"
-                  aria-label={`Abrir ${u.name}`}
+                  title={t("uploads.openInViewer")}
+                  aria-label={t("uploads.openNamed", { name: u.name })}
                   className="shrink-0 transition-colors hover:text-foreground"
                 >
                   <ExternalLink className="size-3" />

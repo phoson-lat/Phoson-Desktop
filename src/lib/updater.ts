@@ -14,6 +14,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 
 import { isTauri } from "@/bridge/client";
+import i18n from "@/lib/i18n";
 
 export interface UpdateInfo {
   currentVersion: string;
@@ -54,7 +55,8 @@ export async function checkForUpdates(): Promise<UpdateInfo | null> {
 export async function installPendingUpdate(
   onProgress?: (fraction: number) => void,
 ): Promise<void> {
-  if (!pending) throw new Error("No hay actualización pendiente");
+  // El mensaje lo pinta un toast: sale ya traducido (idioma activo en la llamada).
+  if (!pending) throw new Error(i18n.t("system:updater.none"));
   let total = 0;
   let downloaded = 0;
   await pending.downloadAndInstall((event) => {

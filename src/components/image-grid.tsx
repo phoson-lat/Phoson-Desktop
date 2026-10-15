@@ -1,5 +1,6 @@
 import { ExternalLink, ImageOff, Loader2, ZoomIn } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, openPath } from "@/bridge/client";
@@ -31,6 +32,7 @@ export function ImageThumb({ path, className }: { path: string; className?: stri
 
 /** Miniatura clicable que abre la imagen a tamaño completo en un diálogo. */
 function ImageTile({ path, onZoom }: { path: string; onZoom: () => void }) {
+  const { t } = useTranslation("system");
   // La lectura se pospone hasta que la miniatura entra en pantalla: al abrir una
   // sesión con muchas imágenes no se piden todas a la vez.
   const { ref, seen } = useOnScreen<HTMLButtonElement>();
@@ -41,8 +43,8 @@ function ImageTile({ path, onZoom }: { path: string; onZoom: () => void }) {
       ref={ref}
       type="button"
       onClick={onZoom}
-      title={`${name} — ver en grande`}
-      aria-label={`Ver ${name} en grande`}
+      title={t("images.zoomTitle", { name })}
+      aria-label={t("images.zoomAria", { name })}
       className="group/img relative grid size-28 shrink-0 cursor-zoom-in place-items-center overflow-hidden rounded-xl border border-[var(--dashboard-border)] bg-[var(--phoson-surface-2)]/60 transition-colors hover:border-violet/60"
     >
       {url ? (
@@ -58,7 +60,7 @@ function ImageTile({ path, onZoom }: { path: string; onZoom: () => void }) {
           title={error ?? undefined}
         >
           <ImageOff className="size-4" />
-          <span className="line-clamp-2">No se pudo cargar la imagen</span>
+          <span className="line-clamp-2">{t("images.loadFailed")}</span>
         </span>
       )}
       {url && (
@@ -78,6 +80,7 @@ function ImageTile({ path, onZoom }: { path: string; onZoom: () => void }) {
  * `source: file://…`) o del turno recién enviado.
  */
 export function ImageGrid({ paths, className }: { paths?: string[]; className?: string }) {
+  const { t } = useTranslation("system");
   const [zoom, setZoom] = useState<string | null>(null);
   const { url, error, loading } = useImageUrl(zoom);
 
@@ -96,17 +99,17 @@ export function ImageGrid({ paths, className }: { paths?: string[]; className?: 
           <DialogTitle className="truncate pr-8 text-sm font-medium">
             {zoom ? basenameOf(zoom) : ""}
           </DialogTitle>
-          <DialogDescription className="sr-only">Vista ampliada de la imagen adjunta</DialogDescription>
+          <DialogDescription className="sr-only">{t("images.zoomDescription")}</DialogDescription>
           <div className="grid max-h-[76vh] place-items-center overflow-hidden rounded-lg bg-black/20">
             {url ? (
               <img src={url} alt={zoom ?? ""} className="max-h-[76vh] w-auto max-w-full object-contain" />
             ) : loading ? (
               <div className="flex items-center gap-2 p-10 text-xs text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" /> Cargando imagen…
+                <Loader2 className="size-4 animate-spin" /> {t("images.loading")}
               </div>
             ) : (
               <div className="flex items-center gap-2 p-10 text-xs text-muted-foreground">
-                <ImageOff className="size-4" /> {error ?? "No se pudo cargar la imagen"}
+                <ImageOff className="size-4" /> {error ?? t("images.loadFailed")}
               </div>
             )}
           </div>
@@ -114,14 +117,14 @@ export function ImageGrid({ paths, className }: { paths?: string[]; className?: 
             <button
               onClick={() =>
                 void openPath(zoom).catch((e) =>
-                  toast.error("No se pudo abrir la imagen", {
+                  toast.error(t("images.openFailed"), {
                     description: String(e).replace(/^Error:\s*/, ""),
                   }),
                 )
               }
               className="flex items-center gap-1.5 self-start text-[0.7rem] text-muted-foreground transition-colors hover:text-foreground"
             >
-              <ExternalLink className="size-3" /> Abrir en el visor del sistema
+              <ExternalLink className="size-3" /> {t("images.openInSystem")}
             </button>
           )}
         </DialogContent>

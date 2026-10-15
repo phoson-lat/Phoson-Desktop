@@ -1,0 +1,26 @@
+{
+  "subtitle": "Your autonomous agent, on the desktop. Same engine and same plugins as <cli>phoson-cli</cli>.",
+  "shortcutHint": "Press <kbd>{{shortcut}}</kbd> to search actions and sessions",
+  "recent": {
+    "title": "Recent"
+  },
+  "suggestions": {
+    "engineArchitecture": "Summarize the phoson-engine-minimal architecture",
+    "sessionController": "How does the UI decouple from the SessionController?",
+    "listSessions": "List the saved sessions"
+  },
+  "commands": {
+    "model": "Choose model",
+    "sessions": "List sessions",
+    "compact": "Compact context"
+  },
+  "demo": {
+    "user": "Show me a demo of everything you can render.",
+    "assistant": "# Rich rendering\n\nThis block exercises **bold**, *italic*, ~~strikethrough~~, `inline code` and a [link](https://phoson.lat).\n\n## Syntax highlighting (shiki)\n\n```ts\nconst sink = new GuiSink(sessionKey, emit);\nconst controller = new SessionController(config, sink);\nawait controller.run_turn('hola');\n```\n\n## Diagram (mermaid)\n\n```mermaid\nflowchart LR\n  UI[WebView] -->|rpc| R[Relay Rust]\n  R -->|stdin| Py[SessionController]\n  Py -->|agent.event| R\n  R -->|phoson://message| UI\n```\n\n## Math (KaTeX)\n\nInline: $c = \\sum_i t_i \\cdot p_i$ and in a block:\n\n$$\\text{ctx}_{libre} = W - \\sum_{i=1}^{n} t_i$$\n\n## Table (GFM)\n\n| Piece | Role |\n|---|---|\n| `GuiSink` | Engine events |\n| `GuiConfirmation` | Permissions |\n| `SessionManager` | Multi-session |\n\n## Task list\n\n- [x] Markdown GFM\n- [x] LaTeX\n- [x] Mermaid\n- [x] Artifacts HTML\n\n## Artifact HTML\n\n```html\n<div style='padding:14px;border-radius:12px;background:#5b2eff22;border:1px solid #5b2eff55'>\n  <strong>Artifact HTML</strong> — se renderiza aislado y sanitizado (sin scripts ni iframes).\n</div>\n```\n\n> Example quote. All of this goes through the same `AgentEventSink`.",
+    "genericReply": "You are in **demo mode** (no backend).\n\nSend `Show me a demo of everything you can render.` to see markdown, code, LaTeX, mermaid and HTML artifacts.",
+    "reasoning": "The user wants to see everything the interface can render: markdown, code, LaTeX, mermaid and HTML artifacts. I'll put together a complete example that walks through every capability, taking care that the order of the blocks is clear and verifiable. ",
+    "sttUnavailable": "Dictation isn't available in demo mode.",
+    "notAFile": "not a file: {{path}}",
+    "readme": "# Project\n\nDemo of the code **viewer**.\n\n- shiki highlighting\n- edit mode\n"
+  }
+}

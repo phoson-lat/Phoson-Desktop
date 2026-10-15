@@ -1,0 +1,71 @@
+{
+  "dialog": {
+    "title": "Commands",
+    "description": "Search for an action or a session"
+  },
+  "input": {
+    "placeholder": "Search for an action or a session…"
+  },
+  "empty": "No results.",
+  "groups": {
+    "actions": "Actions",
+    "theme": "Theme",
+    "jumpToTurn": "Jump to turn",
+    "open": "Open",
+    "saved": "Saved"
+  },
+  "commands": {
+    "newSession": "New session",
+    "undoLastTurn": "Undo last turn",
+    "compactContext": "Compact context",
+    "copyConversation": "Copy conversation (Markdown)",
+    "exportConversation": "Export conversation (.md)…",
+    "restartEngine": "Restart this project's engine",
+    "toggleExplorer": "File explorer",
+    "openSettings": "Open settings",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System"
+  },
+  "keywords": {
+    "newSession": "new session new chat",
+    "undoLastTurn": "undo last turn",
+    "compactContext": "compact context compress summary",
+    "copyConversation": "copy conversation markdown export",
+    "exportConversation": "export conversation file markdown save as",
+    "restartEngine": "restart engine sidecar process reload",
+    "toggleExplorer": "explorer files",
+    "hideToTray": "tray hide minimize hide system tray",
+    "openSettings": "settings config",
+    "themeLight": "theme light",
+    "themeDark": "theme dark",
+    "themeSystem": "theme system auto",
+    "jumpToTurn": "jump to turn {{preview}} {{userNodeId}}"
+  },
+  "session": {
+    "fallbackTitle": "Session {{id}}"
+  },
+  "conversation": {
+    "userTurn": "**You:** {{text}}"
+  },
+  "export": {
+    "defaultFileName": "conversation.md"
+  },
+  "toast": {
+    "nothingToCopy": "There's no conversation to copy",
+    "copied": "Conversation copied (Markdown)",
+    "copyError": "Couldn't copy",
+    "nothingToExport": "There's no conversation to export",
+    "exported": "Conversation exported",
+    "exportError": "Couldn't export",
+    "turnUndone": "Turn undone",
+    "turnUndoError": "Couldn't undo the turn",
+    "contextCompacted": "Context compacted ({{before}} → {{after}} tokens)",
+    "contextCompactError": "Couldn't compact the context",
+    "engineRestarted": "Engine restarted",
+    "engineRestartedHint": "It will relaunch the next time you use it; the in-memory sessions of that project are lost.",
+    "engineNone": "There was no engine to stop",
+    "jumpedToTurn": "Jumped to the turn",
+    "jumpError": "Couldn't jump"
+  }
+}

@@ -1,5 +1,6 @@
 import { ArrowUp, FileText, Image as ImageIcon, Mic, Paperclip, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { Attachment, UploadedFile } from "@/bridge/protocol";
 import { AudioBars } from "@/components/audio-bars";
@@ -91,6 +92,7 @@ export function Composer({
   notice,
   dense,
 }: ComposerProps) {
+  const { t } = useTranslation(["chat", "common"]);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -154,8 +156,9 @@ export function Composer({
         }}
         onDrop={(e) => {
           e.preventDefault();
-          // El contenedor raíz también acepta drops: no duplicar.
-          e.stopPropagation();
+          // El contenedor raíz también acepta drops: lo marcamos como atendido
+          // (`defaultPrevented`) en vez de frenar el evento, así el overlay de la
+          // ventana se limpia sin adjuntar los archivos dos veces.
           setDragging(false);
           const files = Array.from(e.dataTransfer.files ?? []);
           if (files.length) onAddFiles(files);
@@ -168,7 +171,7 @@ export function Composer({
       >
         {dragging && (
           <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-2xl bg-[var(--background)]/85 text-xs text-violet">
-            Suelta los archivos para adjuntarlos
+            {t("composer.dropFiles")}
           </div>
         )}
 
@@ -192,7 +195,7 @@ export function Composer({
                   </span>
                   <button
                     onClick={() => onRemoveAttachment(a.path)}
-                    title="Quitar"
+                    title={t("common:actions.remove")}
                     className="shrink-0 text-muted-foreground transition-colors hover:text-destructive"
                   >
                     <X className="size-3" />
@@ -210,13 +213,16 @@ export function Composer({
           ref={ref}
           value={value}
           disabled={disabled}
+          // El composer es el destino por defecto al abrir la app o una sesión;
+          // en el panel denso (swarm) no se roba el foco.
+          autoFocus={!dense}
           rows={1}
           placeholder={
             listening
-              ? "Escuchando…"
+              ? t("composer.placeholder.listening")
               : dense
-                ? "Escribe al equipo…"
-                : "Escribe un mensaje…  (Enter envía · Shift/Ctrl+Enter salto de línea)"
+                ? t("composer.placeholder.team")
+                : t("composer.placeholder.message")
           }
           onChange={(e) => {
             // Si el usuario edita a mano mientras dicta, sincroniza la base para
@@ -232,6 +238,10 @@ export function Composer({
             }
           }}
           onKeyDown={(e) => {
+            // IME (chino, japonés, coreano…): el Enter que confirma la
+            // composición del texto no es un envío. `keyCode === 229` cubre las
+            // webviews donde `isComposing` aún no se ha actualizado.
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
             // Escape detiene la generación (convención de los chats de agente).
             if (e.key === "Escape" && sending) {
               e.preventDefault();
@@ -296,7 +306,7 @@ export function Composer({
               size="icon"
               className="size-8 shrink-0 text-muted-foreground"
               onClick={() => fileInput.current?.click()}
-              title="Adjuntar archivos"
+              title={t("composer.attachFiles")}
             >
               <Paperclip className="size-4" />
             </Button>
@@ -315,13 +325,21 @@ export function Composer({
               title={
                 supported
                   ? listening
-                    ? "Detener dictado"
+                    ? t("composer.voice.stop")
                     : engine
-                      ? `Dictado por voz (${["Moonshine", engine.model ?? "modelo por defecto", engine.language].filter(Boolean).join(" · ")})`
-                      : "Dictado por voz (navegador)"
+                      ? t("composer.voice.engine", {
+                          detail: [
+                            "Moonshine",
+                            engine.model ?? t("composer.voice.defaultModel"),
+                            engine.language,
+                          ]
+                            .filter(Boolean)
+                            .join(" · "),
+                        })
+                      : t("composer.voice.browser")
                   : checking
-                    ? "Comprobando el motor de dictado…"
-                    : "El dictado no está soportado en este sistema"
+                    ? t("composer.voice.checking")
+                    : t("composer.voice.unsupported")
               }
               className={cn(
                 "relative grid shrink-0 place-items-center rounded-md transition-all",
@@ -340,6 +358,8 @@ export function Composer({
                 variant="secondary"
                 className="size-8 shrink-0 rounded-full"
                 onClick={onStop}
+                title={t("composer.stop.title")}
+                aria-label={t("composer.stop.aria")}
               >
                 <Square className="size-3.5 fill-current" />
               </Button>
@@ -349,6 +369,8 @@ export function Composer({
                 className="size-8 shrink-0 rounded-full bg-violet text-white hover:bg-violet/90"
                 onClick={() => submit()}
                 disabled={!value.trim() && attachments.length === 0}
+                title={t("composer.send.title")}
+                aria-label={t("composer.send.aria")}
               >
                 <ArrowUp className="size-4" />
               </Button>
@@ -361,13 +383,13 @@ export function Composer({
         <p
           className={cn(
             "mt-2 text-center text-[0.7rem]",
-            error || status || shownNotice ? "text-amber-500" : "text-muted-foreground",
+            error || status || shownNotice ? "text-warning" : "text-muted-foreground",
           )}
         >
           {error ??
             status ??
             shownNotice ??
-            "El agente puede ejecutar herramientas. Revisa las acciones sensibles."}
+            t("composer.disclaimer")}
         </p>
       )}
     </div>

@@ -1,0 +1,78 @@
+{
+  "diff": {
+    "openLine": "Open in the editor at this line",
+    "moreLines_one": "… +{{count}} more line",
+    "moreLines_other": "… +{{count}} more lines"
+  },
+  "editor": {
+    "openInEditor": "Open in the editor",
+    "openError": "Couldn't open in the editor"
+  },
+  "viewer": {
+    "saved": "File saved",
+    "saveError": "Couldn't save",
+    "unsavedTitle": "There are unsaved changes",
+    "unsavedBody": "Save or press “Cancel” before closing.",
+    "dirty": "Unsaved changes",
+    "truncated": " · truncated",
+    "opening": "Opening…",
+    "binary": "Binary file — it can't be shown as text.",
+    "openInSystem": "Open in the system viewer",
+    "openFileError": "Couldn't open the file"
+  },
+  "git": {
+    "statusTitle": "Git status",
+    "copyBranch": "Copy branch name",
+    "copied": "Branch copied",
+    "switchBranch": "Switch or create branch",
+    "loadingBranches": "Loading branches…",
+    "newBranchPlaceholder": "new-branch",
+    "create": "Create",
+    "branchCreated": "Branch {{branch}} created",
+    "switchedTo": "Switched to {{branch}}",
+    "switchError": "Couldn't switch branch",
+    "actionError": "git {{action}} failed",
+    "diffError": "Couldn't get the diff",
+    "staged": "Staged",
+    "modified": "Modified",
+    "untracked": "Untracked",
+    "conflicted": "Conflicts",
+    "lastCommit": "Last commit",
+    "upstream": "Upstream",
+    "clean": "Working tree clean ✓",
+    "viewChanges": "View changes",
+    "openRemote": "Open remote repository",
+    "changesIn": "Changes in {{branch}}",
+    "diffTruncated": "· diff truncated by size",
+    "loadingDiff": "Getting changes…",
+    "emptyDiff": "No changes to show."
+  },
+  "context": {
+    "title": "Context window",
+    "titleNoData": "Context window (no data yet)",
+    "ariaLabel": "Context window and metrics",
+    "noData": "no data",
+    "inUse": "In use",
+    "available": "Available",
+    "window": "Window",
+    "notReported": "The model hasn't reported its window yet (it shows up after the first turn).",
+    "tokens": "Tokens",
+    "tokenCount": "{{total}} ({{input}} in · {{output}} out)",
+    "cost": "Cost",
+    "steps": "Steps",
+    "provider": "Provider",
+    "status": "Status",
+    "working": "working…",
+    "idle": "idle"
+  },
+  "subagents": {
+    "title": "Subagents"
+  },
+  "comingSoon": {
+    "badge": "Coming soon",
+    "title": "Not ready yet",
+    "note": "This section will arrive in a future version. We're polishing the foundations before opening it.",
+    "back": "Back",
+    "exitTitle": "Back to the conversation"
+  }
+}

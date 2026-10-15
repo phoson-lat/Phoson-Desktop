@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { phoson } from "@/bridge/client";
@@ -29,6 +30,8 @@ const shortContext = (n?: number | null) =>
 
 /** Selector de modelo: lista viva del proveedor activo (`models.list`). */
 export function ModelPicker({ sessionId, current, provider, compact }: ModelPickerProps) {
+  // El picker vive dentro de Ajustes y del composer: sus textos son de `settings`.
+  const { t } = useTranslation("settings");
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -59,7 +62,7 @@ export function ModelPicker({ sessionId, current, provider, compact }: ModelPick
     };
   }, [open, sessionId, provider]);
 
-  const label = current?.split("/").pop() ?? "modelo";
+  const label = current?.split("/").pop() ?? t("modelPicker.fallback");
 
   const select = (m: ModelOption) => {
     setOpen(false);
@@ -67,7 +70,7 @@ export function ModelPicker({ sessionId, current, provider, compact }: ModelPick
     // Con feedback: si el cambio falla, el picker no debe quedarse mostrando el
     // modelo anterior en silencio.
     phoson.setModel(sessionId, m.id, m.provider).catch((e) => {
-      toast.error("No se pudo cambiar de modelo", {
+      toast.error(t("modelPicker.changeFailed"), {
         description: String(e).replace(/^Error:\s*/, ""),
       });
     });
@@ -78,7 +81,7 @@ export function ModelPicker({ sessionId, current, provider, compact }: ModelPick
       <PopoverTrigger asChild>
         <button
           className="flex max-w-[16rem] items-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-xs transition-colors hover:border-[var(--dashboard-border)]"
-          title="Cambiar modelo"
+          title={t("modelPicker.title")}
         >
           {provider && HAS_PROVIDER_LOGO(provider) ? (
             <ProviderLogo id={provider} size={14} className="text-muted-foreground" />
@@ -93,18 +96,18 @@ export function ModelPicker({ sessionId, current, provider, compact }: ModelPick
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">
         <Command>
-          <CommandInput placeholder="Buscar modelo…" />
+          <CommandInput placeholder={t("modelPicker.search")} />
           <CommandList>
             {loading ? (
               <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-                <Loader2 className="size-3.5 animate-spin" /> Consultando al proveedor…
+                <Loader2 className="size-3.5 animate-spin" /> {t("modelPicker.loading")}
               </div>
             ) : error ? (
               <div className="p-3 text-xs text-muted-foreground">
-                No se pudo listar modelos: {error}
+                {t("modelPicker.error", { error })}
               </div>
             ) : models.length === 0 ? (
-              <CommandEmpty>Sin modelos disponibles.</CommandEmpty>
+              <CommandEmpty>{t("modelPicker.empty")}</CommandEmpty>
             ) : (
               <CommandGroup>
                 {models.map((m) => {

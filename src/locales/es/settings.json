@@ -1,0 +1,135 @@
+{
+  "dialog": {
+    "title": "Configuración",
+    "subtitle": "Ajustes del engine, compartidos con el <cli>phoson-cli</cli>."
+  },
+  "sections": {
+    "models": "Modelos",
+    "providers": "Proveedores",
+    "local": "Servidores locales",
+    "mcp": "MCP",
+    "agent": "Agente y sesiones",
+    "desktop": "Escritorio",
+    "appearance": "Apariencia",
+    "about": "Acerca de"
+  },
+  "models": {
+    "title": "Modelos",
+    "hint": "El selector rápido está en el composer del chat.",
+    "provider": "Proveedor activo",
+    "providerCount": "{{available}} de {{total}} proveedores: solo los que tienen credencial.",
+    "addKeys": "Añadir claves",
+    "primary": "Modelo principal",
+    "subagent": "Modelo de sub-agentes",
+    "subagentHint": "Es el que ejecuta los tools en paralelo.",
+    "reasoning": "Esfuerzo de razonamiento"
+  },
+  "providers": {
+    "title": "Claves de API",
+    "hint": "Solo escritura: nunca se muestran las claves guardadas.",
+    "getKey": "Obtener clave",
+    "keyDefined": "•••••••• (definida)",
+    "keyPlaceholder": "nueva clave…",
+    "source": {
+      "file": "archivo",
+      "env": "entorno",
+      "default": "sin configurar"
+    }
+  },
+  "local": {
+    "title": "Servidores locales",
+    "hint": "vLLM, Ollama, LM Studio y OmniRoute se direccionan por URL.",
+    "urlPlaceholder": "http://localhost:…"
+  },
+  "mcp": {
+    "title": "MCP — Model Context Protocol",
+    "hint": "Servidores de herramientas externas; el engine los recarga al guardar.",
+    "enable": "Habilitar MCP",
+    "sdkMissing": "El paquete <pkg>mcp</pkg> no está instalado en el entorno del engine. Instálalo con <cmd>pip install \"phoson-engine-minimal[mcp]\"</cmd>.",
+    "empty": "Sin servidores configurados.",
+    "newServer": "Nuevo servidor",
+    "template": "Empezar desde una plantilla",
+    "nameHint": "Identificador único del servidor",
+    "namePlaceholder": "p. ej. filesystem",
+    "transport": "Transporte",
+    "transportHint": "stdio para procesos locales; sse/http para servidores remotos",
+    "command": "Comando y argumentos",
+    "commandHint": "Se ejecutan tal cual, como en la terminal",
+    "url": "URL",
+    "urlHint": "Endpoint del servidor remoto",
+    "urlPlaceholder": "https://host/mcp",
+    "env": "Variables de entorno",
+    "envHint": "Una por línea: CLAVE=valor. Se guardan en mcps.json y no se muestran de vuelta.",
+    "envPlaceholder": "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…",
+    "addServer": "Añadir servidor"
+  },
+  "agent": {
+    "title": "Agente y sesiones",
+    "safeMode": "Modo seguro",
+    "safeModeHint": "Pide confirmación antes de ejecutar comandos (bash).",
+    "sessionsDir": "Carpeta de sesiones"
+  },
+  "desktop": {
+    "title": "Escritorio",
+    "hint": "Avisos del sistema y bandeja del sistema (Windows).",
+    "notify": "Notificar al terminar",
+    "notifyHint": "Cómo avisar cuando un turno termina (o pide confirmación) en segundo plano.",
+    "notifyMode": {
+      "desktop": "Notificación del sistema",
+      "bell": "Sonido",
+      "off": "Sin aviso"
+    },
+    "closeToTray": "Cerrar a la bandeja",
+    "closeToTrayHint": "Al cerrar la ventana la app sigue viva en la bandeja del sistema. Salir por su menú.",
+    "sendToTray": "Enviar a la bandeja ahora",
+    "sendToTrayHint": "Oculta la ventana; el agente y los turnos siguen ejecutándose."
+  },
+  "appearance": {
+    "title": "Apariencia",
+    "hint": "Preferencia local de la app (no se guarda en config.toml).",
+    "theme": {
+      "light": "Claro",
+      "dark": "Oscuro",
+      "system": "Sistema"
+    },
+    "language": "Idioma",
+    "languageHint": "Idioma de la interfaz; se recuerda en este equipo.",
+    "onboarding": "Asistente inicial",
+    "onboardingHint": "Vuelve a mostrar el onboarding de primera configuración.",
+    "restart": "Ver de nuevo"
+  },
+  "about": {
+    "title": "Acerca de",
+    "hint": "Actualizaciones firmadas servidas desde el feed de releases.",
+    "installed": "Versión instalada",
+    "logs": "Registro de acciones",
+    "logsHint": "Diagnóstico local: cada acción, RPC y error (JSONL rotativo). Nada sale de tu equipo.",
+    "openFolder": "Abrir carpeta",
+    "updateAvailable": "Nueva versión disponible: <version>v{{version}}</version>",
+    "download": "Descargar e instalar",
+    "updates": "Actualizaciones",
+    "upToDate": "Tienes la última versión.",
+    "checkUpdate": "Busca una versión más reciente."
+  },
+  "toasts": {
+    "updateCheckFailed": "No se pudo buscar actualizaciones",
+    "installFailed": "La actualización falló",
+    "configLoadFailed": "No se pudo cargar la configuración",
+    "mcpSaveFailed": "No se pudo guardar el servidor MCP",
+    "mcpRemoveFailed": "No se pudo eliminar el servidor",
+    "mcpNameRequired": "Ponle un nombre al servidor",
+    "mcpAdded": "Servidor MCP añadido",
+    "mcpRemoved": "Servidor {{name}} eliminado",
+    "saveFailed": "No se pudo guardar",
+    "saved": "Configuración guardada"
+  },
+  "modelPicker": {
+    "title": "Cambiar modelo",
+    "search": "Buscar modelo…",
+    "loading": "Consultando al proveedor…",
+    "error": "No se pudo listar modelos: {{error}}",
+    "empty": "Sin modelos disponibles.",
+    "fallback": "modelo",
+    "changeFailed": "No se pudo cambiar de modelo"
+  }
+}

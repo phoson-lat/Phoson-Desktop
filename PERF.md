@@ -78,10 +78,10 @@ el paso §2.
 
 | Métrica | Valor | Nota |
 |---|---|---|
-| Bundle de entrada `index-*.js` | **~1.35 MB** (426 KB gzip) | React + shadcn + código de la app |
+| Bundle de entrada `index-*.js` | **1.39 MB** (434 KB gzip) | React + shadcn + código de la app |
 | `mermaid.core` (chunk aparte) | 683 KB (169 KB gzip) | carga diferida |
 | `cytoscape` (chunk aparte) | 443 KB (142 KB gzip) | carga diferida |
-| CSS | 178 KB (32 KB gzip) | |
+| CSS | 183 KB (33 KB gzip) | |
 | Build `vite build` | ~13–20 s | dev local |
 | Import `phoson_cli.repl` (cold) | **~0.33 s · 44 MB RSS** | coste de importar el engine |
 | Import base engine+swarm | ~0.13 s · 23 MB RSS | |
@@ -89,8 +89,16 @@ el paso §2.
 | RSS total en reposo | _pendiente_ | usar §1 |
 | CPU en reposo | _pendiente_ | usar §1 |
 
-> Efecto secundario de dejar swarm en «próximamente»: al no importarse desde
-> `App`, `@xyflow/react` salió del bundle de entrada y este bajó ~1.6 MB → ~1.35 MB.
+> Efecto secundario de retirar swarm de la UI: al no importarse desde `App`,
+> `@xyflow/react` salió del bundle de entrada y este bajó ~1.6 MB → ~1.35 MB.
+
+> Coste de i18n (medido el 2026-10-15 comparando `pnpm build` en `72b212f` y con
+> el árbol de i18n, mismo vite): el bundle de entrada pasa de **1,393 kB a
+> 1,501 kB** (434 → 470 kB gzip) y el CSS de 183.30 a 184.40 kB. Son **+108 kB
+> (+36 kB gzip)**: `i18next` + `react-i18next` (~54 kB de catálogos `es`+`en`
+> entran en el bundle, que es justo lo que hace `t()` síncrono). Si algún día
+> aprieta el presupuesto, la palanca es cargar los catálogos por namespace en vez
+> de todos de golpe, a cambio de un `t()` asíncrono.
 
 ---
 
