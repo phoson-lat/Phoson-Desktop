@@ -1,0 +1,135 @@
+{
+  "dialog": {
+    "title": "Settings",
+    "subtitle": "Engine settings, shared with the <cli>phoson-cli</cli>."
+  },
+  "sections": {
+    "models": "Models",
+    "providers": "Providers",
+    "local": "Local servers",
+    "mcp": "MCP",
+    "agent": "Agent & sessions",
+    "desktop": "Desktop",
+    "appearance": "Appearance",
+    "about": "About"
+  },
+  "models": {
+    "title": "Models",
+    "hint": "The quick picker lives in the chat composer.",
+    "provider": "Active provider",
+    "providerCount": "{{available}} of {{total}} providers: only the ones holding a credential.",
+    "addKeys": "Add keys",
+    "primary": "Main model",
+    "subagent": "Sub-agent model",
+    "subagentHint": "This is the one running tools in parallel.",
+    "reasoning": "Reasoning effort"
+  },
+  "providers": {
+    "title": "API keys",
+    "hint": "Write-only: saved keys are never shown.",
+    "getKey": "Get key",
+    "keyDefined": "•••••••• (set)",
+    "keyPlaceholder": "new key…",
+    "source": {
+      "file": "file",
+      "env": "environment",
+      "default": "not configured"
+    }
+  },
+  "local": {
+    "title": "Local servers",
+    "hint": "vLLM, Ollama, LM Studio and OmniRoute are addressed by URL.",
+    "urlPlaceholder": "http://localhost:…"
+  },
+  "mcp": {
+    "title": "MCP — Model Context Protocol",
+    "hint": "External tool servers; the engine reloads them when you save.",
+    "enable": "Enable MCP",
+    "sdkMissing": "The <pkg>mcp</pkg> package is not installed in the engine environment. Install it with <cmd>pip install \"phoson-engine-minimal[mcp]\"</cmd>.",
+    "empty": "No servers configured.",
+    "newServer": "New server",
+    "template": "Start from a template",
+    "nameHint": "Unique identifier of the server",
+    "namePlaceholder": "e.g. filesystem",
+    "transport": "Transport",
+    "transportHint": "stdio for local processes; sse/http for remote servers",
+    "command": "Command and arguments",
+    "commandHint": "They run as-is, exactly like in the terminal",
+    "url": "URL",
+    "urlHint": "Endpoint of the remote server",
+    "urlPlaceholder": "https://host/mcp",
+    "env": "Environment variables",
+    "envHint": "One per line: KEY=value. They are stored in mcps.json and never shown back.",
+    "envPlaceholder": "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…",
+    "addServer": "Add server"
+  },
+  "agent": {
+    "title": "Agent and sessions",
+    "safeMode": "Safe mode",
+    "safeModeHint": "Asks for confirmation before running commands (bash).",
+    "sessionsDir": "Sessions folder"
+  },
+  "desktop": {
+    "title": "Desktop",
+    "hint": "System notices and the system tray (Windows).",
+    "notify": "Notify when done",
+    "notifyHint": "How to alert you when a turn finishes (or asks for confirmation) in the background.",
+    "notifyMode": {
+      "desktop": "System notification",
+      "bell": "Sound",
+      "off": "No alert"
+    },
+    "closeToTray": "Close to tray",
+    "closeToTrayHint": "Closing the window keeps the app alive in the system tray. Quit it from its own menu.",
+    "sendToTray": "Send to tray now",
+    "sendToTrayHint": "Hides the window; the agent and its turns keep running."
+  },
+  "appearance": {
+    "title": "Appearance",
+    "hint": "Local app preference (not stored in config.toml).",
+    "theme": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "language": "Language",
+    "languageHint": "Interface language; remembered on this machine.",
+    "onboarding": "Setup wizard",
+    "onboardingHint": "Shows the first-run onboarding again.",
+    "restart": "Show again"
+  },
+  "about": {
+    "title": "About",
+    "hint": "Signed updates served from the release feed.",
+    "installed": "Installed version",
+    "logs": "Activity log",
+    "logsHint": "Local diagnostics: every action, RPC and error (rotating JSONL). Nothing leaves your machine.",
+    "openFolder": "Open folder",
+    "updateAvailable": "New version available: <version>v{{version}}</version>",
+    "download": "Download and install",
+    "updates": "Updates",
+    "upToDate": "You are on the latest version.",
+    "checkUpdate": "Checks for a newer release."
+  },
+  "toasts": {
+    "updateCheckFailed": "Could not check for updates",
+    "installFailed": "The update failed",
+    "configLoadFailed": "Could not load the settings",
+    "mcpSaveFailed": "Could not save the MCP server",
+    "mcpRemoveFailed": "Could not delete the server",
+    "mcpNameRequired": "Give the server a name",
+    "mcpAdded": "MCP server added",
+    "mcpRemoved": "Server {{name}} deleted",
+    "saveFailed": "Could not save",
+    "saved": "Settings saved"
+  },
+  "modelPicker": {
+    "title": "Switch model",
+    "search": "Search model…",
+    "loading": "Asking the provider…",
+    "error": "Could not list models: {{error}}",
+    "empty": "No models available.",
+    "fallback": "model",
+    "changeFailed": "Could not switch model"
+  }
+}

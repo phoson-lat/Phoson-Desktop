@@ -1,0 +1,78 @@
+{
+  "diff": {
+    "openLine": "Abrir en el editor en esta línea",
+    "moreLines_one": "… +{{count}} línea más",
+    "moreLines_other": "… +{{count}} líneas más"
+  },
+  "editor": {
+    "openInEditor": "Abrir en el editor",
+    "openError": "No se pudo abrir en el editor"
+  },
+  "viewer": {
+    "saved": "Archivo guardado",
+    "saveError": "No se pudo guardar",
+    "unsavedTitle": "Hay cambios sin guardar",
+    "unsavedBody": "Guarda o pulsa «Cancelar» antes de cerrar.",
+    "dirty": "Cambios sin guardar",
+    "truncated": " · truncado",
+    "opening": "Abriendo…",
+    "binary": "Archivo binario — no se puede mostrar como texto.",
+    "openInSystem": "Abrir en el visor del sistema",
+    "openFileError": "No se pudo abrir el archivo"
+  },
+  "git": {
+    "statusTitle": "Estado de git",
+    "copyBranch": "Copiar nombre de rama",
+    "copied": "Rama copiada",
+    "switchBranch": "Cambiar o crear rama",
+    "loadingBranches": "Cargando ramas…",
+    "newBranchPlaceholder": "nueva-rama",
+    "create": "Crear",
+    "branchCreated": "Rama {{branch}} creada",
+    "switchedTo": "Cambiado a {{branch}}",
+    "switchError": "No se pudo cambiar de rama",
+    "actionError": "git {{action}} falló",
+    "diffError": "No se pudo obtener el diff",
+    "staged": "Preparados",
+    "modified": "Modificados",
+    "untracked": "Sin seguimiento",
+    "conflicted": "Conflictos",
+    "lastCommit": "Último commit",
+    "upstream": "Upstream",
+    "clean": "Árbol de trabajo limpio ✓",
+    "viewChanges": "Ver cambios",
+    "openRemote": "Abrir repositorio remoto",
+    "changesIn": "Cambios en {{branch}}",
+    "diffTruncated": "· diff cortado por tamaño",
+    "loadingDiff": "Obteniendo cambios…",
+    "emptyDiff": "No hay cambios que mostrar."
+  },
+  "context": {
+    "title": "Ventana de contexto",
+    "titleNoData": "Ventana de contexto (aún sin datos)",
+    "ariaLabel": "Ventana de contexto y métricas",
+    "noData": "sin datos",
+    "inUse": "En uso",
+    "available": "Disponible",
+    "window": "Ventana",
+    "notReported": "El modelo aún no ha reportado su ventana (aparece tras el primer turno).",
+    "tokens": "Tokens",
+    "tokenCount": "{{total}} ({{input}} in · {{output}} out)",
+    "cost": "Coste",
+    "steps": "Pasos",
+    "provider": "Proveedor",
+    "status": "Estado",
+    "working": "trabajando…",
+    "idle": "inactivo"
+  },
+  "subagents": {
+    "title": "Subagentes"
+  },
+  "comingSoon": {
+    "badge": "Próximamente",
+    "title": "Aún no está listo",
+    "note": "Esta sección llegará en una próxima versión. Estamos afinando la base antes de abrirla.",
+    "back": "Volver",
+    "exitTitle": "Volver a la conversación"
+  }
+}

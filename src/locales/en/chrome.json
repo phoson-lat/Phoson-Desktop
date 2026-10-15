@@ -1,0 +1,95 @@
+{
+  "status": {
+    "ready": "ready",
+    "connecting": "connecting…",
+    "demo": "demo"
+  },
+  "drop": {
+    "hint": "Drop the files to attach them"
+  },
+  "engine": {
+    "connectError": "Couldn't connect to the engine",
+    "stopped": "The engine for a workspace stopped",
+    "restart": "It will restart the next time you use it.",
+    "restartWithPath": "It will restart the next time you use it: {{path}}"
+  },
+  "update": {
+    "available": "New version v{{version}} available",
+    "hint": "Settings → About to install it."
+  },
+  "workspace": {
+    "updated": "Workspace updated",
+    "updateError": "Couldn't change the workspace",
+    "viewFiles": "View the workspace files",
+    "placeholder": "workspace",
+    "openInGroup": "Open in",
+    "openInTarget": "Open in {{target}}",
+    "fileManagerFallback": "the file manager",
+    "terminalLabel": "Terminal",
+    "openTerminalHere": "Open a terminal here",
+    "openFolderError": "Couldn't open the folder",
+    "openTerminalError": "Couldn't open the terminal",
+    "openEditorError": "Couldn't open {{editor}}",
+    "editors": {
+      "openInMenu": "Open in…",
+      "choose": "Choose editor…",
+      "chooseA11y": "Choose editor",
+      "detecting": "Detecting editors…",
+      "none": "No editors found",
+      "default": "default"
+    }
+  },
+  "sessions": {
+    "title": "Sessions",
+    "new": "New session",
+    "untitled": "Untitled session",
+    "fallbackTitle": "Session {{id}}",
+    "generating": "Generating response…",
+    "search": "Search sessions",
+    "searchPlaceholder": "Search sessions…",
+    "open": "Open",
+    "saved": "Saved",
+    "empty": "No results.",
+    "delete": "Delete session",
+    "deleteConfirm": "Confirm deleting the session",
+    "deleteCancel": "Cancel deletion",
+    "deleted": "Session deleted",
+    "deleteError": "Couldn't delete the session",
+    "awaitingAnswer": "This session is waiting for your answer",
+    "subagents_one": "Subagents running ({{count}})",
+    "subagents_other": "Subagents running ({{count}})"
+  },
+  "sidebar": {
+    "show": "Show sidebar",
+    "hide": "Hide sidebar",
+    "settings": "Settings",
+    "withShortcut": "{{label}} ({{shortcut}})"
+  },
+  "theme": {
+    "light": "Light mode",
+    "dark": "Dark mode"
+  },
+  "logo": {
+    "aria": "Phoson logo mark"
+  },
+  "scroll": {
+    "toLastMessage": "Go to the last message",
+    "agentWriting": "The agent is still writing"
+  },
+  "command": {
+    "confirmLabel": "Command confirmation",
+    "runQuestion": "Run command?",
+    "always": "Always"
+  },
+  "explorer": {
+    "title": "Files",
+    "ariaLabel": "File explorer",
+    "reload": "Reload",
+    "workspaceSection": "Workspace",
+    "useThisFolder": "Use this folder",
+    "openInEditor": "Open in the editor",
+    "openInEditorA11y": "Open {{name}} in the editor",
+    "openEditorError": "Couldn't open in the editor",
+    "truncated": "Showing the first 400 entries."
+  }
+}

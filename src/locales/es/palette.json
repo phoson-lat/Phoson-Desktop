@@ -1,0 +1,71 @@
+{
+  "dialog": {
+    "title": "Comandos",
+    "description": "Busca una acción o una sesión"
+  },
+  "input": {
+    "placeholder": "Busca una acción o una sesión…"
+  },
+  "empty": "Sin resultados.",
+  "groups": {
+    "actions": "Acciones",
+    "theme": "Tema",
+    "jumpToTurn": "Saltar a turno",
+    "open": "Abiertas",
+    "saved": "Guardadas"
+  },
+  "commands": {
+    "newSession": "Nueva sesión",
+    "undoLastTurn": "Deshacer último turno",
+    "compactContext": "Compactar contexto",
+    "copyConversation": "Copiar conversación (Markdown)",
+    "exportConversation": "Exportar conversación (.md)…",
+    "restartEngine": "Reiniciar motor de este proyecto",
+    "toggleExplorer": "Explorador de archivos",
+    "openSettings": "Abrir ajustes",
+    "themeLight": "Claro",
+    "themeDark": "Oscuro",
+    "themeSystem": "Sistema"
+  },
+  "keywords": {
+    "newSession": "nueva sesion new chat",
+    "undoLastTurn": "deshacer undo ultimo turno",
+    "compactContext": "compactar contexto comprimir resumen",
+    "copyConversation": "copiar conversacion markdown export",
+    "exportConversation": "exportar conversacion archivo file markdown guardar como",
+    "restartEngine": "reiniciar motor sidecar proceso restart reload",
+    "toggleExplorer": "explorador archivos files",
+    "hideToTray": "bandeja tray ocultar minimizar hide system tray",
+    "openSettings": "ajustes settings config",
+    "themeLight": "tema claro light",
+    "themeDark": "tema oscuro dark",
+    "themeSystem": "tema sistema system auto",
+    "jumpToTurn": "saltar turno {{preview}} {{userNodeId}}"
+  },
+  "session": {
+    "fallbackTitle": "Sesión {{id}}"
+  },
+  "conversation": {
+    "userTurn": "**Tú:** {{text}}"
+  },
+  "export": {
+    "defaultFileName": "conversacion.md"
+  },
+  "toast": {
+    "nothingToCopy": "No hay conversación que copiar",
+    "copied": "Conversación copiada (Markdown)",
+    "copyError": "No se pudo copiar",
+    "nothingToExport": "No hay conversación que exportar",
+    "exported": "Conversación exportada",
+    "exportError": "No se pudo exportar",
+    "turnUndone": "Turno deshecho",
+    "turnUndoError": "No se pudo deshacer el turno",
+    "contextCompacted": "Contexto compactado ({{before}} → {{after}} tokens)",
+    "contextCompactError": "No se pudo compactar el contexto",
+    "engineRestarted": "Motor reiniciado",
+    "engineRestartedHint": "Se relanzará al volver a usarlo; las sesiones en memoria de ese proyecto se pierden.",
+    "engineNone": "No había un motor que cerrar",
+    "jumpedToTurn": "Saltado al turno",
+    "jumpError": "No se pudo saltar"
+  }
+}

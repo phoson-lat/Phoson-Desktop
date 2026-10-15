@@ -1,0 +1,95 @@
+{
+  "status": {
+    "ready": "listo",
+    "connecting": "conectando…",
+    "demo": "demo"
+  },
+  "drop": {
+    "hint": "Suelta los archivos para adjuntarlos"
+  },
+  "engine": {
+    "connectError": "No se pudo conectar con el engine",
+    "stopped": "El motor de un espacio de trabajo se detuvo",
+    "restart": "Se reiniciará al volver a usarlo.",
+    "restartWithPath": "Se reiniciará al volver a usarlo: {{path}}"
+  },
+  "update": {
+    "available": "Nueva versión v{{version}} disponible",
+    "hint": "Ajustes → Acerca de para instalarla."
+  },
+  "workspace": {
+    "updated": "Espacio de trabajo actualizado",
+    "updateError": "No se pudo cambiar el espacio de trabajo",
+    "viewFiles": "Ver archivos del espacio de trabajo",
+    "placeholder": "workspace",
+    "openInGroup": "Abrir en",
+    "openInTarget": "Abrir en {{target}}",
+    "fileManagerFallback": "el gestor de archivos",
+    "terminalLabel": "Terminal",
+    "openTerminalHere": "Abrir una terminal aquí",
+    "openFolderError": "No se pudo abrir la carpeta",
+    "openTerminalError": "No se pudo abrir la terminal",
+    "openEditorError": "No se pudo abrir {{editor}}",
+    "editors": {
+      "openInMenu": "Abrir en…",
+      "choose": "Elegir editor…",
+      "chooseA11y": "Elegir editor",
+      "detecting": "Detectando editores…",
+      "none": "No se encontraron editores",
+      "default": "predeterminado"
+    }
+  },
+  "sessions": {
+    "title": "Sesiones",
+    "new": "Nueva sesión",
+    "untitled": "Nueva sesión",
+    "fallbackTitle": "Sesión {{id}}",
+    "generating": "Generando respuesta…",
+    "search": "Buscar sesiones",
+    "searchPlaceholder": "Buscar sesiones…",
+    "open": "Abiertas",
+    "saved": "Guardadas",
+    "empty": "Sin resultados.",
+    "delete": "Eliminar sesión",
+    "deleteConfirm": "Confirmar eliminar sesión",
+    "deleteCancel": "Cancelar borrado",
+    "deleted": "Sesión eliminada",
+    "deleteError": "No se pudo eliminar la sesión",
+    "awaitingAnswer": "Esta sesión espera tu respuesta",
+    "subagents_one": "Subagentes en curso ({{count}})",
+    "subagents_other": "Subagentes en curso ({{count}})"
+  },
+  "sidebar": {
+    "show": "Mostrar barra lateral",
+    "hide": "Ocultar barra lateral",
+    "settings": "Ajustes",
+    "withShortcut": "{{label}} ({{shortcut}})"
+  },
+  "theme": {
+    "light": "Modo claro",
+    "dark": "Modo oscuro"
+  },
+  "logo": {
+    "aria": "Logotipo de Phoson"
+  },
+  "scroll": {
+    "toLastMessage": "Ir al último mensaje",
+    "agentWriting": "El agente sigue escribiendo"
+  },
+  "command": {
+    "confirmLabel": "Confirmación de comando",
+    "runQuestion": "¿Ejecutar comando?",
+    "always": "Siempre"
+  },
+  "explorer": {
+    "title": "Archivos",
+    "ariaLabel": "Explorador de archivos",
+    "reload": "Recargar",
+    "workspaceSection": "Espacio de trabajo",
+    "useThisFolder": "Usar esta carpeta",
+    "openInEditor": "Abrir en el editor",
+    "openInEditorA11y": "Abrir {{name}} en el editor",
+    "openEditorError": "No se pudo abrir en el editor",
+    "truncated": "Mostrando las primeras 400 entradas."
+  }
+}

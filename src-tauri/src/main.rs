@@ -6,7 +6,6 @@ mod logging;
 mod native;
 
 use bridge::BridgeState;
-use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
 
@@ -41,7 +40,9 @@ fn main() {
             native::open_terminal,
             native::hide_to_tray,
             native::show_window,
-            native::set_close_to_tray
+            native::set_close_to_tray,
+            native::system_locale,
+            native::set_native_labels
         ])
         .setup(|app| {
             setup_tray(app.handle())?;
@@ -101,15 +102,16 @@ fn main() {
 
 /// Icono de la bandeja del sistema con su menú: mostrar, enviar a la bandeja
 /// y salir. Clic izquierdo = mostrar (comportamiento esperado en Windows).
+///
+/// El menú se construye con `native::build_tray_menu` para que el front pueda
+/// reconstruirlo traducido al cambiar de idioma (`set_native_labels`).
 fn setup_tray(handle: &tauri::AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(handle, "show", "Mostrar Phoson", true, None::<&str>)?;
-    let hide = MenuItem::with_id(handle, "hide", "Enviar a la bandeja", true, None::<&str>)?;
-    let quit = MenuItem::with_id(handle, "quit", "Salir de Phoson", true, None::<&str>)?;
-    let menu = Menu::with_items(handle, &[&show, &hide, &quit])?;
+    let labels = native::labels();
+    let menu = native::build_tray_menu(handle, &labels)?;
 
     let mut builder = TrayIconBuilder::with_id("main")
         .menu(&menu)
-        .tooltip("Phoson Desktop")
+        .tooltip(labels.tooltip.clone())
         // El clic izquierdo muestra la ventana; el menú va con clic derecho.
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

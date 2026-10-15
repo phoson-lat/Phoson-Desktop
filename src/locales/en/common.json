@@ -1,0 +1,74 @@
+{
+  "actions": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "copy": "Copy",
+    "copied": "Copied",
+    "retry": "Retry",
+    "delete": "Delete",
+    "remove": "Remove",
+    "edit": "Edit",
+    "open": "Open",
+    "add": "Add",
+    "refresh": "Refresh",
+    "search": "Search",
+    "send": "Send",
+    "stop": "Stop",
+    "continue": "Continue",
+    "back": "Back",
+    "next": "Next",
+    "done": "Done",
+    "confirm": "Confirm",
+    "reset": "Reset",
+    "rename": "Rename",
+    "clear": "Clear",
+    "dismiss": "Dismiss"
+  },
+  "state": {
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "error": "Error",
+    "empty": "No results",
+    "unknown": "Unknown",
+    "unsaved": "Unsaved"
+  },
+  "words": {
+    "name": "Name",
+    "path": "Path",
+    "folder": "Folder",
+    "model": "Model",
+    "version": "Version",
+    "size": "Size",
+    "yes": "Yes",
+    "no": "No",
+    "all": "All",
+    "none": "None",
+    "more": "More",
+    "less": "Less",
+    "show": "Show",
+    "hide": "Hide",
+    "optional": "optional",
+    "required": "required",
+    "folders_one": "{{count}} folder",
+    "folders_other": "{{count}} folders",
+    "files_one": "{{count}} file",
+    "files_other": "{{count}} files"
+  },
+  "a11y": {
+    "closeDialog": "Close dialog",
+    "copyToClipboard": "Copy to clipboard",
+    "scrollToBottom": "Scroll to bottom"
+  },
+  "tray": {
+    "show": "Show Phoson",
+    "hide": "Send to tray",
+    "quit": "Quit Phoson",
+    "tooltip": "Phoson Desktop",
+    "notice": {
+      "title": "Phoson is still in the tray",
+      "body": "The agent keeps running. Click the tray icon to come back."
+    }
+  }
+}
