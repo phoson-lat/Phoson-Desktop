@@ -25,7 +25,8 @@
     "openSettings": "Abrir ajustes",
     "themeLight": "Claro",
     "themeDark": "Oscuro",
-    "themeSystem": "Sistema"
+    "themeSystem": "Sistema",
+    "screenGlowDev": "Probar glow de pantalla (dev)"
   },
   "keywords": {
     "newSession": "nueva sesion new chat",
@@ -40,7 +41,8 @@
     "themeLight": "tema claro light",
     "themeDark": "tema oscuro dark",
     "themeSystem": "tema sistema system auto",
-    "jumpToTurn": "saltar turno {{preview}} {{userNodeId}}"
+    "jumpToTurn": "saltar turno {{preview}} {{userNodeId}}",
+    "screenGlowDev": "probar glow pantalla screen preview test dev computer"
   },
   "session": {
     "fallbackTitle": "Sesión {{id}}"

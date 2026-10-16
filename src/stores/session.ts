@@ -9,6 +9,7 @@
 
 import { create } from "zustand";
 
+import { CU_TOOL_KIND, useComputerUse } from "./computer-use";
 import { phoson, bindSessionWorkspace, unbindSessionWorkspace, setCurrentWorkspace, getCurrentWorkspace } from "../bridge/client";
 import { logAction, logError, logEvent } from "../lib/log";
 import i18n from "../lib/i18n";
@@ -493,6 +494,28 @@ export const useSession = create<SessionState>((set, get) => {
           args: event.args,
           status: "running",
         };
+        // Computer use: la acción también va al store del viewport (overlay en
+        // vivo). Las coordenadas vienen en el espacio del último screenshot.
+        const cuKind = CU_TOOL_KIND[card.name];
+        if (cuKind) {
+          const a = (event.args ?? {}) as Record<string, unknown>;
+          const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+          useComputerUse.getState().startAction({
+            id: card.id,
+            kind: cuKind,
+            x: num(a.x),
+            y: num(a.y),
+            x2: num(a.x2),
+            y2: num(a.y2),
+            dy: num(a.dy),
+            button: typeof a.button === "string" ? a.button : undefined,
+            text: typeof a.text === "string" ? a.text : undefined,
+            keys: Array.isArray(a.keys) ? a.keys.map(String) : undefined,
+            status: "running",
+            ts: Date.now(),
+          });
+        }
+        if (card.name === "computer_screenshot") useComputerUse.getState().setActive(true);
         // Se añade como parte: mantiene el orden respecto al texto del stream.
         // La tarjeta sustituye a la etiqueta de "componiendo" **de ese índice**:
         // arrancar la primera de dos tools en paralelo no debe borrar el «…» de
@@ -511,6 +534,11 @@ export const useSession = create<SessionState>((set, get) => {
         break;
       }
       case "AgentToolDoneEvent":
+        if (CU_TOOL_KIND[String(event.tool_name ?? "")]) {
+          useComputerUse
+            .getState()
+            .finishAction(String(event.tool_call_id ?? ""), !event.error);
+        }
         patchLastAssistant(key, (m) => ({
           ...m,
           parts: m.parts.map((part) =>
@@ -550,6 +578,12 @@ export const useSession = create<SessionState>((set, get) => {
           error: String(event.message ?? "Error"),
         }));
         logError("turn.error", String(event.message ?? "Error"), { sessionId: key });
+        useComputerUse.getState().setActive(false);
+        break;
+      case "AgentDoneEvent":
+        // Fin del turno: el control de pantalla deja de estar «en vivo» (el
+        // panel sigue abierto con el último frame, pero sin scanline ni LIVE).
+        useComputerUse.getState().setActive(false);
         break;
       default:
         break;
@@ -568,6 +602,24 @@ export const useSession = create<SessionState>((set, get) => {
         case "agent.event":
           if (key) handleEvent(key, params.event as AgentEvent);
           break;
+        case "computer.frame": {
+          // Screenshot del plugin computeruse listo para el viewport. Hoy lo
+          // emite el MockBridge (demo); el sidecar real lo emitirá al resolver
+          // el PNG del frame (pendiente en el bridge).
+          const dataUrl = typeof params.dataUrl === "string" ? params.dataUrl : "";
+          const width = typeof params.width === "number" ? params.width : 0;
+          const height = typeof params.height === "number" ? params.height : 0;
+          if (dataUrl && width > 0 && height > 0) {
+            useComputerUse.getState().pushFrame({
+              id: String(params.frameId ?? uid()),
+              dataUrl,
+              width,
+              height,
+              ts: Date.now(),
+            });
+          }
+          break;
+        }
         case "session.metrics":
           if (key) patchView(key, (v) => ({ ...v, metrics: envelope.params as RunMetrics }));
           break;

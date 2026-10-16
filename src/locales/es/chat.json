@@ -142,5 +142,25 @@
     "undoFailed": "No se pudo deshacer el último turno.",
     "originalFolderMissing": "La carpeta original de esta sesión ya no existe: se usa el workspace actual.",
     "engineInit": "no se pudo inicializar el engine"
+  },
+  "computerUse": {
+    "ambient": "Controlando la pantalla",
+    "panel": {
+      "title": "Control de pantalla",
+      "live": "EN VIVO",
+      "vision": "PHOSON VISION",
+      "waiting": "Esperando la primera captura…",
+      "actions_one": "{{count}} acción",
+      "actions_other": "{{count}} acciones",
+      "open": "Ver el control de pantalla",
+      "close": "Cerrar el control de pantalla"
+    },
+    "group": {
+      "title": "Sesión de control"
+    },
+    "demo": {
+      "intro": "Claro. Voy a abrir el navegador y cargar phoson.lat para que veas el control de pantalla en acción.",
+      "outro": "Listo — abrí phoson.lat, bajé hasta las tarjetas y pulsé «Descargar». Cada acción quedó marcada sobre la captura."
+    }
   }
 }
