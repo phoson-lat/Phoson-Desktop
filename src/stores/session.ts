@@ -773,6 +773,11 @@ export const useSession = create<SessionState>((set, get) => {
           const dismissed =
             typeof localStorage !== "undefined" &&
             localStorage.getItem("phoson.onboarded") === "1";
+          // Sin ~/.phoson/config.toml el onboarding es forzoso aunque el
+          // usuario lo cerrara antes (con Escape solo se pospone si ya hay
+          // una configuración con la que trabajar).
+          const forceOnboarding =
+            Boolean(info.onboarding?.needed) && info.onboarding?.configExists === false;
           if (workspace) {
             setCurrentWorkspace(workspace);
             bindSessionWorkspace(key, workspace);
@@ -786,7 +791,7 @@ export const useSession = create<SessionState>((set, get) => {
             cwd: workspace || s.cwd,
             availableTools: info.tools?.visible ?? s.availableTools,
             maskedTools: info.tools?.maskedCount ?? s.maskedTools,
-            onboardingNeeded: Boolean(info.onboarding?.needed) && !dismissed,
+            onboardingNeeded: Boolean(info.onboarding?.needed) && (!dismissed || forceOnboarding),
             sessions: {
               ...s.sessions,
               [key]: { ...emptyView(key), metrics: info.metrics, workspace },
@@ -797,7 +802,7 @@ export const useSession = create<SessionState>((set, get) => {
             {
               sessionId: key,
               workspace,
-              onboardingNeeded: Boolean(info.onboarding?.needed) && !dismissed,
+              onboardingNeeded: Boolean(info.onboarding?.needed) && (!dismissed || forceOnboarding),
               tools: info.tools?.visible?.length ?? 0,
             },
             "info",

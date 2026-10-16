@@ -157,7 +157,12 @@ export interface InitResult {
   tools: { visible: string[]; maskedCount: number };
   commands: Array<{ names: string[]; help: string }>;
   /** Presente cuando el sidecar sabe si hay proveedor configurado. */
-  onboarding?: { needed: boolean; providers: ProviderStatus[] };
+  onboarding?: {
+    needed: boolean;
+    providers: ProviderStatus[];
+    /** false = no existe ~/.phoson/config.toml: el onboarding es forzoso. */
+    configExists?: boolean;
+  };
   defaultSessionId: string;
   /** cwd del sidecar por defecto (su workspace). */
   cwd?: string;
