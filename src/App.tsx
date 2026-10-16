@@ -1,10 +1,10 @@
-import { ArrowDown, Folder, Menu, Sparkles } from "lucide-react";
+import { ArrowDown, Folder, Menu, Monitor, Sparkles } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { isTauri, onTerminated, openExternal } from "@/bridge/client";
+import { isTauri, onTerminated, openExternal, setScreenGlow } from "@/bridge/client";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
@@ -32,6 +32,7 @@ import { mark, record, uptime } from "@/lib/perf";
 import { cleanSessionTitle } from "@/lib/session-title";
 import { useSession } from "@/stores/session";
 import { useFilePanel } from "@/stores/file-panel";
+import { useComputerUse } from "@/stores/computer-use";
 
 const basename = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
 
@@ -52,6 +53,9 @@ const FilePanel = lazy(() =>
 );
 const Onboarding = lazy(() =>
   import("@/features/onboarding").then((m) => ({ default: m.Onboarding })),
+);
+const ComputerUseViewport = lazy(() =>
+  import("@/features/computer-use/viewport").then((m) => ({ default: m.ComputerUseViewport })),
 );
 
 export default function App() {  const {
@@ -83,12 +87,18 @@ export default function App() {  const {
   } = useSession();
   // `common` entra en el array para poder reutilizar sus claves (`common:…`).
   const { t } = useTranslation(["chrome", "common"]);
+  // Textos del control de pantalla (chip ambiental): viven en `chat`.
+  const { t: tChat } = useTranslation("chat");
   // Borrador POR SESIÓN: cambiar de sesión no debe arrastrar (ni enviar) el
   // texto que estabas escribiendo en otra.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const draft = (activeKey ? drafts[activeKey] : "") ?? "";
   const setDraft = (v: string) =>
     setDrafts((d) => (activeKey ? { ...d, [activeKey]: v } : d));
+  // Control de pantalla (computer use): chip ambiental + glow mientras dura.
+  const cuActive = useComputerUse((s) => s.active);
+  const cuPanelOpen = useComputerUse((s) => s.panelOpen);
+  const cuOpenPanel = useComputerUse((s) => s.openPanel);
   const [navOpen, setNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(
     () => typeof localStorage !== "undefined" && localStorage.getItem("phoson.nav") === "collapsed",
@@ -105,6 +115,13 @@ export default function App() {  const {
   const [openFile, setOpenFile] = useState<string | null>(null);
   // Panel lateral de archivos del agente (lo abren las filas de write/patch).
   const filePanelTarget = useFilePanel((s) => s.target);
+
+  // Glow de borde de pantalla (ventana overlay nativa) mientras el agente
+  // hace computer use. Corre también al montar: si la ventana principal se
+  // recarga con glows huérfanos, este efecto los apaga (`cuActive` = false).
+  useEffect(() => {
+    void setScreenGlow(cuActive);
+  }, [cuActive]);
 
   // Rendimiento: hitos de arranque (requiere `phosonPerf` en la consola).
   useEffect(() => {
@@ -419,7 +436,7 @@ export default function App() {  const {
   return (
     <TooltipProvider delayDuration={200}>
       <div
-        className="dashboard-shell-overlay flex h-full min-h-0 w-full overflow-hidden"
+        className={`dashboard-shell-overlay flex h-full min-h-0 w-full overflow-hidden${cuActive ? " cu-shell-active" : ""}`}
         onDragOver={handleDragOver}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -493,6 +510,18 @@ export default function App() {  const {
             </div>
 
             <WorkspaceActions workspace={workspacePath} />
+
+            {cuActive && (
+              <button
+                onClick={cuOpenPanel}
+                title={tChat("computerUse.panel.open")}
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-violet-soft/40 bg-violet/10 px-2.5 py-1 text-[0.68rem] font-medium text-violet-soft transition-colors hover:bg-violet/20"
+              >
+                <span className="cu-live-dot size-1.5 rounded-full bg-violet-soft" />
+                <Monitor className="size-3.5" />
+                <span className="hidden sm:inline">{tChat("computerUse.ambient")}</span>
+              </button>
+            )}
 
             <ContextMeter metrics={metrics ?? undefined} />
           </header>
@@ -628,6 +657,15 @@ export default function App() {  const {
             <Suspense fallback={null}>
               <ErrorBoundary name="FilePanel">
                 <FilePanel overlay={narrow} />
+              </ErrorBoundary>
+            </Suspense>
+          )}
+
+          {/* Viewport de computer use: la pantalla que ve el agente, en vivo. */}
+          {cuPanelOpen && (
+            <Suspense fallback={null}>
+              <ErrorBoundary name="ComputerUseViewport">
+                <ComputerUseViewport />
               </ErrorBoundary>
             </Suspense>
           )}

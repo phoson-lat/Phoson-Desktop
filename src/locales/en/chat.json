@@ -142,5 +142,25 @@
     "undoFailed": "Could not undo the last turn.",
     "originalFolderMissing": "The original folder for this session no longer exists: the current workspace is used instead.",
     "engineInit": "could not initialize the engine"
+  },
+  "computerUse": {
+    "ambient": "Controlling the screen",
+    "panel": {
+      "title": "Screen control",
+      "live": "LIVE",
+      "vision": "PHOSON VISION",
+      "waiting": "Waiting for the first capture…",
+      "actions_one": "{{count}} action",
+      "actions_other": "{{count}} actions",
+      "open": "Open screen control",
+      "close": "Close screen control"
+    },
+    "group": {
+      "title": "Control session"
+    },
+    "demo": {
+      "intro": "Sure. I'll open the browser and load phoson.lat so you can see screen control in action.",
+      "outro": "Done — I opened phoson.lat, scrolled down to the cards and clicked «Download». Every action is marked on the capture."
+    }
   }
 }

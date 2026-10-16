@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Phoson — control de pantalla</title>
+    <!--
+      Overlay a pantalla completa del glow morado de computer use. Ventana
+      transparente, sin marco, siempre encima y click-through (la crea Rust,
+      comando `cu_screen_glow`): el usuario VE que Phoson controla la pantalla
+      pero puede seguir haciendo clic a través.
+
+      Sin JS a propósito: es una ventana efímera que solo decora; no carga el
+      bundle de la app ni necesita permisos de capabilities.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+      }
+
+      .glow {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        box-shadow:
+          inset 0 0 0 2px rgba(139, 92, 246, 0.85),
+          inset 0 0 36px rgba(91, 46, 255, 0.5),
+          inset 0 0 140px rgba(91, 46, 255, 0.28);
+        animation: cu-glow-pulse 2.4s ease-in-out infinite;
+      }
+
+      @keyframes cu-glow-pulse {
+        0%,
+        100% {
+          box-shadow:
+            inset 0 0 0 2px rgba(139, 92, 246, 0.85),
+            inset 0 0 36px rgba(91, 46, 255, 0.5),
+            inset 0 0 140px rgba(91, 46, 255, 0.28);
+        }
+        50% {
+          box-shadow:
+            inset 0 0 0 2px rgba(167, 139, 250, 0.95),
+            inset 0 0 56px rgba(91, 46, 255, 0.68),
+            inset 0 0 180px rgba(91, 46, 255, 0.38);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .glow {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="glow"></div>
+  </body>
+</html>

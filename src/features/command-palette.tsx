@@ -36,6 +36,7 @@ import {
 import { isModalOpen } from "@/lib/platform";
 import { cleanSessionTitle } from "@/lib/session-title";
 import { useSession, messageText } from "@/stores/session";
+import { useComputerUse } from "@/stores/computer-use";
 
 interface CommandPaletteProps {
   onOpenSettings: () => void;
@@ -230,6 +231,21 @@ export function CommandPalette({ onOpenSettings, onToggleExplorer }: CommandPale
             >
               {/* La etiqueta es la misma acción del menú de la bandeja: viene de `common`. */}
               <Minimize2 /> {t("common:tray.hide")}
+            </CommandItem>
+          )}
+          {import.meta.env.DEV && isTauri() && (
+            // Preview del glow de borde de pantalla sin hacer computer use de
+            // verdad: enciende el mismo flag `active` que encienden las tools.
+            <CommandItem
+              value={`${t("commands.screenGlowDev")} ${t("keywords.screenGlowDev")}`}
+              onSelect={() =>
+                run(() => {
+                  const cu = useComputerUse.getState();
+                  cu.setActive(!cu.active);
+                })
+              }
+            >
+              <Monitor /> {t("commands.screenGlowDev")}
             </CommandItem>
           )}
           <CommandItem value={t("keywords.openSettings")} onSelect={() => run(onOpenSettings)}>

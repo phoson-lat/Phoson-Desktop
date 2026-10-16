@@ -22,5 +22,13 @@ export default defineConfig({
   build: {
     target: "es2021",
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        // Glow de computer use a pantalla completa (ventana click-through que
+        // crea Rust con `cu_screen_glow`). HTML estático, sin bundle de React.
+        cuOverlay: path.resolve(__dirname, "cu-overlay.html"),
+      },
+    },
   },
 });

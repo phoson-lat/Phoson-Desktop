@@ -29,6 +29,8 @@ import { toolDetail, toolPresentation } from "@/lib/tool-labels";
 import { cn } from "@/lib/utils";
 import { messageText, useSession, type ChatMessage, type ToolCard } from "@/stores/session";
 import { FILE_TOOLS, useFilePanel } from "@/stores/file-panel";
+import { isComputerTool } from "@/stores/computer-use";
+import { ComputerSessionBlock } from "@/features/computer-use/action-chip";
 
 /* ── Llamada a herramienta (fila discreta, expandible) ──────────────────── */
 function ToolRow({ tool, messageId }: { tool: ToolCard; messageId: string }) {
@@ -242,8 +244,23 @@ function MessageRowView({
   }
 
   // Agente: sin tarjeta. Se renderizan las partes EN ORDEN (texto y tools
-  // intercalados, tal como los emite el bucle ReAct del engine).
+  // intercalados, tal como los emite el bucle ReAct del engine). Las ráfagas
+  // de `computer_*` se colapsan en un único bloque «Sesión de control».
   const lastIndex = message.parts.length - 1;
+  type GroupedPart =
+    | { kind: "text"; text: string }
+    | { kind: "tool"; tool: ToolCard }
+    | { kind: "computer"; tools: ToolCard[] };
+  const groupedParts: GroupedPart[] = [];
+  for (const part of message.parts) {
+    if (part.kind === "tool" && isComputerTool(part.tool.name)) {
+      const last = groupedParts[groupedParts.length - 1];
+      if (last?.kind === "computer") last.tools.push(part.tool);
+      else groupedParts.push({ kind: "computer", tools: [part.tool] });
+    } else {
+      groupedParts.push(part);
+    }
+  }
   const reasoning = message.reasoning ?? "";
   // El razonamiento precede a la acción: en cuanto aparece texto o una tool,
   // "pensar" ha terminado (y el bloque se cierra solo).
@@ -273,15 +290,23 @@ function MessageRowView({
         )
       ) : (
         <>
-          {message.parts.map((part, index) =>
+          {groupedParts.map((part, index) =>
             part.kind === "tool" ? (
               <ToolRow key={`tool-${part.tool.id}-${index}`} tool={part.tool} messageId={message.id} />
+            ) : part.kind === "computer" ? (
+              <ComputerSessionBlock key={`cu-${part.tools[0].id}-${index}`} tools={part.tools} />
             ) : (
               <TextBlock
                 key={`text-${index}`}
                 text={part.text}
-                // Solo el último bloque (el que aún llega) se renderiza en modo stream.
-                streaming={message.status === "streaming" && index === lastIndex}
+                // Solo el último bloque (el que aún llega) se renderiza en modo
+                // stream. Ojo: `index` es del array AGRUPADO; el último bloque
+                // de texto lo es solo si también lo es entre las partes.
+                streaming={
+                  message.status === "streaming" &&
+                  index === groupedParts.length - 1 &&
+                  message.parts[lastIndex]?.kind === "text"
+                }
               />
             ),
           )}
