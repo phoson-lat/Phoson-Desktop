@@ -4,6 +4,7 @@
 mod bridge;
 mod logging;
 mod native;
+mod screen_glow;
 
 use bridge::BridgeState;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -42,7 +43,8 @@ fn main() {
             native::show_window,
             native::set_close_to_tray,
             native::system_locale,
-            native::set_native_labels
+            native::set_native_labels,
+            screen_glow::cu_screen_glow
         ])
         .setup(|app| {
             setup_tray(app.handle())?;
