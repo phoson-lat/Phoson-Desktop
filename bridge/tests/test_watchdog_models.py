@@ -43,9 +43,15 @@ class _FakeRepl:
     config = type("Cfg", (), {"provider": "openrouter", "base_url": ""})()
 
 
-async def _fake_get(_key: str) -> _FakeRepl:
-    """Sustituto de `SessionManager.get` (que es async desde que construye en un hilo)."""
-    return _FakeRepl()
+def _patch_sessions(harness: "_Bridge") -> None:
+    """Sustituto del plano de sesiones para `_models_list`.
+
+    `models.list` ya NO construye el engine (debe funcionar durante el
+    onboarding, cuando `build_chat` ni siquiera podría levantar el cliente):
+    lee la config viva con `config_for` y el repl solo si ya existe.
+    """
+    harness.bridge.sessions.config_for = lambda _key: _FakeRepl().config  # type: ignore[method-assign]
+    harness.bridge.sessions.repl_if_built = lambda _key: _FakeRepl()  # type: ignore[method-assign]
 
 
 class _Bridge:
@@ -188,7 +194,7 @@ async def _test_models_list_is_cached() -> None:
         calls += 1
         return [{"id": "m1"}, {"id": "m2"}], None
 
-    harness.bridge.sessions.get = _fake_get  # type: ignore[method-assign]
+    _patch_sessions(harness)
     harness.bridge._fetch_models = fake_fetch  # type: ignore[method-assign]
 
     first = await harness.bridge._models_list({"sessionId": "s3"})
@@ -212,7 +218,7 @@ async def _test_models_error_is_not_cached() -> None:
         calls += 1
         return [], "sin red"
 
-    harness.bridge.sessions.get = _fake_get  # type: ignore[method-assign]
+    _patch_sessions(harness)
     harness.bridge._fetch_models = failing_fetch  # type: ignore[method-assign]
 
     first = await harness.bridge._models_list({"sessionId": "s4"})
@@ -234,7 +240,7 @@ async def _test_models_cache_invalidated_on_provider_change() -> None:
         calls += 1
         return [{"id": "m1"}], None
 
-    harness.bridge.sessions.get = _fake_get  # type: ignore[method-assign]
+    _patch_sessions(harness)
     harness.bridge._fetch_models = fake_fetch  # type: ignore[method-assign]
 
     await harness.bridge._models_list({"sessionId": "s5"})
