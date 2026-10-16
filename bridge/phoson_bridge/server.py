@@ -35,6 +35,7 @@ import uuid
 import asyncio
 import logging
 import threading
+from pathlib import Path
 from typing import Any, TextIO
 
 from phoson_cli.config import load_config, PhosonConfig, has_configured_provider
@@ -93,6 +94,35 @@ _WATCHDOG_DEFAULT_SILENCE_SECONDS = 120.0
 #: Avisos máximos por RPC en vuelo (el watchdog se reprograma mientras siga el
 #: problema, pero no hasta el infinito).
 _WATCHDOG_MAX_WARNINGS = 3
+
+
+def _config_path() -> Path:
+    """Ruta del config compartido con el CLI (la misma que lee `load_config`)."""
+    return Path("~/.phoson/config.toml").expanduser()
+
+
+def _blank_metrics(session_key: str, cfg: PhosonConfig) -> dict[str, Any]:
+    """Métricas en cero de una sesión cuyo engine aún no se ha construido.
+
+    `initialize` las devuelve cuando no hay proveedor usable (onboarding): el
+    frontend guarda este bloque en la vista de la sesión y el engine se
+    construirá después (primer `turn.run`), ya con el config.toml escrito.
+    """
+    return {
+        "sessionId": session_key,
+        "costUsd": 0.0,
+        "credits": 0,
+        "tokens": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "steps": 0,
+        "contextTokens": 0,
+        # Mismo default que el controller antes de resolver la ventana real.
+        "contextWindow": 128_000,
+        "model": cfg.model,
+        "provider": cfg.provider,
+        "isRunning": False,
+    }
 
 
 def _watchdog_delays(method: str) -> tuple[float, float]:
@@ -188,6 +218,12 @@ class SessionManager:
                 built = await asyncio.to_thread(self._build, key, parts)
                 self._repls[key] = built
                 return built
+            except Exception:
+                # La sesión NO se pierde con un build fallido (típico: clave
+                # mal pegada en el onboarding): vuelve a `_pending` y la próxima
+                # RPC reintenta la construcción con la config ya corregida.
+                self._pending[key] = parts
+                raise
             finally:
                 self._building.pop(key, None)
 
@@ -238,6 +274,37 @@ class SessionManager:
         from phoson_agent.sessions import JsonlStorage
 
         return JsonlStorage(base_path=self._base_config.sessions_dir)
+
+    # -- acceso sin construir el engine --------------------------------------
+    # En un equipo sin `~/.phoson/config.toml` ni claves en el entorno el
+    # engine NO se puede construir (`build_chat` exige la credencial del
+    # proveedor activo), así que el plano de configuración (onboarding,
+    # ajustes, catálogo de modelos) trabaja contra la config reservada de la
+    # sesión sin pasar por `get()`.
+
+    def is_built(self, key: str) -> bool:
+        """¿El engine (``PhosonRepl``) de la sesión ya está construido?"""
+        return key in self._repls
+
+    def repl_if_built(self, key: str) -> PhosonRepl | None:
+        """El ``PhosonRepl`` de la sesión si ya existe, sin construirlo."""
+        return self._repls.get(key)
+
+    def config_for(self, key: str) -> PhosonConfig:
+        """Config viva de una sesión SIN construir su engine.
+
+        Con el engine construido es ``repl.config``; si no, la copia reservada
+        en ``create()`` — la misma que recibirá el ``PhosonRepl`` cuando toque
+        construirlo, así que los cambios hechos aquí (p. ej. `config.set`
+        durante el onboarding) son los que verá el engine al levantar.
+        """
+        repl = self._repls.get(key)
+        if repl is not None:
+            return repl.config
+        parts = self._pending.get(key)
+        if parts is None:
+            raise KeyError(f"sesión desconocida: {key}")
+        return parts[0]
 
     # -- confirmaciones -------------------------------------------------------
     async def request_user(self, session_key: str, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -468,6 +535,12 @@ class Bridge:
         La misma construcción que haría `initialize`, pero sin que nadie la
         espere: si la primera petición llega cuando ya está hecha, no la paga.
         """
+        if not has_configured_provider(self.config):
+            # Sin proveedor usable el build fallaría (`build_chat` exige la
+            # clave del proveedor activo): el onboarding escribe config.toml
+            # primero y el engine se construye después, en el primer turno.
+            log.info("precalentado omitido: sin proveedor configurado (onboarding pendiente)")
+            return
         try:
             await self.sessions.get(self._default_session)
         except Exception:  # noqa: BLE001 — un precalentado fallido no tumba nada
@@ -658,6 +731,38 @@ class Bridge:
     async def _initialize(self, _params: dict[str, Any]) -> dict[str, Any]:
         # Recupera la sesión por defecto si el front-end la cerró.
         self._default_session = self.sessions.ensure_any()
+        # Puerta de primera ejecución, espejo del arranque del CLI
+        # (`phoson-cli --setup`, ver phoson_cli/__main__.py): sin proveedor
+        # usable (ni `~/.phoson/config.toml` ni claves en el entorno) el engine
+        # NO se puede construir — `build_chat` exige la credencial del
+        # proveedor activo y `initialize` fallaría antes de poder siquiera
+        # pedirla. Se responde con la config base y `onboarding.needed`: el
+        # asistente de la app recoge la clave, la persiste vía `config.set`
+        # (escribe `~/.phoson/config.toml`) y el engine se construye después,
+        # perezosamente, en el primer `turn.run`.
+        if not has_configured_provider(self.config):
+            cfg = self.config
+            return {
+                "config": {
+                    "model": cfg.model,
+                    "provider": cfg.provider,
+                    "theme": cfg.theme,
+                    "sessionsDir": str(cfg.sessions_dir),
+                    "safeMode": cfg.safe_mode,
+                },
+                # Sin engine no hay catálogo de tools/comandos: la UI los
+                # mostrará vacíos hasta terminar el onboarding.
+                "tools": {"visible": [], "maskedCount": 0},
+                "commands": [],
+                "onboarding": {
+                    "needed": True,
+                    "providers": self._provider_status(cfg),
+                    "configExists": _config_path().exists(),
+                },
+                "defaultSessionId": self._default_session,
+                "cwd": os.getcwd(),
+                "metrics": _blank_metrics(self._default_session, cfg),
+            }
         repl = await self.sessions.get(self._default_session)
         visible = engine_visible_tools(repl.engine)
         return {
@@ -680,6 +785,7 @@ class Bridge:
             "onboarding": {
                 "needed": not has_configured_provider(repl.config),
                 "providers": self._provider_status(repl.config),
+                "configExists": _config_path().exists(),
             },
             "defaultSessionId": self._default_session,
             "cwd": os.getcwd(),
@@ -854,9 +960,15 @@ class Bridge:
         catálogo del proveedor. Un fallo de red NO se cachea (reintenta en la
         siguiente llamada).
         """
-        repl = await self.sessions.get(params["sessionId"])
-        cfg = repl.config
-        current = {"model": repl.current_model, "provider": cfg.provider}
+        # Sin engine construido (onboarding): la config reservada de la sesión
+        # basta — el catálogo es una consulta de red al proveedor, no usa tools.
+        session_id = str(params.get("sessionId") or "")
+        cfg = self.sessions.config_for(session_id)
+        repl = self.sessions.repl_if_built(session_id)
+        current = {
+            "model": repl.current_model if repl is not None else cfg.model,
+            "provider": cfg.provider,
+        }
         key = f"{cfg.provider}|{getattr(cfg, 'base_url', '') or ''}"
 
         cached = self._models_cache.get(key)
@@ -963,8 +1075,9 @@ class Bridge:
             enabled_providers_from_config,
         )
 
-        repl = await self.sessions.get(params["sessionId"])
-        cfg = repl.config
+        # Sin construir el engine: `config.get` también sirve al onboarding,
+        # que corre precisamente cuando el engine aún no puede construirse.
+        cfg = self.sessions.config_for(str(params.get("sessionId") or ""))
         return {
             "provider": cfg.provider,
             "model": cfg.model,
@@ -986,38 +1099,52 @@ class Bridge:
         (write-only: entran, nunca salen)."""
         from phoson_cli.config import save_config
 
-        repl = await self.sessions.get(params["sessionId"])
-        cfg = repl.config
+        # Sin construir el engine: `config.set` es lo que escribe el primer
+        # `~/.phoson/config.toml` durante el onboarding — precisamente cuando
+        # el engine no puede construirse todavía (no hay clave que valide).
+        session_id = str(params.get("sessionId") or "")
+        cfg = self.sessions.config_for(session_id)
         patch = params.get("patch") or {}
         secrets = params.get("secrets") or {}
 
         touched: set[str] = set()
+        values: dict[str, Any] = {}
         for field in self._SAFE_FIELDS:
             if field in patch:
-                setattr(cfg, field, patch[field])
+                values[field] = patch[field]
                 touched.add(field)
         for pid, value in secrets.items():
             field = self._PROVIDERS.get(str(pid), {}).get("key")
             if field and value:
-                setattr(cfg, field, value)
+                values[field] = value
                 touched.add(field)
         for pid, value in (params.get("base_urls") or {}).items():
             field = self._PROVIDERS.get(str(pid), {}).get("base_url")
             if field is not None:
-                setattr(cfg, field, value or None)
+                values[field] = value or None
                 touched.add(field)
+        for field, value in values.items():
+            setattr(cfg, field, value)
+            # Espejo en la config base: las sesiones NUEVAS que se creen en este
+            # sidecar heredan el cambio (sin esto, un `session.new` posterior al
+            # onboarding volvería a arrancar sin proveedor ni clave).
+            setattr(self.config, field, value)
 
         only = set(self._SAFE_FIELDS) | touched | {"enabled_providers"}
         path = save_config(cfg, only_fields=only, explicit_secret_fields=touched)
 
-        # Aplicar en vivo lo que el engine necesita (cliente/modelo/base_url).
-        if "provider" in patch or touched:
-            try:
-                await repl.set_provider(cfg.provider)
-            except Exception as exc:  # noqa: BLE001 — guardar no debe fallar por el rebuild
-                log.warning("set_provider tras config.set falló: %s", exc)
+        # Aplicar en vivo lo que el engine necesita (cliente/modelo/base_url),
+        # solo si ya está construido. Si no lo está (onboarding), la
+        # construcción perezosa del primer `turn.run` ya leerá esta config.
+        if self.sessions.is_built(session_id):
+            if "provider" in patch or touched:
+                try:
+                    repl = await self.sessions.get(session_id)
+                    await repl.set_provider(cfg.provider)
+                except Exception as exc:  # noqa: BLE001 — guardar no debe fallar por el rebuild
+                    log.warning("set_provider tras config.set falló: %s", exc)
+            self._emit("session.metrics", await self._metrics(session_id))
 
-        self._emit("session.metrics", await self._metrics(params["sessionId"]))
         # Cambios de proveedor/base_url/clave → el catálogo cacheado ya no sirve.
         self._invalidate_models()
         return {"ok": True, "path": str(path), "config": await self._config_get(params)}
