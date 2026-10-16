@@ -61,6 +61,20 @@ export async function openPath(path: string): Promise<void> {
   await invoke("open_path", { path });
 }
 
+/**
+ * Glow morado en el borde de la PANTALLA (ventana overlay click-through, una
+ * por monitor) mientras el agente hace computer use. Fuera de Tauri no hay SO
+ * que decorar: no-op. Un fallo aquí es ambiental, nunca debe romper el chat.
+ */
+export async function setScreenGlow(active: boolean): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await invoke("cu_screen_glow", { active });
+  } catch (e) {
+    logEvent("cu.glow", { active, error: String(e) }, "warn", "ui");
+  }
+}
+
 // ── Implementación real (Tauri) ───────────────────────────────────────────
 class TauriBridge implements Bridge {
   async rpc<T = Json>(method: string, params?: Json, workspace?: string | null): Promise<T> {
@@ -401,6 +415,11 @@ class MockBridge implements Bridge {
    */
   private simulateTurn(sessionId: string, text: string) {
     const normalized = text.trim().toLowerCase();
+    // Demo de computer use: «demo pantalla» / cualquier prompt con "computer".
+    if (normalized.includes("computer") || normalized.includes("pantalla")) {
+      this.simulateComputerUseTurn(sessionId);
+      return;
+    }
     const isDemo =
       normalized === demoUser().toLowerCase() || normalized.includes("demo");
     const reply = isDemo ? demoAssistant() : i18n.t("welcome:demo.genericReply");
@@ -474,6 +493,96 @@ class MockBridge implements Bridge {
         finalContent: reply,
       });
     }, t + 200);
+  }
+
+  /**
+   * Demo del «control de pantalla» (plugin computeruse): un guion de acciones
+   * `computer_*` con sus frames, para ver el look del viewport y de las chips
+   * sin sidecar. Los frames son SVG de `public/`; la notificación
+   * `computer.frame` es el SEAM que el bridge real usará cuando resuelva la
+   * ruta del PNG que el plugin guarda en `$TMPDIR/computer-screenshot/`.
+   *
+   * Las coordenadas están en el espacio del frame (1440×900), igual que en el
+   * plugin real: lo que se dibuja en el overlay es lo que el modelo "vio".
+   */
+  private simulateComputerUseTurn(sessionId: string) {
+    const ev = (event: Record<string, unknown>) =>
+      this.emit("agent.event", { sessionId, event });
+    const now = () => Date.now();
+    const frame = (src: string) =>
+      this.emit("computer.frame", { sessionId, dataUrl: src, width: 1440, height: 900 });
+
+    const narration = (text: string, at: number) => {
+      let t = at;
+      for (const word of text.split(/(\s+)/)) {
+        setTimeout(() => ev({ type: "AgentTokenEvent", timestamp: now(), content: word }), t);
+        t += 30;
+      }
+      return t;
+    };
+
+    // Acción del guion: start y done con su pausa (como el bucle ReAct real).
+    let t = 400;
+    const step = (
+      name: string,
+      args: Record<string, unknown>,
+      opts: { runMs?: number; gap?: number; result?: string; before?: () => void } = {},
+    ) => {
+      const { runMs = 450, gap = 220, result = "ok" } = opts;
+      const id = `cu_mock_${name}_${t}`;
+      if (opts.before) setTimeout(opts.before, t);
+      setTimeout(
+        () =>
+          ev({ type: "AgentToolStartEvent", timestamp: now(), tool_call_id: id, tool_name: name, args }),
+        t,
+      );
+      t += runMs;
+      setTimeout(
+        () =>
+          ev({
+            type: "AgentToolDoneEvent",
+            timestamp: now(),
+            tool_call_id: id,
+            tool_name: name,
+            result,
+            error: null,
+            duration_ms: runMs,
+          }),
+        t,
+      );
+      t += gap;
+    };
+
+    this.emit("session.turn.started", { sessionId, task: "demo computer" });
+    setTimeout(() => ev({ type: "AgentStartEvent", timestamp: now(), tool_count: 18 }), 120);
+    t = narration(i18n.t("chat:computerUse.demo.intro"), 260) + 300;
+
+    const shotResult = "Screen capture 1440x900 px. Pass coordinates as x in [0, 1439], y in [0, 899].";
+    step("computer_screenshot", {}, { result: shotResult, before: () => frame("/mock-desktop.svg") });
+    step("computer_move", { x: 672, y: 868 }, { runMs: 600 });
+    step("computer_click", { x: 672, y: 868, button: "left", clicks: 1 });
+    step("computer_wait", { seconds: 1.2 }, { runMs: 900, result: "Waited 1.2s." });
+    step("computer_screenshot", {}, { result: shotResult, before: () => frame("/mock-browser-empty.svg") });
+    step("computer_click", { x: 700, y: 120, button: "left", clicks: 1 });
+    step("computer_type", { text: "phoson.lat" }, { runMs: 800 });
+    step("computer_key", { keys: ["ENTER"] }, { runMs: 350 });
+    step("computer_wait", { seconds: 1.5 }, { runMs: 1000, result: "Waited 1.5s." });
+    step("computer_screenshot", {}, { result: shotResult, before: () => frame("/mock-browser-phoson.svg") });
+    step("computer_scroll", { x: 720, y: 450, dx: 0, dy: 3 }, { runMs: 700 });
+    step("computer_move", { x: 500, y: 524 }, { runMs: 600 });
+    step("computer_click", { x: 500, y: 524, button: "left", clicks: 1 });
+
+    t = narration(i18n.t("chat:computerUse.demo.outro"), t + 300);
+    setTimeout(() => {
+      ev({ type: "AgentDoneEvent", timestamp: now() });
+      this.emit("session.metrics", { ...this.metrics(sessionId), isRunning: false });
+      this.emit("session.assistant.done", {
+        sessionId,
+        status: "done",
+        errorCode: null,
+        finalContent: i18n.t("chat:computerUse.demo.outro"),
+      });
+    }, t + 300);
   }
 }
 
