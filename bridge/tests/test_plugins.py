@@ -14,12 +14,14 @@ limpian los `PHOSON_*` del entorno para que el archivo sea la única fuente.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 import tomllib
 import tempfile
 import importlib
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -36,6 +38,7 @@ for _key in [k for k in os.environ if k.startswith("PHOSON_")]:
 from phoson_cli.config import load_config  # noqa: E402
 from phoson_cli.labels import PLUGIN_LABELS, PLUGIN_REQUIRED_EXTRAS  # noqa: E402
 from phoson_bridge import plugins as P  # noqa: E402
+from phoson_bridge.server import Bridge, SessionManager  # noqa: E402
 
 CONFIG = Path(_TMP) / ".phoson" / "config.toml"
 CONFIG.parent.mkdir(parents=True, exist_ok=True)
@@ -339,6 +342,51 @@ _check(
     "el plugin instalado aparece en el catálogo",
     catalog_ids.get("entrypoint:demo-plugin") is True,
     str(catalog_ids),
+)
+
+# 15) Propagación: los plugins son estado global (`config.toml`), así que el
+#     espejo del toggle tiene que alcanzar a todas las sesiones — a las que ya
+#     tienen engine y a las abiertas que todavía no se construyeron. Con una
+#     copia vieja, esa sesión arrancaría sin el plugin recién activado (el bug
+#     del toggle que «no daba tools» a las otras sesiones).
+async def _propagation_case() -> tuple[bool, str]:
+    base = _fresh('[defaults]\nplugins = ["phoson-plugin-memory"]\n')
+    mgr = SessionManager(base, lambda *_a, **_k: None)
+    otra = mgr.create()  # abierta antes del cambio y aún sin engine
+    toggled = mgr.create()
+    # `get()` mueve la sesión de `_pending` a `_repls` al construir su engine;
+    # aquí basta con simular ese paso: el espejo solo lee la config.
+    cfg_toggled = mgr._pending.pop(toggled)[0]
+    repl = SimpleNamespace(config=cfg_toggled)
+    mgr._repls[toggled] = repl
+
+    cfg_toggled.enable_computeruse = True  # el toggle del usuario
+    Bridge._mirror_config_fields(
+        SimpleNamespace(config=base),
+        cfg_toggled,
+        ["enable_computeruse"],
+        mgr.session_configs(),
+    )
+
+    configs = mgr.session_configs()
+    ok = (
+        base.enable_computeruse is True
+        and mgr.config_for(otra).enable_computeruse is True
+        and mgr.built_repls() == [repl]
+        and cfg_toggled in configs
+        and mgr.config_for(otra) in configs
+    )
+    return ok, (
+        f"base={base.enable_computeruse} otra={mgr.config_for(otra).enable_computeruse} "
+        f"built={len(mgr.built_repls())} configs={len(configs)}"
+    )
+
+
+_passed, _detail = asyncio.run(_propagation_case())
+_check(
+    "el espejo del toggle alcanza a las sesiones vivas y a las no construidas",
+    _passed,
+    _detail,
 )
 
 CONFIG.unlink(missing_ok=True)

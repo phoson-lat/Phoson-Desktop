@@ -290,6 +290,26 @@ class SessionManager:
         """El ``PhosonRepl`` de la sesión si ya existe, sin construirlo."""
         return self._repls.get(key)
 
+    def built_repls(self) -> list[PhosonRepl]:
+        """Los ``PhosonRepl`` ya construidos (los demás son `_pending`).
+
+        Lo que cambia en disco y afecta al engine entero (los plugins de
+        `config.toml`) tiene que llegar a *todas* las sesiones vivas: cada una
+        tiene su propio engine con su propio catálogo de tools.
+        """
+        return list(self._repls.values())
+
+    def session_configs(self) -> list[PhosonConfig]:
+        """La config propia de cada sesión viva, sin construir engine alguno.
+
+        Son las copias de `create()` (una por sesión, hechas en el momento de
+        abrirla), así que una sesión abierta *antes* de un cambio pero aún sin
+        construir arrancaría con el estado viejo si no se le espeja también.
+        """
+        return [cfg for cfg, _sink, _confirm in self._pending.values()] + [
+            repl.config for repl in self._repls.values()
+        ]
+
     def config_for(self, key: str) -> PhosonConfig:
         """Config viva de una sesión SIN construir su engine.
 
@@ -1498,6 +1518,29 @@ class Bridge:
     # que estos handlers escriben con `save_config` y recargan el engine — igual
     # que `config.set` y `mcp.save`. Ninguno construye la sesión para leer.
 
+    def _mirror_config_fields(
+        self, cfg: Any, fields: list[str], configs: list[Any] = ()
+    ) -> None:
+        """Copia los campos tocados a la config base y a cada sesión viva.
+
+        Las sesiones nacen con `copy.copy` de la config base: las listas quedan
+        compartidas hasta que alguien las rebindea (y entonces la lista nueva es
+        solo suya), así que sin este espejo una sesión abierta después del
+        cambio, o abierta antes pero todavía sin construir, arrancaría con el
+        estado viejo.
+
+        `configs` son las configs por sesión (``SessionManager.session_configs``,
+        que incluye las de las sesiones vivas y las de las aún sin construir).
+        Las que ya tienen engine cargaron los plugins viejos, así que además hay
+        que reconstruirlas: eso lo hace quien llama con `_reload_plugins`.
+        """
+        for target in [self.config, *configs]:
+            if target is cfg:
+                continue
+            for field in fields:
+                value = getattr(cfg, field, None)
+                setattr(target, field, list(value) if isinstance(value, list) else value)
+
     async def _plugins_get(self, params: dict[str, Any]) -> dict[str, Any]:
         """Catálogo de plugins del engine con su estado actual.
 
@@ -1532,15 +1575,18 @@ class Bridge:
         cfg = self.sessions.config_for(session_id)
         result = set_enabled(cfg, str(params.get("id") or ""), bool(params.get("enabled")))
         fields = list(result.get("fields") or [])
-        repl = self.sessions.repl_if_built(session_id)
-        if result.get("ok") and fields and repl is not None:
-            # El engine resuelve los plugins al construirse: sin reconstruir el de
-            # esta sesión, el cambio quedaría en config.toml pero seguiría con su
-            # catálogo viejo hasta el siguiente arranque.
-            await self._reload_plugins(repl)
+        repls = self.sessions.built_repls()
+        if result.get("ok") and fields:
+            self._mirror_config_fields(cfg, fields, self.sessions.session_configs())
+            # Los plugins los fija `config.toml`, que es de todo el engine: hay
+            # que reconstruir **todas** las sesiones vivas, no solo la que hizo
+            # el toggle. Con una sola, las demás seguían con su catálogo viejo y
+            # el agente de esa sesión no veía la tool recién activada.
+            for repl in repls:
+                await self._reload_plugins(repl)
         if result.get("ok"):
             result["plugins"] = catalog(cfg)
-            tools = self._tools_payload([repl] if repl is not None else [])
+            tools = self._tools_payload(repls)
             if tools is not None:
                 result["tools"] = tools
         return result
@@ -1573,16 +1619,17 @@ class Bridge:
         # las otras sesiones incluidas. Sus fallos ya son `PluginManagerError`
         # (mensaje accionable), que `_dispatch` devuelve como error del RPC.
         name = await asyncio.to_thread(install, cfg, source)
-        repl = self.sessions.repl_if_built(session_id)
-        # Igual que en `plugins.set`: el plugin recién instalado solo entra en el
-        # catálogo del engine al reconstruirlo.
-        if repl is not None:
+        repls = self.sessions.built_repls()
+        self._mirror_config_fields(cfg, ["plugins"], self.sessions.session_configs())
+        # Mismo motivo que en `plugins.set`: el plugin recién instalado tiene
+        # que entrar en todas las sesiones vivas, no solo en la del panel.
+        for repl in repls:
             await self._reload_plugins(repl)
         return {
             "ok": True,
             "name": name,
             "plugins": catalog(cfg),
-            "tools": self._tools_payload([repl] if repl is not None else []),
+            "tools": self._tools_payload(repls),
         }
 
     # ── Adjuntos (pegar / arrastrar archivos) ─────────────────────────────
