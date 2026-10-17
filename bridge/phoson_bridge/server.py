@@ -87,7 +87,7 @@ _TOKEN_EVENT_TYPES = frozenset({"AgentTokenEvent", "AgentReasoningEvent"})
 #: `AgentStartEvent` en los primeros ms y solo calla hasta que fluye el token.
 #: Se pueden forzar con env para probar el comportamiento a mano:
 #:   PHOSON_WATCHDOG_SECONDS=3 PHOSON_WATCHDOG_SILENCE_SECONDS=5
-_WATCHDOG_SECONDS: dict[str, float] = {"turn.run": 15.0}
+_WATCHDOG_SECONDS: dict[str, float] = {"turn.run": 15.0, "plugins.install": 180.0}
 _WATCHDOG_SILENCE_SECONDS: dict[str, float] = {"turn.run": 60.0}
 _WATCHDOG_DEFAULT_SECONDS = 30.0
 _WATCHDOG_DEFAULT_SILENCE_SECONDS = 120.0
@@ -445,6 +445,9 @@ class Bridge:
             "mcp.get": self._mcp_get,
             "mcp.save": self._mcp_save,
             "mcp.remove": self._mcp_remove,
+            "plugins.get": self._plugins_get,
+            "plugins.set": self._plugins_set,
+            "plugins.install": self._plugins_install,
             "attachment.list": self._attachment_list,
             "attachment.push": self._attachment_push,
             "attachment.remove": self._attachment_remove,
@@ -1489,6 +1492,99 @@ class Bridge:
         await self._reload_plugins(repl)
         return {"ok": True, "path": path, "mcp": self._mcp_summary(cfg)}
 
+    # ── Plugins del engine ────────────────────────────────────────────────
+    # El estado de los plugins vive en `config.toml` (flags `enable_*` y/o las
+    # listas `plugins`/`disabled_plugins`) y el engine lo lee al construirse, así
+    # que estos handlers escriben con `save_config` y recargan el engine — igual
+    # que `config.set` y `mcp.save`. Ninguno construye la sesión para leer.
+
+    async def _plugins_get(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Catálogo de plugins del engine con su estado actual.
+
+        No construye el engine: lee la config viva de la sesión (como
+        `config.get`), de modo que Ajustes › Plugins funciona incluso antes del
+        primer turno (o sin proveedor configurado).
+        """
+        from .plugins import catalog, installable
+
+        cfg = self.sessions.config_for(str(params.get("sessionId") or ""))
+        can_install, blocked = installable()
+        return {
+            "plugins": catalog(cfg),
+            "canInstall": can_install,
+            "installBlocked": blocked,
+            "configPath": str(_config_path()),
+        }
+
+    async def _plugins_set(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Activa o desactiva un plugin y persiste el cambio en `config.toml`.
+
+        Escribe lo mismo que `phoson-cli plugin enable/disable` (el flag
+        `enable_*` del config o la spec en `plugins`/`disabled_plugins`) y
+        reconstruye el engine para que el cambio surta efecto en vivo. Devuelve
+        `{"ok": False, "reason": "locked"}` cuando el estado lo fija otra fuente
+        (dictado, pares, un flag que `save_config` no persiste) y el toggle no
+        puede cambiarlo.
+        """
+        from .plugins import catalog, set_enabled
+
+        session_id = str(params.get("sessionId") or "")
+        cfg = self.sessions.config_for(session_id)
+        result = set_enabled(cfg, str(params.get("id") or ""), bool(params.get("enabled")))
+        fields = list(result.get("fields") or [])
+        repl = self.sessions.repl_if_built(session_id)
+        if result.get("ok") and fields and repl is not None:
+            # El engine resuelve los plugins al construirse: sin reconstruir el de
+            # esta sesión, el cambio quedaría en config.toml pero seguiría con su
+            # catálogo viejo hasta el siguiente arranque.
+            await self._reload_plugins(repl)
+        if result.get("ok"):
+            result["plugins"] = catalog(cfg)
+            tools = self._tools_payload([repl] if repl is not None else [])
+            if tools is not None:
+                result["tools"] = tools
+        return result
+
+    async def _plugins_install(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Instala un plugin de terceros desde `source` y lo activa.
+
+        Un plugin es **código Python que corre con los permisos del usuario**, así
+        que la UI confirma el origen exacto y aquí se exige `confirmed: true`: sin
+        él no se ejecuta nada (un request suelto no instala). El trabajo lo hace
+        `install_plugin` del engine (resuelve el commit, `uv pip install`, exige
+        exactamente un entry point nuevo y anota el lockfile); es lento, por eso
+        `plugins.install` tiene su propio watchdog.
+        """
+        from .plugins import catalog, install, installable
+
+        if not params.get("confirmed"):
+            raise ValueError("la instalación de un plugin requiere confirmación explícita")
+        can_install, blocked = installable()
+        if not can_install:
+            return {"ok": False, "reason": blocked}
+        source = str(params.get("source") or "").strip()
+        if not source:
+            raise ValueError("falta el origen del plugin")
+
+        session_id = str(params.get("sessionId") or "")
+        cfg = self.sessions.config_for(session_id)
+        # En un hilo: `install_plugin` corre `uv pip install` de forma bloqueante
+        # (segundos o minutos) y sobre el event loop congelaría el sidecar entero,
+        # las otras sesiones incluidas. Sus fallos ya son `PluginManagerError`
+        # (mensaje accionable), que `_dispatch` devuelve como error del RPC.
+        name = await asyncio.to_thread(install, cfg, source)
+        repl = self.sessions.repl_if_built(session_id)
+        # Igual que en `plugins.set`: el plugin recién instalado solo entra en el
+        # catálogo del engine al reconstruirlo.
+        if repl is not None:
+            await self._reload_plugins(repl)
+        return {
+            "ok": True,
+            "name": name,
+            "plugins": catalog(cfg),
+            "tools": self._tools_payload([repl] if repl is not None else []),
+        }
+
     # ── Adjuntos (pegar / arrastrar archivos) ─────────────────────────────
     #: Tope de tamaño al materializar un archivo enviado desde la UI.
     _MAX_PUSH = 25 * 1024 * 1024
@@ -1555,12 +1651,40 @@ class Bridge:
 
     @staticmethod
     async def _reload_plugins(repl: Any) -> None:
-        """Reconstruye el engine para que los plugins (MCP) reaccionen a los
-        cambios del archivo de configuración."""
+        """Reconstruye el engine para que los plugins reaccionen al config.
+
+        `set_model(actual)` sin `reuse_engine` es la ruta que usa el CLI para
+        reaplicar un cambio de MCP (`_reapply_mcp`): siempre reconstruye tools y
+        plugins. `set_provider` no sirve aquí por dos motivos — lee
+        `default_model` de `models.json` (y pisaría el modelo elegido en
+        Ajustes) y, si el modelo no coincide con el del engine, se queda en la
+        ruta rápida y **no** recarga nada, dejando el toggle en un no-op.
+        """
         try:
-            await repl.set_provider(repl.config.provider)
+            await repl.set_model(repl.current_model)
         except Exception as exc:  # noqa: BLE001 — guardar no debe fallar por esto
             log.warning("recarga de plugins falló: %s", exc)
+
+    @staticmethod
+    def _tools_payload(repls: list[Any]) -> dict[str, Any] | None:
+        """Catálogo de tools que ve una sesión construida (``None`` si no hay).
+
+        Los plugins son estado global de `config.toml` (y tras el toggle todas
+        las sesiones vivas quedan reconstruidas con el mismo), así que cualquier
+        sesión construida sirve. Lo devuelven `plugins.set`/`plugins.install`
+        para que la UI refresque la lista que alimenta los selectores de tools
+        (p. ej. el de subagentes) en vez de quedarse con la del arranque.
+        """
+        for repl in repls:
+            engine = getattr(repl, "engine", None)
+            if engine is None:
+                continue
+            visible = engine_visible_tools(engine)
+            return {
+                "visible": [getattr(t, "name", str(t)) for t in visible],
+                "maskedCount": engine_masked_count(engine),
+            }
+        return None
 
     async def _attachment_add(self, params: dict[str, Any]) -> dict[str, Any]:
         repl = await self.sessions.get(params["sessionId"])

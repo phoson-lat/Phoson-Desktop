@@ -154,7 +154,7 @@ export interface InitResult {
     sessionsDir: string;
     safeMode: boolean;
   };
-  tools: { visible: string[]; maskedCount: number };
+  tools: ToolCatalog;
   commands: Array<{ names: string[]; help: string }>;
   /** Presente cuando el sidecar sabe si hay proveedor configurado. */
   onboarding?: {
@@ -352,7 +352,87 @@ export interface McpState {
   servers: McpServer[];
 }
 
-/** Patch de campos seguros que `config.set` persiste. */export interface ConfigPatch {
+/** Entrada del catálogo de plugins del engine (`plugins.get`).
+ *
+ * `enabled` es el estado real (la lista de specs **o** el flag del builder) y
+ * `locked` marca las entradas que Ajustes solo muestra: el dictado, los pares y
+ * los flags que el motor lee del archivo/entorno pero no persiste al guardar.
+ * `lockReason` es un **código** (`dictation` | `peerName` | `file:<campo>` |
+ * `env:<VAR>`), no una frase: el texto lo pone la UI en su idioma.
+ */
+export interface PluginEntry {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  /** Mecanismo con el que se activa desde aquí: el flag del config o la lista. */
+  mechanism: "flag" | "list";
+  /** Campo del config (`enable_monitors`…); vacío si el plugin no tiene flag. */
+  flag: string;
+  /** La spec está en `[defaults].plugins` (activa por lista). */
+  listed: boolean;
+  /** Plugin del propio engine (`phoson_cli.labels`) y no de la comunidad. */
+  official: boolean;
+  locked: boolean;
+  lockReason: string;
+  /** Extra opcional que falta en el entorno (`asyncssh`, `redis`…); `""` si está. */
+  missingExtra: string;
+}
+
+/** Resultado de `plugins.get`. */
+export interface PluginsState {
+  plugins: PluginEntry[];
+  /** El sidecar puede instalar plugins (necesita intérprete real y `uv`). */
+  canInstall: boolean;
+  /** Motivo accionable cuando `canInstall` es false (`frozen` | `noUv`). */
+  installBlocked: string;
+  /** Ruta del config.toml que se escribe. */
+  configPath: string;
+}
+
+/**
+ * Catálogo de tools que ve el engine: los nombres visibles y cuántas quedaron
+ * enmascaradas (si >0, la lista está recortada).
+ */
+export interface ToolCatalog {
+  visible: string[];
+  maskedCount: number;
+}
+
+/** Resultado de `plugins.set`: `{ok:true,…}` o el bloqueo con su motivo. */
+export interface PluginsSetResult {
+  ok: boolean;
+  path?: string;
+  /** Campos del config que se tocaron (para avisar al motor). */
+  fields?: string[];
+  /** `"locked"` cuando el estado lo fija otra fuente. */
+  reason?: string;
+  /** Código del bloqueo (mismos valores que `PluginEntry.lockReason`). */
+  detail?: string;
+  /** Catálogo ya actualizado (cuando `ok`). */
+  plugins?: PluginEntry[];
+  /**
+   * Catálogo de tools tras recargar los engines (cuando `ok` y la sesión ya
+   * estaba construida). El sidecar reconstruye *todas* las sesiones vivas, así
+   * que esto es lo que hay que mostrar en los selectores de tools.
+   */
+  tools?: ToolCatalog;
+}
+
+/** Resultado de `plugins.install`. */
+export interface PluginsInstallResult {
+  ok: boolean;
+  /** Nombre del entry point instalado (cuando `ok`). */
+  name?: string;
+  /** `"frozen"` | `"noUv"` cuando el sidecar no puede instalar. */
+  reason?: string;
+  plugins?: PluginEntry[];
+  /** Catálogo de tools tras recargar los engines (mismo contrato que `set`). */
+  tools?: ToolCatalog;
+}
+
+/** Patch de campos seguros que `config.set` persiste. */
+export interface ConfigPatch {
   provider?: string;
   model?: string;
   subagentModel?: string;

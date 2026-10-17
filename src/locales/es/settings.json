@@ -8,6 +8,7 @@
     "providers": "Proveedores",
     "local": "Servidores locales",
     "mcp": "MCP",
+    "plugins": "Plugins",
     "agent": "Agente y sesiones",
     "dictation": "Dictado",
     "desktop": "Escritorio",
@@ -63,6 +64,35 @@
     "envHint": "Una por línea: CLAVE=valor. Se guardan en mcps.json y no se muestran de vuelta.",
     "envPlaceholder": "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…",
     "addServer": "Añadir servidor"
+  },
+  "plugins": {
+    "title": "Plugins",
+    "hint": "Los que trae el engine y los que instales tú. El cambio se guarda en config.toml y el engine se recarga.",
+    "empty": "No hay plugins que mostrar: el engine no ha expuesto su catálogo y config.toml no lista ninguno.",
+    "badge": {
+      "community": "comunidad"
+    },
+    "missingExtra": "Activo, pero falta el extra [{{extra}}] en el entorno del engine: el motor lo salta.",
+    "lock": {
+      "dictation": "Lo gobierna la sección Dictado, no esta lista.",
+      "peerName": "Se activa con la opción peer_name del config.toml.",
+      "file": "Activo por «{{field}}» en config.toml; el motor lo lee, pero al guardar no lo escribe.",
+      "env": "Activo por la variable de entorno {{variable}}; aquí no se puede cambiar."
+    },
+    "install": {
+      "action": "Instalar plugin",
+      "source": "Origen",
+      "sourceHint": "Paquete de PyPI, repositorio de git (o su URL) o ruta local.",
+      "sourcePlaceholder": "github.com/usuario/phoson-plugin-x",
+      "confirmTitle": "Vas a instalar código de terceros:",
+      "warning": "Un plugin es código Python que se ejecuta con tus permisos. Instálalo solo si confías en el origen.",
+      "slow": "Puede tardar un poco: resuelve el commit, instala el paquete y busca su entry point.",
+      "confirm": "Instalar y activar",
+      "installing": "Instalando…",
+      "frozen": "Esta app lleva el engine dentro, así que no puede instalar plugins. Usa «phoson-cli plugin install» desde una instalación con Python y uv.",
+      "noUv": "Hace falta uv en el PATH para instalar plugins: phoson-cli los instala con «uv pip install».",
+      "unavailable": "La instalación de plugins no está disponible en este equipo."
+    }
   },
   "agent": {
     "title": "Agente y sesiones",
@@ -137,6 +167,12 @@
     "mcpNameRequired": "Ponle un nombre al servidor",
     "mcpAdded": "Servidor MCP añadido",
     "mcpRemoved": "Servidor {{name}} eliminado",
+    "pluginsLoadFailed": "No se pudieron cargar los plugins",
+    "pluginToggleFailed": "No se pudo cambiar el plugin",
+    "pluginEnabled": "Plugin activado",
+    "pluginDisabled": "Plugin desactivado",
+    "pluginInstallFailed": "No se pudo instalar el plugin",
+    "pluginInstalled": "Plugin instalado",
     "saveFailed": "No se pudo guardar",
     "saved": "Configuración guardada",
     "sttSaved": "Ajustes de dictado guardados",

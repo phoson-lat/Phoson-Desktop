@@ -121,6 +121,48 @@ def main() -> int:
         r = cli.call("session.close", {"sessionId": s2})
         check("session.close", "result" in r)
 
+        # Plugins: solo comprobaciones sin efectos — leer el catálogo, que
+        # `plugins.install` exige confirmación y que un plugin gobernado por otra
+        # sección (el dictado) no se toca desde aquí. Activar/desactivar escribiría
+        # en el config.toml real, así que eso lo cubre bridge/tests/test_plugins.py.
+        r = cli.call("plugins.get", {"sessionId": default})
+        state = r.get("result", {})
+        check(
+            "plugins.get",
+            "result" in r and isinstance(state.get("plugins"), list) and bool(state.get("configPath")),
+            f"{len(state.get('plugins', []))} plugins",
+        )
+
+        r = cli.call("plugins.install", {"sessionId": default, "source": "https://example.invalid/x"})
+        check("plugins.install sin confirmación", "error" in r, r.get("error", {}).get("message", ""))
+
+        r = cli.call("plugins.set", {"sessionId": default, "id": "phoson-plugin-stt", "enabled": True})
+        check(
+            "plugins.set no toca el dictado",
+            r.get("result", {}).get("ok") is False and r["result"].get("reason") == "locked",
+            str(r.get("result")),
+        )
+
+        # Activar un plugin que ya está activo es idempotente (`fields: []`: no
+        # escribe el config.toml) y devuelve el catálogo de tools vivo — lo que
+        # la UI usa para refrescar los selectores de tools tras un cambio.
+        activo = next(
+            (p for p in state.get("plugins", []) if p.get("enabled") and not p.get("locked")),
+            None,
+        )
+        r = cli.call(
+            "plugins.set",
+            {"sessionId": default, "id": activo["id"] if activo else "", "enabled": True},
+        )
+        res = r.get("result", {})
+        tools = res.get("tools") or {}
+        check(
+            "plugins.set idempotente + catálogo de tools",
+            res.get("ok") is True and res.get("fields") == [] and bool(tools.get("visible")),
+            f"{activo['id'] if activo else '-'}: fields={res.get('fields')} "
+            f"tools={len(tools.get('visible', []))}",
+        )
+
         r = cli.call("metodo.inventado")
         check("error método desconocido", "error" in r)
 
