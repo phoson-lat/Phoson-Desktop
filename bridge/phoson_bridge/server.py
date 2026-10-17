@@ -87,7 +87,7 @@ _TOKEN_EVENT_TYPES = frozenset({"AgentTokenEvent", "AgentReasoningEvent"})
 #: `AgentStartEvent` en los primeros ms y solo calla hasta que fluye el token.
 #: Se pueden forzar con env para probar el comportamiento a mano:
 #:   PHOSON_WATCHDOG_SECONDS=3 PHOSON_WATCHDOG_SILENCE_SECONDS=5
-_WATCHDOG_SECONDS: dict[str, float] = {"turn.run": 15.0}
+_WATCHDOG_SECONDS: dict[str, float] = {"turn.run": 15.0, "plugins.install": 180.0}
 _WATCHDOG_SILENCE_SECONDS: dict[str, float] = {"turn.run": 60.0}
 _WATCHDOG_DEFAULT_SECONDS = 30.0
 _WATCHDOG_DEFAULT_SILENCE_SECONDS = 120.0
@@ -290,6 +290,26 @@ class SessionManager:
         """El ``PhosonRepl`` de la sesión si ya existe, sin construirlo."""
         return self._repls.get(key)
 
+    def built_repls(self) -> list[PhosonRepl]:
+        """Los ``PhosonRepl`` ya construidos (los demás son `_pending`).
+
+        Lo que cambia en disco y afecta al engine entero (los plugins de
+        `config.toml`) tiene que llegar a *todas* las sesiones vivas: cada una
+        tiene su propio engine con su propio catálogo de tools.
+        """
+        return list(self._repls.values())
+
+    def session_configs(self) -> list[PhosonConfig]:
+        """La config propia de cada sesión viva, sin construir engine alguno.
+
+        Son las copias de `create()` (una por sesión, hechas en el momento de
+        abrirla), así que una sesión abierta *antes* de un cambio pero aún sin
+        construir arrancaría con el estado viejo si no se le espeja también.
+        """
+        return [cfg for cfg, _sink, _confirm in self._pending.values()] + [
+            repl.config for repl in self._repls.values()
+        ]
+
     def config_for(self, key: str) -> PhosonConfig:
         """Config viva de una sesión SIN construir su engine.
 
@@ -445,6 +465,9 @@ class Bridge:
             "mcp.get": self._mcp_get,
             "mcp.save": self._mcp_save,
             "mcp.remove": self._mcp_remove,
+            "plugins.get": self._plugins_get,
+            "plugins.set": self._plugins_set,
+            "plugins.install": self._plugins_install,
             "attachment.list": self._attachment_list,
             "attachment.push": self._attachment_push,
             "attachment.remove": self._attachment_remove,
@@ -795,7 +818,14 @@ class Bridge:
     async def _session_new(self, _params: dict[str, Any]) -> dict[str, Any]:
         key = self.sessions.create()
         # El cwd del proceso es el workspace del sidecar (uno por proyecto).
-        return {"sessionId": key, "cwd": os.getcwd()}
+        # Las métricas van desde ya (en cero, sin construir el engine): el chip de
+        # modelo del composer sale de ahí y sin esto una sesión nueva se queda sin
+        # modelo hasta el primer `session.metrics` (primer turno).
+        return {
+            "sessionId": key,
+            "cwd": os.getcwd(),
+            "metrics": _blank_metrics(key, self.sessions.config_for(key)),
+        }
 
     async def _session_list(self, _params: dict[str, Any]) -> dict[str, Any]:
         # Historial COMPLETO: todas las sesiones guardadas, de cualquier
@@ -861,6 +891,10 @@ class Bridge:
             "cwd": adopted,
             "sessionCwd": session_cwd,
             "cwdMissing": bool(session_cwd) and not os.path.isdir(session_cwd),
+            # El engine ya está construido aquí, así que las métricas (y con ellas
+            # el modelo del chip) salen gratis: sin esto, una sesión reabierta se
+            # quedaba sin modelo hasta el primer turno.
+            "metrics": await self._metrics(key),
         }
 
     async def _session_close(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -1489,6 +1523,126 @@ class Bridge:
         await self._reload_plugins(repl)
         return {"ok": True, "path": path, "mcp": self._mcp_summary(cfg)}
 
+    # ── Plugins del engine ────────────────────────────────────────────────
+    # El estado de los plugins vive en `config.toml` (flags `enable_*` y/o las
+    # listas `plugins`/`disabled_plugins`) y el engine lo lee al construirse, así
+    # que estos handlers escriben con `save_config` y recargan el engine — igual
+    # que `config.set` y `mcp.save`. Ninguno construye la sesión para leer.
+
+    def _mirror_config_fields(
+        self, cfg: Any, fields: list[str], configs: list[Any] = ()
+    ) -> None:
+        """Copia los campos tocados a la config base y a cada sesión viva.
+
+        Las sesiones nacen con `copy.copy` de la config base: las listas quedan
+        compartidas hasta que alguien las rebindea (y entonces la lista nueva es
+        solo suya), así que sin este espejo una sesión abierta después del
+        cambio, o abierta antes pero todavía sin construir, arrancaría con el
+        estado viejo.
+
+        `configs` son las configs por sesión (``SessionManager.session_configs``,
+        que incluye las de las sesiones vivas y las de las aún sin construir).
+        Las que ya tienen engine cargaron los plugins viejos, así que además hay
+        que reconstruirlas: eso lo hace quien llama con `_reload_plugins`.
+        """
+        for target in [self.config, *configs]:
+            if target is cfg:
+                continue
+            for field in fields:
+                value = getattr(cfg, field, None)
+                setattr(target, field, list(value) if isinstance(value, list) else value)
+
+    async def _plugins_get(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Catálogo de plugins del engine con su estado actual.
+
+        No construye el engine: lee la config viva de la sesión (como
+        `config.get`), de modo que Ajustes › Plugins funciona incluso antes del
+        primer turno (o sin proveedor configurado).
+        """
+        from .plugins import catalog, installable
+
+        cfg = self.sessions.config_for(str(params.get("sessionId") or ""))
+        can_install, blocked = installable()
+        return {
+            "plugins": catalog(cfg),
+            "canInstall": can_install,
+            "installBlocked": blocked,
+            "configPath": str(_config_path()),
+        }
+
+    async def _plugins_set(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Activa o desactiva un plugin y persiste el cambio en `config.toml`.
+
+        Escribe lo mismo que `phoson-cli plugin enable/disable` (el flag
+        `enable_*` del config o la spec en `plugins`/`disabled_plugins`) y
+        reconstruye el engine para que el cambio surta efecto en vivo. Devuelve
+        `{"ok": False, "reason": "locked"}` cuando el estado lo fija otra fuente
+        (dictado, pares, un flag que `save_config` no persiste) y el toggle no
+        puede cambiarlo.
+        """
+        from .plugins import catalog, set_enabled
+
+        session_id = str(params.get("sessionId") or "")
+        cfg = self.sessions.config_for(session_id)
+        result = set_enabled(cfg, str(params.get("id") or ""), bool(params.get("enabled")))
+        fields = list(result.get("fields") or [])
+        repls = self.sessions.built_repls()
+        if result.get("ok") and fields:
+            self._mirror_config_fields(cfg, fields, self.sessions.session_configs())
+            # Los plugins los fija `config.toml`, que es de todo el engine: hay
+            # que reconstruir **todas** las sesiones vivas, no solo la que hizo
+            # el toggle. Con una sola, las demás seguían con su catálogo viejo y
+            # el agente de esa sesión no veía la tool recién activada.
+            for repl in repls:
+                await self._reload_plugins(repl)
+        if result.get("ok"):
+            result["plugins"] = catalog(cfg)
+            tools = self._tools_payload(repls)
+            if tools is not None:
+                result["tools"] = tools
+        return result
+
+    async def _plugins_install(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Instala un plugin de terceros desde `source` y lo activa.
+
+        Un plugin es **código Python que corre con los permisos del usuario**, así
+        que la UI confirma el origen exacto y aquí se exige `confirmed: true`: sin
+        él no se ejecuta nada (un request suelto no instala). El trabajo lo hace
+        `install_plugin` del engine (resuelve el commit, `uv pip install`, exige
+        exactamente un entry point nuevo y anota el lockfile); es lento, por eso
+        `plugins.install` tiene su propio watchdog.
+        """
+        from .plugins import catalog, install, installable
+
+        if not params.get("confirmed"):
+            raise ValueError("la instalación de un plugin requiere confirmación explícita")
+        can_install, blocked = installable()
+        if not can_install:
+            return {"ok": False, "reason": blocked}
+        source = str(params.get("source") or "").strip()
+        if not source:
+            raise ValueError("falta el origen del plugin")
+
+        session_id = str(params.get("sessionId") or "")
+        cfg = self.sessions.config_for(session_id)
+        # En un hilo: `install_plugin` corre `uv pip install` de forma bloqueante
+        # (segundos o minutos) y sobre el event loop congelaría el sidecar entero,
+        # las otras sesiones incluidas. Sus fallos ya son `PluginManagerError`
+        # (mensaje accionable), que `_dispatch` devuelve como error del RPC.
+        name = await asyncio.to_thread(install, cfg, source)
+        repls = self.sessions.built_repls()
+        self._mirror_config_fields(cfg, ["plugins"], self.sessions.session_configs())
+        # Mismo motivo que en `plugins.set`: el plugin recién instalado tiene
+        # que entrar en todas las sesiones vivas, no solo en la del panel.
+        for repl in repls:
+            await self._reload_plugins(repl)
+        return {
+            "ok": True,
+            "name": name,
+            "plugins": catalog(cfg),
+            "tools": self._tools_payload(repls),
+        }
+
     # ── Adjuntos (pegar / arrastrar archivos) ─────────────────────────────
     #: Tope de tamaño al materializar un archivo enviado desde la UI.
     _MAX_PUSH = 25 * 1024 * 1024
@@ -1555,12 +1709,40 @@ class Bridge:
 
     @staticmethod
     async def _reload_plugins(repl: Any) -> None:
-        """Reconstruye el engine para que los plugins (MCP) reaccionen a los
-        cambios del archivo de configuración."""
+        """Reconstruye el engine para que los plugins reaccionen al config.
+
+        `set_model(actual)` sin `reuse_engine` es la ruta que usa el CLI para
+        reaplicar un cambio de MCP (`_reapply_mcp`): siempre reconstruye tools y
+        plugins. `set_provider` no sirve aquí por dos motivos — lee
+        `default_model` de `models.json` (y pisaría el modelo elegido en
+        Ajustes) y, si el modelo no coincide con el del engine, se queda en la
+        ruta rápida y **no** recarga nada, dejando el toggle en un no-op.
+        """
         try:
-            await repl.set_provider(repl.config.provider)
+            await repl.set_model(repl.current_model)
         except Exception as exc:  # noqa: BLE001 — guardar no debe fallar por esto
             log.warning("recarga de plugins falló: %s", exc)
+
+    @staticmethod
+    def _tools_payload(repls: list[Any]) -> dict[str, Any] | None:
+        """Catálogo de tools que ve una sesión construida (``None`` si no hay).
+
+        Los plugins son estado global de `config.toml` (y tras el toggle todas
+        las sesiones vivas quedan reconstruidas con el mismo), así que cualquier
+        sesión construida sirve. Lo devuelven `plugins.set`/`plugins.install`
+        para que la UI refresque la lista que alimenta los selectores de tools
+        (p. ej. el de subagentes) en vez de quedarse con la del arranque.
+        """
+        for repl in repls:
+            engine = getattr(repl, "engine", None)
+            if engine is None:
+                continue
+            visible = engine_visible_tools(engine)
+            return {
+                "visible": [getattr(t, "name", str(t)) for t in visible],
+                "maskedCount": engine_masked_count(engine),
+            }
+        return None
 
     async def _attachment_add(self, params: dict[str, Any]) -> dict[str, Any]:
         repl = await self.sessions.get(params["sessionId"])

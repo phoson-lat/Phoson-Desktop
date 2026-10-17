@@ -28,6 +28,11 @@ import type {
   InitResult,
   McpServer,
   McpState,
+  PluginEntry,
+  PluginsState,
+  PluginsSetResult,
+  PluginsInstallResult,
+  RunMetrics,
   SessionMeta,
   ModelsListResult,
   SttStatus,
@@ -133,13 +138,7 @@ class MockBridge implements Bridge {
             sessionsDir: "~/.phoson/sessions",
             safeMode: false,
           },
-          tools: {
-            visible: [
-              "discover", "read_file", "write_file", "patch_file", "list_dir",
-              "bash", "grep", "glob", "web_search", "web_fetch",
-            ],
-            maskedCount: 70,
-          },
+          tools: this.toolCatalog(),
           commands: [
             { names: ["/model"], help: i18n.t("welcome:commands.model") },
             { names: ["/sessions"], help: i18n.t("welcome:commands.sessions") },
@@ -157,7 +156,20 @@ class MockBridge implements Bridge {
       case "session.new": {
         const id = "demo-" + Math.random().toString(36).slice(2, 7);
         this.sessions.set(id, { model: "deepseek/deepseek-v4.1-flash", provider: "openrouter" });
-        return { sessionId: id } as unknown as T;
+        // Con métricas desde ya (como el sidecar): el chip de modelo del
+        // composer sale de aquí y no espera al primer turno.
+        return { sessionId: id, metrics: this.metrics(id) } as unknown as T;
+      }
+      case "session.open": {
+        // El sidecar abre una sesión nueva para el historial pedido.
+        const id = "demo-" + Math.random().toString(36).slice(2, 7);
+        this.sessions.set(id, { model: "deepseek/deepseek-v4.1-flash", provider: "openrouter" });
+        return {
+          sessionId: id,
+          cwd: "",
+          cwdMissing: false,
+          metrics: this.metrics(id),
+        } as unknown as T;
       }
       case "session.list":
         return { sessions: MOCK_SESSIONS } as unknown as T;
@@ -340,6 +352,65 @@ class MockBridge implements Bridge {
           servers: MOCK_MCP.servers.filter((s) => s.name !== String(p.name)),
         };
         return { ok: true, mcp: MOCK_MCP } as unknown as T;
+      case "plugins.get":
+        // En la demo sí se ofrece instalar (el sidecar empacado no puede): así el
+        // flujo completo —confirmar origen, instalar, ver la entrada nueva— se
+        // puede probar en el navegador sin Tauri ni Python.
+        return {
+          plugins: MOCK_PLUGINS,
+          canInstall: true,
+          installBlocked: "",
+          configPath: "~/.phoson/config.toml",
+        } as unknown as T;
+      case "plugins.set": {
+        const id = String(p.id);
+        const entry = MOCK_PLUGINS.find((e) => e.id === id);
+        if (!entry) return { ok: false, reason: "unknown", detail: id } as unknown as T;
+        if (entry.locked) {
+          return { ok: false, reason: "locked", detail: entry.lockReason } as unknown as T;
+        }
+        MOCK_PLUGINS = MOCK_PLUGINS.map((e) =>
+          e.id === id ? { ...e, enabled: Boolean(p.enabled) } : e,
+        );
+        return {
+          ok: true,
+          path: "~/.phoson/config.toml",
+          fields: entry.flag ? [entry.flag] : ["plugins", "disabled_plugins"],
+          plugins: MOCK_PLUGINS,
+          // Como el sidecar: tras recargar los engines, el catálogo de tools al
+          // día (es lo que refresca los selectores de tools en la UI).
+          tools: this.toolCatalog(),
+        } as unknown as T;
+      }
+      case "plugins.install": {
+        // Nombre derivado del origen, como haría el entry point del paquete.
+        const slug =
+          String(p.source ?? "")
+            .replace(/\.git$/, "")
+            .split(/[\\/]/)
+            .filter(Boolean)
+            .pop() ?? "plugin";
+        const name = `entrypoint:${slug.replace(/[^A-Za-z0-9_.-]+/g, "-")}`;
+        if (!MOCK_PLUGINS.some((e) => e.id === name)) {
+          MOCK_PLUGINS = [
+            ...MOCK_PLUGINS,
+            {
+              id: name,
+              name: slug,
+              description: "",
+              enabled: true,
+              mechanism: "list",
+              flag: "",
+              listed: true,
+              official: false,
+              locked: false,
+              lockReason: "",
+              missingExtra: "",
+            },
+          ];
+        }
+        return { ok: true, name, plugins: MOCK_PLUGINS, tools: this.toolCatalog() } as unknown as T;
+      }
       case "config.set": {
         const patch = (p.patch ?? {}) as Record<string, unknown>;
         // El backend usa snake_case en el patch; el mock normaliza a su vista.
@@ -376,6 +447,34 @@ class MockBridge implements Bridge {
   private emit(method: string, params: Record<string, unknown>) {
     const env = { method, params } as Envelope;
     for (const h of this.handlers) h(env);
+  }
+
+  /** Tools base de la demo (las que no vienen de ningún plugin del mock). */
+  private static readonly MOCK_BASE_TOOLS = [
+    "discover", "read_file", "write_file", "patch_file", "list_dir",
+    "bash", "grep", "glob", "web_search", "web_fetch",
+  ];
+
+  /**
+   * Herramientas que aporta cada plugin del mock, para que activar o
+   * desactivar en la demo se refleje en los selectores de tools igual que en el
+   * sidecar real (que reconstruye los engines y devuelve el catálogo nuevo).
+   */
+  private static readonly MOCK_PLUGIN_TOOLS: Record<string, string[]> = {
+    "phoson-plugin-monitor": ["monitor_start", "monitor_list", "monitor_stop"],
+    "phoson-plugin-swarm": ["swarm_create"],
+    "phoson-plugin-memory": ["memory_search", "memory_save"],
+    "phoson-plugin-checkpoint": ["checkpoint_save", "checkpoint_restore"],
+  };
+
+  /** Catálogo de tools coherente con los plugins activos del mock. */
+  private toolCatalog() {
+    const visible = [...MockBridge.MOCK_BASE_TOOLS];
+    for (const entry of MOCK_PLUGINS) {
+      if (!entry.enabled) continue;
+      visible.push(...(MockBridge.MOCK_PLUGIN_TOOLS[entry.id] ?? []));
+    }
+    return { visible, maskedCount: 70 };
   }
 
   private metrics(sessionId: string) {
@@ -568,6 +667,92 @@ let MOCK_MCP: McpState = {
   ],
 };
 
+/**
+ * Plugins del engine en modo demo: el catálogo real (`phoson_cli.labels`) con
+ * estados variados — activo por lista, activo por flag, apagado, bloqueado y con
+ * extra ausente — para poder ver todos los casos de la sección de Ajustes.
+ */
+let MOCK_PLUGINS: PluginEntry[] = [
+  {
+    id: "phoson-plugin-monitor",
+    name: "Background Monitor",
+    description: "Wake the agent on file changes, intervals or command output",
+    enabled: true,
+    mechanism: "flag",
+    flag: "enable_monitors",
+    listed: false,
+    official: true,
+    locked: false,
+    lockReason: "",
+    missingExtra: "",
+  },
+  {
+    id: "phoson-plugin-checkpoint",
+    name: "Checkpoints",
+    description: "Snapshot and restore state around risky steps",
+    enabled: true,
+    mechanism: "list",
+    flag: "",
+    listed: true,
+    official: true,
+    locked: false,
+    lockReason: "",
+    missingExtra: "",
+  },
+  {
+    id: "phoson-plugin-memory",
+    name: "Long-term Memory",
+    description: "Persistent memory across sessions (Redis / Postgres / Qdrant)",
+    enabled: false,
+    mechanism: "list",
+    flag: "",
+    listed: false,
+    official: true,
+    locked: false,
+    lockReason: "",
+    missingExtra: "redis",
+  },
+  {
+    id: "phoson-plugin-swarm",
+    name: "Agent Swarm",
+    description: "Fan a task out to parallel sub-agents",
+    enabled: false,
+    mechanism: "flag",
+    flag: "enable_swarm",
+    listed: false,
+    official: true,
+    locked: false,
+    lockReason: "",
+    missingExtra: "",
+  },
+  {
+    id: "phoson-plugin-ssh",
+    name: "SSH",
+    description: "Run commands on remote hosts over SSH",
+    enabled: true,
+    mechanism: "list",
+    flag: "enable_ssh",
+    listed: false,
+    official: true,
+    locked: true,
+    lockReason: "file:enable_ssh",
+    missingExtra: "ssh",
+  },
+  {
+    id: "phoson-plugin-stt",
+    name: "Speech-to-Text",
+    description: "Transcribe microphone input offline (Moonshine, multilingual)",
+    enabled: true,
+    mechanism: "list",
+    flag: "",
+    listed: false,
+    official: true,
+    locked: true,
+    lockReason: "dictation",
+    missingExtra: "",
+  },
+];
+
 const MOCK_CONFIG: ConfigView = {  provider: "openrouter",
   model: "deepseek/deepseek-v4.1-flash",
   subagentModel: "deepseek/deepseek-v4.1-flash",
@@ -712,9 +897,12 @@ export const phoson = {
   onNotify: (handler: (envelope: Envelope) => void) => bridge.onNotify(handler),
   initialize: (workspace?: string | null) => callIn<InitResult>(workspace ?? currentWorkspace, "initialize"),
   newSession: (workspace?: string | null) =>
-    callIn<{ sessionId: string; cwd?: string }>(workspace ?? currentWorkspace, "session.new"),
+    callIn<{ sessionId: string; cwd?: string; metrics?: RunMetrics }>(
+      workspace ?? currentWorkspace,
+      "session.new",
+    ),
   openSession: (engineId: string, workspace?: string | null) =>
-    callIn<{ sessionId: string; cwd?: string; cwdMissing?: boolean }>(
+    callIn<{ sessionId: string; cwd?: string; cwdMissing?: boolean; metrics?: RunMetrics }>(
       workspace ?? currentWorkspace,
       "session.open",
       { id: engineId },
@@ -802,6 +990,16 @@ export const phoson = {
     call<{ ok: boolean; mcp: McpState }>("mcp.save", { sessionId, name, server }),
   mcpRemove: (sessionId: string, name: string) =>
     call<{ ok: boolean; mcp: McpState }>("mcp.remove", { sessionId, name }),
+  // Plugins del engine (Ajustes → Plugins). Activar/desactivar escribe en
+  // `config.toml` (flags `enable_*` o las listas de specs) y reconstruye el
+  // engine; instalar es código nuevo en el entorno del sidecar y el backend
+  // exige `confirmed`, así que solo se llama desde el diálogo de confirmación
+  // (el flag del RPC es el cerrojo del sidecar, no la confirmación del usuario).
+  pluginsGet: (sessionId: string) => call<PluginsState>("plugins.get", { sessionId }),
+  pluginsSet: (sessionId: string, id: string, enabled: boolean) =>
+    call<PluginsSetResult>("plugins.set", { sessionId, id, enabled }),
+  pluginsInstall: (sessionId: string, source: string) =>
+    call<PluginsInstallResult>("plugins.install", { sessionId, source, confirmed: true }),
   attachmentList: (sessionId: string) =>
     call<{ attachments: Attachment[] }>("attachment.list", { sessionId }),
   /** Sube al workspace un archivo no adjuntable de forma nativa. */

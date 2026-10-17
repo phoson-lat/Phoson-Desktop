@@ -7,12 +7,14 @@ import {
   Info,
   KeyRound,
   Loader2,
+  Lock,
   Mic,
   Monitor,
   Moon,
   Palette,
   Plug,
   Plus,
+  Puzzle,
   RefreshCw,
   Server,
   ShieldCheck,
@@ -25,7 +27,7 @@ import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, phoson } from "@/bridge/client";
-import type { ConfigView, McpState, SttStatus } from "@/bridge/protocol";
+import type { ConfigView, McpState, PluginEntry, PluginsState, SttStatus, ToolCatalog } from "@/bridge/protocol";
 import { ProviderLogo } from "@/components/provider-logo";
 import { McpLogo } from "@/components/mcp-logo";
 import { Button } from "@/components/ui/button";
@@ -50,12 +52,14 @@ import { speechLocale } from "@/lib/locale";
 import { logPath, openLogFolder } from "@/lib/log";
 import { checkForUpdates, currentVersion, installPendingUpdate, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
+import { useSession } from "@/stores/session";
 
 type SectionId =
   | "models"
   | "providers"
   | "local"
   | "mcp"
+  | "plugins"
   | "agent"
   | "dictation"
   | "desktop"
@@ -72,6 +76,7 @@ const SECTIONS: { id: SectionId; icon: ComponentType<{ className?: string }> }[]
   { id: "providers", icon: KeyRound },
   { id: "local", icon: Server },
   { id: "mcp", icon: Plug },
+  { id: "plugins", icon: Puzzle },
   { id: "agent", icon: ShieldCheck },
   { id: "dictation", icon: Mic },
   { id: "desktop", icon: AppWindow },
@@ -150,6 +155,10 @@ export function SettingsDialog({
   // Idioma de la interfaz: `setLocale` persiste la elección y refresca el menú
   // nativo de la bandeja (ver `lib/i18n.ts`).
   const [locale, setLocale] = useLocale();
+  // Cambiar un plugin reconstruye los engines del sidecar y devuelve el
+  // catálogo de tools al día: se aplica al store para que los selectores de
+  // tools (p. ej. el de subagentes) no sigan con el del arranque.
+  const applyToolCatalog = useSession((s) => s.applyToolCatalog);
   const [section, setSection] = useState<SectionId>("models");
   const [config, setConfig] = useState<ConfigView | null>(null);
   const [loading, setLoading] = useState(false);
@@ -171,6 +180,13 @@ export function SettingsDialog({
   const [sttSaving, setSttSaving] = useState(false);
   const [sttDownloading, setSttDownloading] = useState(false);
   const [sttPercent, setSttPercent] = useState<number | null>(null);
+  /** Catálogo de plugins del engine (sección Plugins) y su formulario. */
+  const [plugins, setPlugins] = useState<PluginsState | null>(null);
+  const [pluginBusy, setPluginBusy] = useState<string | null>(null);
+  const [pluginSource, setPluginSource] = useState("");
+  /** `input` = escribiendo el origen, `confirm` = confirmación explícita. */
+  const [pluginStep, setPluginStep] = useState<"idle" | "input" | "confirm">("idle");
+  const [pluginInstalling, setPluginInstalling] = useState(false);
 
   useEffect(() => {
     void currentVersion().then(setVersion);
@@ -222,6 +238,18 @@ export function SettingsDialog({
       .sttStatus()
       .then(setStt)
       .catch(() => setStt(null));
+    // Plugins: catálogo y estado (el que gobierna es el sidecar; `config` no
+    // trae los flags `enable_*` de los plugins).
+    setPlugins(null);
+    setPluginStep("idle");
+    setPluginSource("");
+    phoson
+      .pluginsGet(sessionId)
+      .then(setPlugins)
+      .catch((e) => {
+        setPlugins(null);
+        toast.error(t("toasts.pluginsLoadFailed"), { description: String(e) });
+      });
   }, [open, sessionId]);
 
   const patch = (p: Partial<ConfigView>) => setConfig((c) => (c ? { ...c, ...p } : c));
@@ -378,6 +406,92 @@ export function SettingsDialog({
     } finally {
       unsub?.();
       setSttDownloading(false);
+    }
+  };
+
+  // ── Plugins del engine ────────────────────────────────────────────────
+  /**
+   * Texto del bloqueo de un plugin a partir del **código** que manda el sidecar
+   * (`dictation`, `peerName`, `file:<campo>`, `env:<VAR>`): el idioma lo pone la
+   * UI, así que el sidecar nunca manda frases.
+   */
+  const pluginLockText = (code: string): string => {
+    if (code === "dictation") return t("plugins.lock.dictation");
+    if (code === "peerName") return t("plugins.lock.peerName");
+    if (code.startsWith("file:")) return t("plugins.lock.file", { field: code.slice(5) });
+    if (code.startsWith("env:")) return t("plugins.lock.env", { variable: code.slice(4) });
+    return code;
+  };
+
+  /** Motivo por el que el sidecar no puede instalar plugins (si es el caso). */
+  const pluginInstallBlockText = (reason: string): string => {
+    if (reason === "frozen") return t("plugins.install.frozen");
+    if (reason === "noUv") return t("plugins.install.noUv");
+    return t("plugins.install.unavailable");
+  };
+
+  /** Refresca el catálogo de tools que alimenta los selectores (p. ej. subagentes). */
+  const syncToolCatalog = (tools?: ToolCatalog) => {
+    if (tools) applyToolCatalog(tools);
+  };
+
+  /** Activa o desactiva un plugin (el sidecar escribe config.toml y recarga). */
+  const togglePlugin = async (plugin: PluginEntry, enabled: boolean) => {
+    if (!sessionId) return;
+    setPluginBusy(plugin.id);
+    try {
+      const res = await phoson.pluginsSet(sessionId, plugin.id, enabled);
+      if (!res.ok) {
+        toast.error(t("toasts.pluginToggleFailed"), {
+          description: pluginLockText(res.detail ?? res.reason ?? ""),
+        });
+        return;
+      }
+      if (res.plugins) setPlugins((s) => (s ? { ...s, plugins: res.plugins as PluginEntry[] } : s));
+      // El sidecar ya escribió el flag en config.toml: si el plugin gobierna
+      // `enable_mcp` (el mismo campo que edita la sección MCP), se sincroniza la
+      // copia local para que «Guardar» no reescriba el valor viejo y deshaga el
+      // toggle.
+      if (plugin.flag === "enable_mcp") patch({ enableMcp: enabled });
+      syncToolCatalog(res.tools);
+      toast.success(
+        enabled ? t("toasts.pluginEnabled") : t("toasts.pluginDisabled"),
+        { description: plugin.name },
+      );
+    } catch (e) {
+      toast.error(t("toasts.pluginToggleFailed"), { description: String(e) });
+    } finally {
+      setPluginBusy(null);
+    }
+  };
+
+  /**
+   * Instala un plugin de terceros. Solo se llama desde la confirmación (el
+   * origen ya está a la vista); el sidecar además exige `confirmed` para que
+   * ninguna otra ruta del RPC instale código sin pasar por aquí.
+   */
+  const installPlugin = async () => {
+    const source = pluginSource.trim();
+    if (!sessionId || !source) return;
+    setPluginInstalling(true);
+    try {
+      const res = await phoson.pluginsInstall(sessionId, source);
+      if (!res.ok) {
+        toast.error(t("toasts.pluginInstallFailed"), {
+          description: pluginInstallBlockText(res.reason ?? ""),
+        });
+        return;
+      }
+      if (res.plugins) setPlugins((s) => (s ? { ...s, plugins: res.plugins as PluginEntry[] } : s));
+      syncToolCatalog(res.tools);
+      toast.success(t("toasts.pluginInstalled"), { description: res.name ?? source });
+      setPluginSource("");
+      setPluginStep("idle");
+    } catch (e) {
+      // El engine falla con el detalle útil (entry points, git, pip): se muestra.
+      toast.error(t("toasts.pluginInstallFailed"), { description: String(e) });
+    } finally {
+      setPluginInstalling(false);
     }
   };
 
@@ -826,6 +940,184 @@ export function SettingsDialog({
                             </Button>
                           </div>
                         </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Plugins del engine: los que trae la app y los instalados.
+                      El estado vive en config.toml (flags `enable_*` y/o las
+                      listas de specs); el sidecar lo escribe y recarga solo. */}
+                  {section === "plugins" && (
+                    <div className="space-y-5">
+                      <SectionTitle title={t("plugins.title")} hint={t("plugins.hint")} />
+
+                      {!plugins ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Loader2 className="size-3.5 animate-spin" /> {t("common:state.loading")}
+                        </div>
+                      ) : (
+                        <>
+                          {/* Instalación: solo si el sidecar tiene intérprete real
+                              y `uv` (la app empaquetada no puede: lleva el motor
+                              dentro). */}
+                          {!plugins.canInstall ? (
+                            <p className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--phoson-surface-2)] p-3 text-[0.7rem] leading-relaxed text-muted-foreground">
+                              {pluginInstallBlockText(plugins.installBlocked)}
+                            </p>
+                          ) : pluginStep === "idle" ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 gap-1.5 border border-[var(--dashboard-border)] text-xs"
+                              onClick={() => setPluginStep("input")}
+                            >
+                              <Plus className="size-3.5" /> {t("plugins.install.action")}
+                            </Button>
+                          ) : (
+                            <div className="space-y-3 rounded-xl border border-[var(--dashboard-border)] p-4">
+                              {pluginStep === "input" ? (
+                                <Field
+                                  label={t("plugins.install.source")}
+                                  hint={t("plugins.install.sourceHint")}
+                                >
+                                  <Input
+                                    className="h-8 font-mono text-xs"
+                                    placeholder={t("plugins.install.sourcePlaceholder")}
+                                    value={pluginSource}
+                                    onChange={(e) => setPluginSource(e.target.value)}
+                                  />
+                                </Field>
+                              ) : (
+                                <>
+                                  <span className="text-xs font-medium">
+                                    {t("plugins.install.confirmTitle")}
+                                  </span>
+                                  <p className="break-all rounded-md bg-[var(--phoson-surface-2)] px-2 py-1.5 font-mono text-[0.7rem]">
+                                    {pluginSource.trim()}
+                                  </p>
+                                </>
+                              )}
+
+                              <p className="rounded-lg bg-destructive/10 px-3 py-2 text-[0.68rem] leading-snug text-destructive">
+                                {t("plugins.install.warning")}
+                              </p>
+                              {pluginStep === "confirm" && (
+                                <p className="text-[0.65rem] leading-snug text-muted-foreground">
+                                  {t("plugins.install.slow")}
+                                </p>
+                              )}
+
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={pluginInstalling}
+                                  onClick={() => {
+                                    if (pluginStep === "confirm") setPluginStep("input");
+                                    else {
+                                      setPluginStep("idle");
+                                      setPluginSource("");
+                                    }
+                                  }}
+                                >
+                                  {pluginStep === "confirm"
+                                    ? t("common:actions.back")
+                                    : t("common:actions.cancel")}
+                                </Button>
+                                {pluginStep === "input" ? (
+                                  <Button
+                                    size="sm"
+                                    className="gap-1.5 bg-violet text-xs text-white hover:bg-violet/90"
+                                    disabled={!pluginSource.trim()}
+                                    onClick={() => setPluginStep("confirm")}
+                                  >
+                                    {t("common:actions.continue")}
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    className="gap-1.5 bg-violet text-xs text-white hover:bg-violet/90"
+                                    disabled={pluginInstalling}
+                                    onClick={() => void installPlugin()}
+                                  >
+                                    {pluginInstalling ? (
+                                      <Loader2 className="size-3.5 animate-spin" />
+                                    ) : (
+                                      <Plus className="size-3.5" />
+                                    )}
+                                    {pluginInstalling
+                                      ? t("plugins.install.installing")
+                                      : t("plugins.install.confirm")}
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="space-y-2">
+                            {plugins.plugins.length === 0 && (
+                              <p className="text-xs text-muted-foreground">{t("plugins.empty")}</p>
+                            )}
+                            {plugins.plugins.map((p) => (
+                              <div
+                                key={p.id}
+                                className="flex items-start gap-3 rounded-lg bg-[var(--phoson-surface-2)] px-3 py-2.5"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="truncate text-xs">{p.name}</span>
+                                    {!p.official && (
+                                      <span className="shrink-0 rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[0.6rem] uppercase text-muted-foreground">
+                                        {t("plugins.badge.community")}
+                                      </span>
+                                    )}
+                                    {p.locked && (
+                                      <Lock
+                                        className="size-3 shrink-0 text-muted-foreground"
+                                        aria-label={pluginLockText(p.lockReason)}
+                                      />
+                                    )}
+                                  </div>
+                                  <div className="truncate text-[0.65rem] text-muted-foreground">
+                                    {p.description || p.id}
+                                  </div>
+                                  {p.description && p.id !== p.name && (
+                                    <div className="truncate font-mono text-[0.62rem] text-muted-foreground">
+                                      {p.id}
+                                    </div>
+                                  )}
+                                  {p.locked && (
+                                    <div className="text-[0.62rem] leading-snug text-muted-foreground">
+                                      {pluginLockText(p.lockReason)}
+                                    </div>
+                                  )}
+                                  {/* Activo pero sin su extra: el motor lo salta
+                                      (no se puede arreglar desde aquí, se avisa). */}
+                                  {p.enabled && p.missingExtra && (
+                                    <div className="text-[0.62rem] leading-snug text-warning">
+                                      {t("plugins.missingExtra", { extra: p.missingExtra })}
+                                    </div>
+                                  )}
+                                </div>
+                                {pluginBusy === p.id || pluginInstalling ? (
+                                  <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+                                ) : (
+                                  <Switch
+                                    className="mt-0.5 shrink-0"
+                                    checked={p.enabled}
+                                    disabled={p.locked}
+                                    aria-label={p.name}
+                                    onCheckedChange={(v) => void togglePlugin(p, v)}
+                                  />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+
+                          <p className="font-mono text-[0.62rem] text-muted-foreground">
+                            {plugins.configPath}
+                          </p>
+                        </>
                       )}
                     </div>
                   )}

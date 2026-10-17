@@ -8,6 +8,7 @@
     "providers": "Providers",
     "local": "Local servers",
     "mcp": "MCP",
+    "plugins": "Plugins",
     "agent": "Agent & sessions",
     "dictation": "Dictation",
     "desktop": "Desktop",
@@ -63,6 +64,35 @@
     "envHint": "One per line: KEY=value. They are stored in mcps.json and never shown back.",
     "envPlaceholder": "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…",
     "addServer": "Add server"
+  },
+  "plugins": {
+    "title": "Plugins",
+    "hint": "The ones the engine ships and the ones you install. Changes are saved to config.toml and the engine reloads.",
+    "empty": "No plugins to show: the engine did not expose its catalog and config.toml lists none.",
+    "badge": {
+      "community": "community"
+    },
+    "missingExtra": "Enabled, but the [{{extra}}] extra is missing from the engine environment: the engine skips it.",
+    "lock": {
+      "dictation": "Controlled from the Dictation section, not this list.",
+      "peerName": "Turned on by the peer_name option in config.toml.",
+      "file": "Enabled by “{{field}}” in config.toml; the engine reads it but saving does not write it.",
+      "env": "Enabled by the {{variable}} environment variable; it cannot be changed here."
+    },
+    "install": {
+      "action": "Install plugin",
+      "source": "Source",
+      "sourceHint": "PyPI package, git repository (or its URL), or local path.",
+      "sourcePlaceholder": "github.com/user/phoson-plugin-x",
+      "confirmTitle": "You are about to install third-party code:",
+      "warning": "A plugin is Python code that runs with your permissions. Install it only if you trust the source.",
+      "slow": "This may take a while: it resolves the commit, installs the package and looks for its entry point.",
+      "confirm": "Install and enable",
+      "installing": "Installing…",
+      "frozen": "This app bundles the engine, so it cannot install plugins. Use “phoson-cli plugin install” from an installation with Python and uv.",
+      "noUv": "uv is required on the PATH to install plugins: phoson-cli installs them with “uv pip install”.",
+      "unavailable": "Plugin installation is not available on this machine."
+    }
   },
   "agent": {
     "title": "Agent and sessions",
@@ -137,6 +167,12 @@
     "mcpNameRequired": "Give the server a name",
     "mcpAdded": "MCP server added",
     "mcpRemoved": "Server {{name}} deleted",
+    "pluginsLoadFailed": "Could not load plugins",
+    "pluginToggleFailed": "Could not change the plugin",
+    "pluginEnabled": "Plugin enabled",
+    "pluginDisabled": "Plugin disabled",
+    "pluginInstallFailed": "Could not install the plugin",
+    "pluginInstalled": "Plugin installed",
     "saveFailed": "Could not save",
     "saved": "Settings saved",
     "sttSaved": "Dictation settings saved",

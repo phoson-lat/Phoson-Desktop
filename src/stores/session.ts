@@ -23,6 +23,7 @@ import type {
   PluginBlock,
   RunMetrics,
   SubagentTask,
+  ToolCatalog,
   UploadedFile,
 } from "../bridge/protocol";
 
@@ -133,6 +134,12 @@ interface SessionState {
   availableTools: string[];
   /** Cuántas tools quedaron enmascaradas: si >0, `availableTools` está recortada. */
   maskedTools: number;
+  /**
+   * Refresca el catálogo de tools sin reiniciar. Lo usan las secciones que
+   * cambian plugins (Ajustes › Plugins): el sidecar reconstruye los engines y
+   * devuelve el catálogo al día, en vez de dejar el del arranque.
+   */
+  applyToolCatalog: (tools: ToolCatalog) => void;
   init: () => Promise<void>;
   /**
    * Envía un turno. `reattach` son rutas de imágenes que hay que volver a
@@ -180,6 +187,9 @@ interface SessionState {
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+/** Catálogo de tools sin repetidos (dos plugins pueden aportar la misma). */
+const dedupeTools = (visible: string[]) => Array.from(new Set(visible));
 
 /** Recuerda el último workspace para reabrirlo al arrancar. */
 const rememberWorkspace = (path: string) => {
@@ -789,7 +799,7 @@ export const useSession = create<SessionState>((set, get) => {
             activeKey: key,
             order: [key],
             cwd: workspace || s.cwd,
-            availableTools: info.tools?.visible ?? s.availableTools,
+            availableTools: dedupeTools(info.tools?.visible ?? s.availableTools),
             maskedTools: info.tools?.maskedCount ?? s.maskedTools,
             onboardingNeeded: Boolean(info.onboarding?.needed) && (!dismissed || forceOnboarding),
             sessions: {
@@ -993,33 +1003,7 @@ export const useSession = create<SessionState>((set, get) => {
       // `os.getcwd()`, que puede no coincidir con la clave del mapa (p. ej. `""`
       // para el sidecar por defecto) y dejaría la sesión inalcanzable.
       const routeKey = target ?? getCurrentWorkspace() ?? "";
-      const { sessionId, cwd } = await phoson.newSession(routeKey);
-      bindSessionWorkspace(sessionId, routeKey);
-      const effective = cwd || target || get().cwd;
-      if (effective) {
-        setCurrentWorkspace(effective);
-        rememberWorkspace(effective);
-      }
-      set((s) => ({
-        activeKey: sessionId,
-        order: s.order.includes(sessionId) ? s.order : [...s.order, sessionId],
-        cwd: effective || s.cwd,
-        // La vista puede existir ya si llegó `session.history` antes que la respuesta.
-        sessions: {
-          ...s.sessions,
-          [sessionId]: {
-            ...(s.sessions[sessionId] ?? emptyView(sessionId)),
-            workspace: effective || s.sessions[sessionId]?.workspace || "",
-          },
-        },
-      }));
-      logAction("session.new", { sessionId, workspace: effective || routeKey });
-    },
-
-    openSession: async (engineId, workspace) => {
-      const target = workspace ?? undefined;
-      const routeKey = target ?? getCurrentWorkspace() ?? "";
-      const { sessionId, cwd, cwdMissing } = await phoson.openSession(engineId, routeKey);
+      const { sessionId, cwd, metrics } = await phoson.newSession(routeKey);
       bindSessionWorkspace(sessionId, routeKey);
       const effective = cwd || target || get().cwd;
       if (effective) {
@@ -1027,7 +1011,43 @@ export const useSession = create<SessionState>((set, get) => {
         rememberWorkspace(effective);
       }
       set((s) => {
+        // La vista puede existir ya si llegó `session.history` antes que la respuesta.
         const base = s.sessions[sessionId] ?? emptyView(sessionId);
+        return {
+          activeKey: sessionId,
+          order: s.order.includes(sessionId) ? s.order : [...s.order, sessionId],
+          cwd: effective || s.cwd,
+          sessions: {
+            ...s.sessions,
+            [sessionId]: {
+              ...base,
+              // El sidecar manda las métricas en la respuesta (con el modelo ya):
+              // el chip del composer las pinta sin esperar al primer turno.
+              metrics: metrics ?? base.metrics,
+              workspace: effective || base.workspace || "",
+            },
+          },
+        };
+      });
+      logAction("session.new", { sessionId, workspace: effective || routeKey });
+    },
+
+    openSession: async (engineId, workspace) => {
+      const target = workspace ?? undefined;
+      const routeKey = target ?? getCurrentWorkspace() ?? "";
+      const { sessionId, cwd, cwdMissing, metrics } = await phoson.openSession(engineId, routeKey);
+      bindSessionWorkspace(sessionId, routeKey);
+      const effective = cwd || target || get().cwd;
+      if (effective) {
+        setCurrentWorkspace(effective);
+        rememberWorkspace(effective);
+      }
+      set((s) => {
+        // El engine ya está vivo aquí, así que el sidecar devuelve las métricas
+        // reales: sin ellas el chip de modelo quedaba sin valor (o con el de la
+        // sesión anterior) hasta el primer turno.
+        const prev = s.sessions[sessionId] ?? emptyView(sessionId);
+        const base = metrics ? { ...prev, metrics } : prev;
         return {
           activeKey: sessionId,
           order: s.order.includes(sessionId) ? s.order : [...s.order, sessionId],
@@ -1084,6 +1104,9 @@ export const useSession = create<SessionState>((set, get) => {
         cwd: s.sessions[key]?.workspace || s.cwd,
       }));
     },
+
+    applyToolCatalog: (tools) =>
+      set({ availableTools: dedupeTools(tools.visible), maskedTools: tools.maskedCount }),
 
     respondConfirm: async (requestId, decision) => {
       const key = get().activeKey;
