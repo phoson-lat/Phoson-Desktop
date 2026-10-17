@@ -818,7 +818,14 @@ class Bridge:
     async def _session_new(self, _params: dict[str, Any]) -> dict[str, Any]:
         key = self.sessions.create()
         # El cwd del proceso es el workspace del sidecar (uno por proyecto).
-        return {"sessionId": key, "cwd": os.getcwd()}
+        # Las métricas van desde ya (en cero, sin construir el engine): el chip de
+        # modelo del composer sale de ahí y sin esto una sesión nueva se queda sin
+        # modelo hasta el primer `session.metrics` (primer turno).
+        return {
+            "sessionId": key,
+            "cwd": os.getcwd(),
+            "metrics": _blank_metrics(key, self.sessions.config_for(key)),
+        }
 
     async def _session_list(self, _params: dict[str, Any]) -> dict[str, Any]:
         # Historial COMPLETO: todas las sesiones guardadas, de cualquier
@@ -884,6 +891,10 @@ class Bridge:
             "cwd": adopted,
             "sessionCwd": session_cwd,
             "cwdMissing": bool(session_cwd) and not os.path.isdir(session_cwd),
+            # El engine ya está construido aquí, así que las métricas (y con ellas
+            # el modelo del chip) salen gratis: sin esto, una sesión reabierta se
+            # quedaba sin modelo hasta el primer turno.
+            "metrics": await self._metrics(key),
         }
 
     async def _session_close(self, params: dict[str, Any]) -> dict[str, Any]:

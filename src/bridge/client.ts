@@ -32,6 +32,7 @@ import type {
   PluginsState,
   PluginsSetResult,
   PluginsInstallResult,
+  RunMetrics,
   SessionMeta,
   ModelsListResult,
   SttStatus,
@@ -155,7 +156,20 @@ class MockBridge implements Bridge {
       case "session.new": {
         const id = "demo-" + Math.random().toString(36).slice(2, 7);
         this.sessions.set(id, { model: "deepseek/deepseek-v4.1-flash", provider: "openrouter" });
-        return { sessionId: id } as unknown as T;
+        // Con métricas desde ya (como el sidecar): el chip de modelo del
+        // composer sale de aquí y no espera al primer turno.
+        return { sessionId: id, metrics: this.metrics(id) } as unknown as T;
+      }
+      case "session.open": {
+        // El sidecar abre una sesión nueva para el historial pedido.
+        const id = "demo-" + Math.random().toString(36).slice(2, 7);
+        this.sessions.set(id, { model: "deepseek/deepseek-v4.1-flash", provider: "openrouter" });
+        return {
+          sessionId: id,
+          cwd: "",
+          cwdMissing: false,
+          metrics: this.metrics(id),
+        } as unknown as T;
       }
       case "session.list":
         return { sessions: MOCK_SESSIONS } as unknown as T;
@@ -883,9 +897,12 @@ export const phoson = {
   onNotify: (handler: (envelope: Envelope) => void) => bridge.onNotify(handler),
   initialize: (workspace?: string | null) => callIn<InitResult>(workspace ?? currentWorkspace, "initialize"),
   newSession: (workspace?: string | null) =>
-    callIn<{ sessionId: string; cwd?: string }>(workspace ?? currentWorkspace, "session.new"),
+    callIn<{ sessionId: string; cwd?: string; metrics?: RunMetrics }>(
+      workspace ?? currentWorkspace,
+      "session.new",
+    ),
   openSession: (engineId: string, workspace?: string | null) =>
-    callIn<{ sessionId: string; cwd?: string; cwdMissing?: boolean }>(
+    callIn<{ sessionId: string; cwd?: string; cwdMissing?: boolean; metrics?: RunMetrics }>(
       workspace ?? currentWorkspace,
       "session.open",
       { id: engineId },
