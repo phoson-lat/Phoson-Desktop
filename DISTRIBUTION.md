@@ -201,7 +201,7 @@ Ya implementada en `.github/workflows/`:
   de `src-tauri` y `py_compile` del bridge.
 - **`release.yml`** — en push de un tag `v*` (o a mano): matrix
   `ubuntu-22.04` / `windows-latest` / `macos-14`; en cada runner
-  clona el engine (`v0.52.0`, el mismo que fija `bridge/pyproject.toml`), crea su
+  clona el engine (`v0.53.0`, el mismo que fija `bridge/pyproject.toml`), crea su
   venv, compila **su** sidecar y corre
   `tauri-action` (build de release firmado + release con bundles y `latest.json`).
 

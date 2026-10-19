@@ -38,6 +38,9 @@
     "openrouter": {
       "hint": "Recomendado: cientos de modelos con una sola clave"
     },
+    "chatgpt": {
+      "note": "Usa tu suscripción de ChatGPT (Plus/Pro): inicia sesión, sin API key"
+    },
     "ollama": {
       "hint": "Local: no necesita clave"
     },
@@ -58,6 +61,9 @@
     },
     "bedrock": {
       "note": "Usa tus credenciales de AWS (perfil o variables de entorno)"
+    },
+    "google-code-assist": {
+      "note": "Usa tu suscripción de Google (Code Assist): inicia sesión, sin API key"
     }
   },
   "updater": {

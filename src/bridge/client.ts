@@ -23,6 +23,8 @@ import type {
   UploadedFile,
   ConfigView,
   Envelope,
+  AuthStatusResult,
+  AuthLoginResult,
   FsListResult,
   FsReadResult,
   InitResult,
@@ -200,6 +202,28 @@ class MockBridge implements Bridge {
       }
       case "config.get":
         return MOCK_CONFIG as unknown as T;
+      case "auth.status": {
+        const providers = ["chatgpt", "google-code-assist"]
+          .filter((id) => !p.provider || id === p.provider)
+          .map((id) => ({ provider: id, loggedIn: false }));
+        return { providers } as unknown as T;
+      }
+      case "auth.login": {
+        const provider = String(p.provider);
+        this.emit("auth.prompt", {
+          provider,
+          kind: "device",
+          url: "https://auth.openai.com/codex/device",
+          code: "DEMO-1234",
+        });
+        return {
+          ok: true,
+          provider,
+          status: { provider, loggedIn: true, email: "demo@phoson.lat" },
+        } as unknown as T;
+      }
+      case "auth.logout":
+        return { ok: true, provider: String(p.provider), removed: true } as unknown as T;
       case "fs.cwd":
         return { cwd: MOCK_CWD } as unknown as T;
       case "fs.list": {
@@ -946,6 +970,17 @@ export const phoson = {
   getConfig: (sessionId: string) => call<ConfigView>("config.get", { sessionId }),
   setConfig: (sessionId: string, patch: Json, secrets?: Json, baseUrls?: Json) =>
     call("config.set", { sessionId, patch, secrets, base_urls: baseUrls }),
+  /** Estado de los proveedores de suscripción (ChatGPT / Google Code Assist). */
+  authStatus: (provider?: string) =>
+    call<AuthStatusResult>("auth.status", provider ? { provider } : {}),
+  /**
+   * Inicia sesión OAuth. La URL/código llega por la notificación
+   * `auth.prompt`; la promesa resuelve cuando el login termina.
+   */
+  authLogin: (provider: string, method?: "device" | "browser") =>
+    call<AuthLoginResult>("auth.login", { provider, method }),
+  authLogout: (provider: string) =>
+    call<{ ok: boolean; provider: string; removed: boolean }>("auth.logout", { provider }),
   fsCwd: (workspace?: string | null) =>
     callIn<{ cwd: string }>(workspace ?? currentWorkspace, "fs.cwd"),
   fsList: (path?: string) =>

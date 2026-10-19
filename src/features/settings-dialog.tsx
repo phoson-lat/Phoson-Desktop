@@ -30,6 +30,7 @@ import { isTauri, phoson } from "@/bridge/client";
 import type { ConfigView, McpState, PluginEntry, PluginsState, SttStatus, ToolCatalog } from "@/bridge/protocol";
 import { ProviderLogo } from "@/components/provider-logo";
 import { McpLogo } from "@/components/mcp-logo";
+import { ProviderAccount, ProviderSignIn } from "@/features/provider-auth";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -346,8 +347,15 @@ export function SettingsDialog({
     }
   };
 
-  const keyProviders = config?.providers.filter((p) => p.supportsKey !== false) ?? [];
+  /** Proveedores de suscripción: se autentican con OAuth, no con una clave. */
+  const authProviders = config?.providers.filter((p) => p.auth) ?? [];
+  const keyProviders = config?.providers.filter((p) => !p.auth && p.supportsKey !== false) ?? [];
   const localProviders = config?.providers.filter((p) => p.supportsBaseUrl) ?? [];
+  /** Recarga el panel tras un login/logout (el token vive fuera del config). */
+  const reloadConfig = () => {
+    if (!sessionId) return;
+    phoson.getConfig(sessionId).then(setConfig).catch(() => {});
+  };
 
   // ── Dictado (idioma/modelo del motor STT) ─────────────────────────────
   /**
@@ -508,7 +516,7 @@ export function SettingsDialog({
       (p) =>
         p.id === config.provider ||
         p.hasKey ||
-        p.supportsKey === false ||
+        (p.supportsKey === false && !p.auth) ||
         enabled.has(p.id),
     );
   }, [config]);
@@ -656,6 +664,42 @@ export function SettingsDialog({
                         title={t("providers.title")}
                         hint={t("providers.hint")}
                       />
+                      {authProviders.length > 0 && (
+                        <div className="space-y-2">
+                          <SectionTitle
+                            title={t("providers.subscriptions")}
+                            hint={t("providers.subscriptionsHint")}
+                          />
+                          {authProviders.map((p) => (
+                            <div key={p.id} className="flex items-center gap-2">
+                              <ProviderLogo
+                                id={p.id}
+                                size={15}
+                                className="text-muted-foreground"
+                              />
+                              <span className="w-28 shrink-0 truncate text-xs">
+                                {providerLabel(p.id)}
+                              </span>
+                              {p.loggedIn ? (
+                                <ProviderAccount
+                                  provider={p.id}
+                                  label={providerLabel(p.id)}
+                                  account={p.account}
+                                  plan={p.plan}
+                                  onSignedOut={reloadConfig}
+                                />
+                              ) : (
+                                <ProviderSignIn
+                                  provider={p.id}
+                                  label={providerLabel(p.id)}
+                                  method={p.id === "chatgpt" ? "device" : "browser"}
+                                  onDone={reloadConfig}
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="space-y-2">
                         {keyProviders.map((p) => (
                           <div key={p.id} className="flex items-center gap-2">

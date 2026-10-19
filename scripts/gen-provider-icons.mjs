@@ -22,6 +22,8 @@ const MCP_OUT = resolve(root, "src/components/mcp-logos.ts");
 const MAP = {
   openrouter: "openrouter",
   openai: "openai",
+  // Proveedores de suscripción: reutilizan el logo de su casa matriz.
+  chatgpt: "openai",
   anthropic: "anthropic",
   ollama: "ollama",
   github: "github",
@@ -36,6 +38,7 @@ const MAP = {
   vllm: "vllm",
   azure: "azure",
   gemini: "gemini",
+  "google-code-assist": "gemini",
   mistral: "mistral",
   bedrock: "bedrock",
   fireworks: "fireworks",
@@ -65,7 +68,11 @@ for (const [provider, lobe] of Object.entries(MAP)) {
 }
 
 const body = entries
-  .map(([provider, svg]) => `  ${provider}: ${JSON.stringify(svg)},`)
+  // Las claves con guion (`google-code-assist`) necesitan comillas.
+  .map(
+    ([provider, svg]) =>
+      `  ${/^[A-Za-z_$][\w$]*$/.test(provider) ? provider : JSON.stringify(provider)}: ${JSON.stringify(svg)},`,
+  )
   .join("\n");
 
 const file = `/* GENERADO por scripts/gen-provider-icons.mjs — no editar a mano.

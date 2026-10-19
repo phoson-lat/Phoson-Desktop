@@ -37,7 +37,10 @@
       "keyLabel": "API key de {{provider}}",
       "keyLink": "obtener",
       "keyPlaceholderExisting": "•••••••• ya configurada — déjalo vacío",
-      "baseUrlLabel": "Base URL"
+      "baseUrlLabel": "Base URL",
+      "signInRequired": "Inicia sesión para usar este proveedor.",
+      "signedIn": "Sesión iniciada{{account}}",
+      "subscription": "Este proveedor se autentica con tu suscripción (OAuth), no con una API key."
     },
     "model": {
       "title": "Elige los modelos",
