@@ -25,6 +25,8 @@ export interface ProviderMeta {
 export const PROVIDER_META: Record<string, ProviderMeta> = {
   openrouter: { label: "OpenRouter", keysUrl: "https://openrouter.ai/keys" },
   openai: { label: "OpenAI", keysUrl: "https://platform.openai.com/api-keys" },
+  // Suscripciones (OAuth, sin API key): no hay página de claves que ofrecer.
+  chatgpt: { label: "ChatGPT (Plus/Pro)" },
   anthropic: { label: "Anthropic", keysUrl: "https://console.anthropic.com/settings/keys" },
   ollama: { label: "Ollama" },
   github: { label: "GitHub Models", keysUrl: "https://github.com/settings/tokens" },
@@ -42,6 +44,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   vllm: { label: "vLLM" },
   azure: { label: "Azure OpenAI", keysUrl: "https://portal.azure.com" },
   gemini: { label: "Google Gemini", keysUrl: "https://aistudio.google.com/app/apikey" },
+  "google-code-assist": { label: "Google Code Assist" },
   mistral: { label: "Mistral AI", keysUrl: "https://console.mistral.ai/api-keys" },
   bedrock: { label: "AWS Bedrock" },
   fireworks: { label: "Fireworks AI", keysUrl: "https://fireworks.ai/account/api-keys" },

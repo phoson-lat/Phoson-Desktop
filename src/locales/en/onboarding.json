@@ -37,7 +37,10 @@
       "keyLabel": "API key for {{provider}}",
       "keyLink": "get one",
       "keyPlaceholderExisting": "•••••••• already set — leave it blank",
-      "baseUrlLabel": "Base URL"
+      "baseUrlLabel": "Base URL",
+      "signInRequired": "Sign in to use this provider.",
+      "signedIn": "Signed in{{account}}",
+      "subscription": "This provider authenticates with your subscription (OAuth), not with an API key."
     },
     "model": {
       "title": "Choose your models",

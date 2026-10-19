@@ -36,7 +36,22 @@
       "file": "archivo",
       "env": "entorno",
       "default": "sin configurar"
-    }
+    },
+    "subscriptions": "Suscripciones",
+    "subscriptionsHint": "Inicia sesión con tu cuenta del proveedor. El token se guarda en ~/.phoson/auth*.json y nunca se muestra aquí.",
+    "signIn": "Iniciar sesión",
+    "signOut": "Cerrar sesión",
+    "signedIn": "Sesión iniciada",
+    "signedInAs": "Sesión de {{account}}",
+    "notSignedIn": "Sin sesión",
+    "loginDevice": "Inicia sesión en {{provider}}: abre la página e introduce el código",
+    "loginWaiting": "Esperando la confirmación en el navegador…",
+    "loginSuccess": "Sesión iniciada en {{provider}}",
+    "loginFailed": "No se pudo iniciar sesión",
+    "logoutSuccess": "Sesión cerrada",
+    "logoutFailed": "No se pudo cerrar la sesión",
+    "copyCode": "Copiar código",
+    "openLogin": "Abrir página de acceso"
   },
   "local": {
     "title": "Servidores locales",

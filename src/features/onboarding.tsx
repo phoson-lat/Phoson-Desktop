@@ -18,6 +18,7 @@ import { phoson } from "@/bridge/client";
 import type { ModelOption, ProviderStatus } from "@/bridge/protocol";
 import { PhosonLogo } from "@/components/phoson-logo";
 import { ProviderLogo } from "@/components/provider-logo";
+import { ProviderSignIn } from "@/features/provider-auth";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { BASE_URL_DEFAULTS, PROVIDER_META as PROVIDERS, providerHint, providerNote } from "@/lib/providers";
@@ -117,6 +118,10 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
 
   const saveProvider = async () => {
     if (!sessionId) return;
+    if (current?.auth && !current.loggedIn) {
+      setError(t("steps.provider.signInRequired"));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -315,6 +320,29 @@ export function Onboarding({ sessionId, onDone }: OnboardingProps) {
                   </div>
 
                   <div className="space-y-5 lg:border-l lg:border-[var(--dashboard-border)] lg:pl-10">
+                    {current?.auth && (
+                      <div className={cn(ANIM, "space-y-2")} style={at(540)}>
+                        <p className="text-xs text-muted-foreground">{t("steps.provider.subscription")}</p>
+                        {current.loggedIn ? (
+                          <p className="flex items-center gap-1.5 text-xs text-success">
+                            <Check className="size-3.5" />
+                            {t("steps.provider.signedIn", {
+                              account: current.account ? ` · ${current.account}` : "",
+                            })}
+                          </p>
+                        ) : (
+                          <ProviderSignIn
+                            provider={providerId}
+                            label={meta?.label ?? providerId}
+                            method={providerId === "chatgpt" ? "device" : "browser"}
+                            onDone={() => {
+                              if (!sessionId) return;
+                              void phoson.getConfig(sessionId).then((c) => setProviders(c.providers));
+                            }}
+                          />
+                        )}
+                      </div>
+                    )}
                     {showKey && (
                       <div className="space-y-2">
                         <div className={cn(ANIM, "flex items-center gap-3")} style={at(560)}>

@@ -23,7 +23,10 @@ interface ProviderLogoProps {
  * para que la lista nunca quede desalineada.
  */
 export function ProviderLogo({ id, size = 18, className }: ProviderLogoProps) {
-  const svg = PROVIDER_LOGO[id];
+  // Los proveedores de suscripción reutilizan el logo de su casa matriz.
+  const svg =
+    PROVIDER_LOGO[id] ??
+    PROVIDER_LOGO[id === "chatgpt" ? "openai" : id === "google-code-assist" ? "gemini" : ""];
 
   if (!svg) {
     return (

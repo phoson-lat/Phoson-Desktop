@@ -36,7 +36,22 @@
       "file": "file",
       "env": "environment",
       "default": "not configured"
-    }
+    },
+    "subscriptions": "Subscriptions",
+    "subscriptionsHint": "Sign in with your provider account. The token is stored in ~/.phoson/auth*.json and never shown here.",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "signedIn": "Signed in",
+    "signedInAs": "Signed in as {{account}}",
+    "notSignedIn": "Signed out",
+    "loginDevice": "Sign in to {{provider}}: open the page and enter the code",
+    "loginWaiting": "Waiting for confirmation in your browser…",
+    "loginSuccess": "Signed in to {{provider}}",
+    "loginFailed": "Could not sign in",
+    "logoutSuccess": "Signed out",
+    "logoutFailed": "Could not sign out",
+    "copyCode": "Copy code",
+    "openLogin": "Open sign-in page"
   },
   "local": {
     "title": "Local servers",
