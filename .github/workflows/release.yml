@@ -143,7 +143,15 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Phoson Desktop v__VERSION__"
-          releaseBody: "Alpha. Descarga el bundle de tu plataforma."
+          # Este texto queda DENTRO de latest.json (`notes`), así que es lo que
+          # el updater enseña en Ajustes → Acerca de: va en inglés y sin datos
+          # de una versión concreta (los detalles, por release, se escriben en
+          # el cuerpo del release con `gh release edit --notes-file` tras
+          # publicarlo; ver RELEASE.md).
+          releaseBody: |
+            Alpha build of Phoson Desktop. Download the bundle for your platform from this release;
+            if you already have a previous alpha installed, the app offers the update automatically.
+            macOS bundles are ad-hoc signed: authorize the app once in System Settings → Privacy & Security.
           releaseDraft: true
           # NO marcar como *prerelease*: el updater lee
           # `releases/latest/download/latest.json` y `/releases/latest` excluye

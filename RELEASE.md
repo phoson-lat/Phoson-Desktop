@@ -31,6 +31,16 @@ plataforma y sube bundles + `latest.json` a un release **draft + prerelease**.
 - [ ] **Quitar la marca *Pre-release*** al publicar: GitHub **excluye los
       *prereleases* de `/releases/latest`**, así que con esa marca el updater
       devuelve 404. La versión puede seguir diciendo `alpha.1`.
+- [ ] Escribir las notas del release: highlights agrupados, fixes y notas de
+      instalación, **en inglés** (ver `AGENTS.md`). Ojo: el campo `notes` de
+      `latest.json` —lo que la app enseña en Ajustes → Acerca de— sale del
+      `releaseBody` de `release.yml`, que es genérico a propósito; el detalle por
+      versión vive solo en el cuerpo del release.
+
+  ```bash
+  gh release edit v0.1.0-alpha.N --notes-file /tmp/notes.md
+  gh release edit v0.1.0-alpha.N --draft=false --prerelease=false
+  ```
 
 Público ya (verificado):
 
