@@ -197,6 +197,36 @@ export interface ProviderStatus {
   supportsBaseUrl?: boolean;
   /** Valor actual de la base_url (no es secreta). */
   baseUrl?: string;
+  /**
+   * Proveedor de suscripción (OAuth, sin API key): el login vive en
+   * `~/.phoson/auth*.json`, no en config.toml.
+   */
+  auth?: boolean;
+  loggedIn?: boolean;
+  /** Cuenta del login OAuth (email), si el proveedor la expone. */
+  account?: string | null;
+  /** Plan de la suscripción (p.ej. Plus), si el proveedor lo expone. */
+  plan?: string | null;
+  expiresAt?: number | null;
+}
+
+export interface AuthProviderStatus {
+  provider: string;
+  loggedIn: boolean;
+  email?: string | null;
+  plan?: string | null;
+  expiresAt?: number | null;
+  error?: string;
+}
+
+export interface AuthStatusResult {
+  providers: AuthProviderStatus[];
+}
+
+export interface AuthLoginResult {
+  ok: boolean;
+  provider: string;
+  status: AuthProviderStatus;
 }
 
 export interface ConfigView {

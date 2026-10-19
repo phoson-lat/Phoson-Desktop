@@ -87,13 +87,27 @@ _TOKEN_EVENT_TYPES = frozenset({"AgentTokenEvent", "AgentReasoningEvent"})
 #: `AgentStartEvent` en los primeros ms y solo calla hasta que fluye el token.
 #: Se pueden forzar con env para probar el comportamiento a mano:
 #:   PHOSON_WATCHDOG_SECONDS=3 PHOSON_WATCHDOG_SILENCE_SECONDS=5
-_WATCHDOG_SECONDS: dict[str, float] = {"turn.run": 15.0, "plugins.install": 180.0}
+_WATCHDOG_SECONDS: dict[str, float] = {
+    "turn.run": 15.0,
+    "plugins.install": 180.0,
+    # El login OAuth espera al usuario (código de dispositivo o navegador): es
+    # normal que no salga nada durante minutos, así que no es un cuelgue.
+    "auth.login": 15 * 60.0,
+}
 _WATCHDOG_SILENCE_SECONDS: dict[str, float] = {"turn.run": 60.0}
 _WATCHDOG_DEFAULT_SECONDS = 30.0
 _WATCHDOG_DEFAULT_SILENCE_SECONDS = 120.0
 #: Avisos máximos por RPC en vuelo (el watchdog se reprograma mientras siga el
 #: problema, pero no hasta el infinito).
 _WATCHDOG_MAX_WARNINGS = 3
+
+#: Proveedores que se autentican con una **suscripción** (OAuth) y no con una
+#: API key. El token lo guarda `phoson_llm.auth` en `~/.phoson/auth*.json`;
+#: `config.toml` solo recuerda cuál es el proveedor activo.
+_AUTH_PROVIDERS: dict[str, str] = {
+    "chatgpt": "phoson_llm.auth.chatgpt",
+    "google-code-assist": "phoson_llm.auth.code_assist",
+}
 
 
 def _config_path() -> Path:
@@ -455,6 +469,9 @@ class Bridge:
             "models.list": self._models_list,
             "config.get": self._config_get,
             "config.set": self._config_set,
+            "auth.status": self._auth_status,
+            "auth.login": self._auth_login,
+            "auth.logout": self._auth_logout,
             "fs.cwd": self._fs_cwd,
             "fs.list": self._fs_list,
             "fs.setCwd": self._fs_set_cwd,
@@ -1057,6 +1074,9 @@ class Bridge:
     _PROVIDERS: dict[str, dict[str, str]] = {
         "openrouter": {"key": "openrouter_api_key"},
         "openai": {"key": "openai_api_key"},
+        # Suscripciones (OAuth): no hay campo en config.toml, el token vive en
+        # `~/.phoson/auth*.json` y lo gestiona `phoson_llm.auth`.
+        "chatgpt": {},
         "anthropic": {"key": "anthropic_api_key"},
         "ollama": {"base_url": "ollama_base_url"},
         "github": {"key": "github_token"},
@@ -1071,6 +1091,7 @@ class Bridge:
         "vllm": {"key": "vllm_api_key", "base_url": "vllm_base_url"},
         "azure": {"key": "azure_openai_api_key"},
         "gemini": {"key": "gemini_api_key"},
+        "google-code-assist": {},
         "mistral": {"key": "mistral_api_key"},
         "bedrock": {},
         "fireworks": {"key": "fireworks_api_key"},
@@ -1083,23 +1104,143 @@ class Bridge:
 
         Indica si tiene clave (y su procedencia, **nunca el valor**), y la
         `base_url` configurada cuando el proveedor la admite (no es secreta).
+
+        Los proveedores de suscripción (`chatgpt`, `google-code-assist`) no
+        tienen clave en `config.toml`: su credencial es el login OAuth que
+        gestiona `phoson_llm.auth`, así que `hasKey` refleja si hay sesión y se
+        añade el detalle (`auth`, `loggedIn`, `account`, `plan`).
         """
         sources = dict(getattr(cfg, "_secret_sources", {}) or {})
         out: list[dict[str, Any]] = []
         for pid, fields in self._PROVIDERS.items():
             key_field = fields.get("key")
             url_field = fields.get("base_url")
-            out.append(
-                {
-                    "id": pid,
-                    "hasKey": bool(getattr(cfg, key_field, None)) if key_field else False,
-                    "source": (sources.get(key_field, "default") if key_field else "default"),
-                    "supportsKey": bool(key_field),
-                    "supportsBaseUrl": bool(url_field),
-                    "baseUrl": (getattr(cfg, url_field, None) or "") if url_field else "",
-                }
-            )
+            entry: dict[str, Any] = {
+                "id": pid,
+                "hasKey": bool(getattr(cfg, key_field, None)) if key_field else False,
+                "source": (sources.get(key_field, "default") if key_field else "default"),
+                "supportsKey": bool(key_field),
+                "supportsBaseUrl": bool(url_field),
+                "baseUrl": (getattr(cfg, url_field, None) or "") if url_field else "",
+            }
+            if pid in _AUTH_PROVIDERS:
+                status = self._auth_provider_status(pid)
+                entry.update(
+                    {
+                        # La credencial existe (token guardado), aunque no sea una
+                        # clave: así el onboarding y el selector de proveedor la
+                        # tratan igual que una clave configurada.
+                        "hasKey": bool(status.get("loggedIn")),
+                        "source": "file" if status.get("loggedIn") else "default",
+                        "auth": True,
+                        "loggedIn": bool(status.get("loggedIn")),
+                        "account": status.get("email"),
+                        "plan": status.get("plan"),
+                        "expiresAt": status.get("expiresAt"),
+                    }
+                )
+            out.append(entry)
         return out
+
+    def _auth_provider_status(self, provider: str) -> dict[str, Any]:
+        """Resumen del login OAuth de un proveedor (sin tocar la red)."""
+        module_name = _AUTH_PROVIDERS.get(provider)
+        if module_name is None:
+            return {}
+        try:
+            module = __import__(module_name, fromlist=["auth_status"])
+            status = module.auth_status()
+        except Exception as exc:  # noqa: BLE001 — un fallo de auth no tumba el panel
+            log.warning("auth.status(%s) falló: %s", provider, exc)
+            return {"loggedIn": False, "error": str(exc)}
+        return {
+            "loggedIn": bool(getattr(status, "logged_in", False)),
+            "email": getattr(status, "email", None),
+            "plan": getattr(status, "plan_type", None),
+            "expiresAt": getattr(status, "expires_at", None),
+        }
+
+    async def _auth_status(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Estado de los proveedores de suscripción (por defecto, todos)."""
+        only = params.get("provider")
+        providers = [str(only)] if only else list(_AUTH_PROVIDERS)
+        return {
+            "providers": [
+                {"provider": pid, **self._auth_provider_status(pid)}
+                for pid in providers
+                if pid in _AUTH_PROVIDERS
+            ]
+        }
+
+    async def _auth_login(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Inicia sesión OAuth en un proveedor de suscripción.
+
+        Dos flujos, elegidos con `method`:
+          * `device`  (ChatGPT): muestra un código y sondea hasta que el usuario
+            lo aprueba — no abre puertos, funciona también por SSH.
+          * `browser` (ambos): servidor loopback efímero + navegador del sistema.
+
+        La UI abre la URL que llega en `auth.prompt` (el sidecar no abre el
+        navegador: en una app de escritorio eso lo controla el front). La RPC
+        termina cuando el login acaba, así que el front puede esperar el
+        resultado y refrescar el estado.
+        """
+        provider = str(params.get("provider") or "")
+        method = str(params.get("method") or "browser")
+        if provider not in _AUTH_PROVIDERS:
+            raise ValueError(f"proveedor sin login OAuth: {provider!r}")
+
+        def prompt(payload: dict[str, Any]) -> None:
+            self._emit(
+                "auth.prompt",
+                {"provider": provider, **payload},
+                life=False,
+            )
+
+        if provider == "chatgpt":
+            from phoson_llm.auth import chatgpt
+
+            if method == "browser":
+                await chatgpt.login_browser(
+                    open_browser=False,
+                    on_url=lambda url: prompt({"kind": "url", "url": url}),
+                )
+            else:
+                device = await chatgpt.request_device_code()
+                prompt(
+                    {
+                        "kind": "device",
+                        "url": device.verification_url,
+                        "code": device.user_code,
+                    }
+                )
+                tokens = await chatgpt.poll_device_code(device)
+                chatgpt.save_tokens(tokens)
+        else:
+            from phoson_llm.auth import code_assist
+
+            # El flujo headless (copiar/pegar código) necesita entrada del
+            # usuario por stdin; en la app se usa el navegador del sistema.
+            await code_assist.login_browser(
+                open_browser=False,
+                on_url=lambda url: prompt({"kind": "url", "url": url}),
+            )
+
+        self._invalidate_models()
+        status = self._auth_provider_status(provider)
+        self._emit("auth.complete", {"provider": provider, **status}, life=False)
+        return {"ok": True, "provider": provider, "status": status}
+
+    async def _auth_logout(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Borra el token OAuth del proveedor (no toca config.toml)."""
+        provider = str(params.get("provider") or "")
+        module_name = _AUTH_PROVIDERS.get(provider)
+        if module_name is None:
+            raise ValueError(f"proveedor sin login OAuth: {provider!r}")
+        module = __import__(module_name, fromlist=["clear_tokens"])
+        removed = bool(module.clear_tokens())
+        self._invalidate_models()
+        return {"ok": True, "provider": provider, "removed": removed}
 
     async def _config_get(self, params: dict[str, Any]) -> dict[str, Any]:
         """Config efectiva para el panel. Los secretos NUNCA se envían: solo
