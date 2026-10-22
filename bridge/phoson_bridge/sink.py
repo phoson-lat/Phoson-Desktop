@@ -42,12 +42,16 @@ class GuiSink:
         # Lo fija `SessionManager` para que el hook `on_session_title` pueda leer
         # el título desde el árbol sin acoplar el sink al REPL.
         self.title_provider: Callable[[], str] | None = None
+        # Turnos abiertos (de usuario o autónomos). El bridge lo compara antes y
+        # después de un wake para saber si el turno llegó a ejecutarse.
+        self.user_messages = 0
 
     def _notify(self, method: str, params: dict[str, Any]) -> None:
         self._emit(method, {"sessionId": self._session_key, **params})
 
     # -- turnos ---------------------------------------------------------------
     def on_user_message(self, text: str, message: object) -> None:
+        self.user_messages += 1
         self._notify("session.user_message", {"text": text, "message": to_jsonable(message)})
 
     def on_attachments(self, sources: list[str]) -> None:
