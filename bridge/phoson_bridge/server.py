@@ -52,6 +52,12 @@ from .stt import (
     report as stt_report,
     transcribe_wav as stt_transcribe_wav,
 )
+from . import extras as _extras
+
+# Los extras instalados desde Ajustes (`~/.phoson/extras/<extra>`) entran en el
+# `sys.path` ANTES de que el engine construya sus plugins: si no, un plugin
+# instalado ayer se saltaría hoy hasta el siguiente reinicio.
+_extras.bootstrap_paths()
 
 log = logging.getLogger("phoson_bridge")
 
@@ -68,6 +74,33 @@ _SESSION_MUTATING = frozenset(
 #: El catálogo de modelos cambia poco y cada consulta es un round-trip de red
 #: (~430 ms); el picker lo abre al instante y un turno no debe pagarlo.
 _MODELS_LIST_TTL = 300.0
+
+
+def _provider_of(cfg: Any) -> str:
+    """Proveedor normalizado (minúsculas) de una config del engine."""
+    return str(getattr(cfg, "provider", "") or "").strip().lower()
+
+
+def _config_for_provider(cfg: PhosonConfig, provider: str) -> PhosonConfig:
+    """Clon de *cfg* con `provider` (y su modelo por defecto) aplicado.
+
+    `models.list` acepta un `provider` explícito para que Ajustes consulte el
+    catálogo del proveedor que el usuario acaba de elegir en el formulario —
+    todavía sin pasar por `config.set` — sin tocar la config viva del engine.
+    El modelo del clon es el `default_model` del proveedor; así el listado (y
+    su fallback si la red falla) no arrastra un id de otro proveedor.
+    """
+    variant = copy.copy(cfg)
+    variant.provider = provider
+    try:
+        from phoson_cli.models import load_models_file, provider_settings
+
+        settings = provider_settings(load_models_file(), provider)
+        variant.model = settings.get("default_model") or cfg.model
+    except Exception:  # noqa: BLE001 — sin catálogo de defaults, se mantiene el modelo
+        variant.model = cfg.model
+    return variant
+
 
 #: Ventana de coalescido de tokens (segundos). El motor emite un evento
 #: `agent.event` POR TOKEN (cientos por segundo), y cada notificación es un
@@ -90,6 +123,9 @@ _TOKEN_EVENT_TYPES = frozenset({"AgentTokenEvent", "AgentReasoningEvent"})
 _WATCHDOG_SECONDS: dict[str, float] = {
     "turn.run": 15.0,
     "plugins.install": 180.0,
+    # Instalar un extra descarga wheels (onnxruntime, Pillow…): puede tardar
+    # varios minutos sin que el sidecar dé señales de vida.
+    "plugins.installExtra": 900.0,
     # El login OAuth espera al usuario (código de dispositivo o navegador): es
     # normal que no salga nada durante minutos, así que no es un cuelgue.
     "auth.login": 15 * 60.0,
@@ -485,6 +521,7 @@ class Bridge:
             "plugins.get": self._plugins_get,
             "plugins.set": self._plugins_set,
             "plugins.install": self._plugins_install,
+            "plugins.installExtra": self._plugins_install_extra,
             "attachment.list": self._attachment_list,
             "attachment.push": self._attachment_push,
             "attachment.remove": self._attachment_remove,
@@ -1006,6 +1043,10 @@ class Bridge:
         directo y aplica los overrides de `~/.phoson/models.json`. Si la red
         falla, degrada al modelo actual (comportamiento del engine).
 
+        Acepta `provider` opcional: Ajustes pide el catálogo del proveedor del
+        **borrador** (aún sin `config.set`), así que se clona la config viva con
+        ese proveedor. Sin el parámetro se usa el activo, como siempre.
+
         Cacheado por proveedor (`_MODELS_LIST_TTL`) y con single-flight: el
         picker lo abre a menudo y la respuesta solo cambia cuando cambia el
         catálogo del proveedor. Un fallo de red NO se cachea (reintenta en la
@@ -1015,9 +1056,16 @@ class Bridge:
         # basta — el catálogo es una consulta de red al proveedor, no usa tools.
         session_id = str(params.get("sessionId") or "")
         cfg = self.sessions.config_for(session_id)
+        requested = str(params.get("provider") or "").strip()
+        if requested and requested.lower() != str(cfg.provider).lower():
+            cfg = _config_for_provider(cfg, requested)
         repl = self.sessions.repl_if_built(session_id)
+        # El modelo "actual" del repl solo vale para su propio proveedor; con
+        # un `provider` pedido distinto el marcador es el modelo por defecto
+        # de ese proveedor (el que trae el clon de la config).
+        repl_matches = repl is not None and _provider_of(repl.config) == _provider_of(cfg)
         current = {
-            "model": repl.current_model if repl is not None else cfg.model,
+            "model": repl.current_model if repl_matches else cfg.model,
             "provider": cfg.provider,
         }
         key = f"{cfg.provider}|{getattr(cfg, 'base_url', '') or ''}"
@@ -1704,10 +1752,15 @@ class Bridge:
 
         cfg = self.sessions.config_for(str(params.get("sessionId") or ""))
         can_install, blocked = installable()
+        # Instalar extras (dependencias opcionales del engine) es otro camino:
+        # necesita un intérprete con `pip`, no el `uv` del gestor de plugins.
+        can_install_extras, extras_blocked = _extras.installable()
         return {
             "plugins": catalog(cfg),
             "canInstall": can_install,
             "installBlocked": blocked,
+            "canInstallExtras": can_install_extras,
+            "installExtrasBlocked": extras_blocked,
             "configPath": str(_config_path()),
         }
 
@@ -1783,6 +1836,39 @@ class Bridge:
             "plugins": catalog(cfg),
             "tools": self._tools_payload(repls),
         }
+
+    async def _plugins_install_extra(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Instala un **extra** del engine que falta (p. ej. `[stt]`, `[computeruse]`).
+
+        Un plugin del engine puede depender de un extra opcional: si falta, el
+        motor carga el plugin pero lo salta («Activo, pero falta el extra [stt]
+        en el entorno del engine»). Este handler lo arregla: resuelve los
+        requisitos del extra desde los metadatos del engine, los instala en
+        `~/.phoson/extras/<extra>` y los añade al `sys.path` del sidecar, de
+        modo que el plugin funciona sin reiniciar la app.
+
+        La instalación baja wheels (onnxruntime, Pillow…): tarda, así que corre
+        en un hilo (el event loop no se congela) y tiene su propio watchdog.
+        """
+        from .plugins import catalog
+
+        extra = str(params.get("extra") or "").strip()
+        if not extra:
+            raise ValueError("falta el extra a instalar")
+        # En un hilo: `pip install` es bloqueante (segundos o minutos) y sobre el
+        # event loop congelaría el sidecar entero.
+        result = await asyncio.to_thread(_extras.install_extra, extra)
+        if not result.get("ok"):
+            return result
+        # El plugin recién servible tiene que entrar en todas las sesiones
+        # vivas (mismo motivo que en `plugins.set`).
+        repls = self.sessions.built_repls()
+        for repl in repls:
+            await self._reload_plugins(repl)
+        cfg = self.sessions.config_for(str(params.get("sessionId") or ""))
+        result["plugins"] = catalog(cfg)
+        result["tools"] = self._tools_payload(repls)
+        return result
 
     # ── Adjuntos (pegar / arrastrar archivos) ─────────────────────────────
     #: Tope de tamaño al materializar un archivo enviado desde la UI.

@@ -22,6 +22,8 @@
     "providerCount": "{{available}} de {{total}} proveedores: solo los que tienen credencial.",
     "addKeys": "Añadir claves",
     "primary": "Modelo principal",
+    "pickTitle": "Elegir del catálogo del proveedor",
+    "pickHint": "Escribe un id o abre la flecha para elegir del catálogo del proveedor.",
     "subagent": "Modelo de sub-agentes",
     "subagentHint": "Es el que ejecuta los tools en paralelo.",
     "reasoning": "Esfuerzo de razonamiento"
@@ -107,6 +109,18 @@
       "frozen": "Esta app lleva el engine dentro, así que no puede instalar plugins. Usa «phoson-cli plugin install» desde una instalación con Python y uv.",
       "noUv": "Hace falta uv en el PATH para instalar plugins: phoson-cli los instala con «uv pip install».",
       "unavailable": "La instalación de plugins no está disponible en este equipo."
+    },
+    "extra": {
+      "install": "Instalar [{{extra}}]",
+      "installing": "Instalando…",
+      "okToast": "Extra [{{extra}}] instalado",
+      "failedToast": "No se pudo instalar el extra [{{extra}}]",
+      "blocked": "La instalación de extras no está disponible en este equipo.",
+      "blockedNoPip": "Hace falta un Python con pip: instala el extra a mano con «pip install 'phoson-engine-minimal[{{extra}}]'».",
+      "unknown": "El engine no declara ese extra.",
+      "timeout": "La instalación tardó demasiado y se canceló.",
+      "notImportable": "Se instaló, pero el módulo sigue sin poder importarse.",
+      "failed": "La instalación falló."
     }
   },
   "agent": {

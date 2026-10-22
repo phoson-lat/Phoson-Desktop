@@ -34,6 +34,7 @@ import type {
   PluginsState,
   PluginsSetResult,
   PluginsInstallResult,
+  PluginsInstallExtraResult,
   RunMetrics,
   SessionMeta,
   ModelsListResult,
@@ -181,11 +182,17 @@ class MockBridge implements Bridge {
         if (idx >= 0) MOCK_SESSIONS.splice(idx, 1);
         return { ok: true, id } as unknown as T;
       }
-      case "models.list":
+      case "models.list": {
+        // Ajustes puede pedir el catálogo de otro proveedor (borrador); el mock
+        // solo tiene modelos de OpenRouter, así que filtra — y si no hay,
+        // devuelve la lista completa para no dejar el desplegable vacío.
+        const provider = p.provider ? String(p.provider) : null;
+        const models = provider ? MOCK_MODELS.filter((m) => m.provider === provider) : MOCK_MODELS;
         return {
-          current: { model: "deepseek/deepseek-v4.1-flash", provider: "openrouter" },
-          models: MOCK_MODELS,
+          current: { model: "deepseek/deepseek-v4.1-flash", provider: provider ?? "openrouter" },
+          models: models.length > 0 ? models : MOCK_MODELS,
         } as unknown as T;
+      }
       case "model.set": {
         const sid = String(p.sessionId);
         this.sessions.set(sid, { model: String(p.model), provider: String(p.provider) });
@@ -384,6 +391,8 @@ class MockBridge implements Bridge {
           plugins: MOCK_PLUGINS,
           canInstall: true,
           installBlocked: "",
+          canInstallExtras: true,
+          installExtrasBlocked: "",
           configPath: "~/.phoson/config.toml",
         } as unknown as T;
       case "plugins.set": {
@@ -434,6 +443,21 @@ class MockBridge implements Bridge {
           ];
         }
         return { ok: true, name, plugins: MOCK_PLUGINS, tools: this.toolCatalog() } as unknown as T;
+      }
+      case "plugins.installExtra": {
+        // El extra instalado deja de faltar: el catálogo deja de avisar.
+        const extra = String(p.extra ?? "");
+        MOCK_PLUGINS = MOCK_PLUGINS.map((e) =>
+          e.missingExtra === extra ? { ...e, missingExtra: "" } : e,
+        );
+        return {
+          ok: true,
+          extra,
+          dir: `~/.phoson/extras/${extra}`,
+          installed: [],
+          plugins: MOCK_PLUGINS,
+          tools: this.toolCatalog(),
+        } as unknown as T;
       }
       case "config.set": {
         const patch = (p.patch ?? {}) as Record<string, unknown>;
@@ -963,8 +987,8 @@ export const phoson = {
       uptimeSec: number;
     }>(null, "perf"),
   deleteSession: (id: string) => callIn<{ ok: boolean; id: string }>(null, "session.delete", { id }),
-  listModels: (sessionId: string) =>
-    call<ModelsListResult>("models.list", { sessionId }),
+  listModels: (sessionId: string, provider?: string) =>
+    call<ModelsListResult>("models.list", provider ? { sessionId, provider } : { sessionId }),
   setModel: (sessionId: string, model: string, provider?: string) =>
     call("model.set", { sessionId, model, provider }),
   getConfig: (sessionId: string) => call<ConfigView>("config.get", { sessionId }),
@@ -1035,6 +1059,13 @@ export const phoson = {
     call<PluginsSetResult>("plugins.set", { sessionId, id, enabled }),
   pluginsInstall: (sessionId: string, source: string) =>
     call<PluginsInstallResult>("plugins.install", { sessionId, source, confirmed: true }),
+  /**
+   * Instala un extra del engine que falta (las dependencias opcionales de un
+   * plugin: `[stt]`, `[computeruse]`…). El sidecar los instala en
+   * `~/.phoson/extras/<extra>` y los añade a su `sys.path`.
+   */
+  pluginsInstallExtra: (sessionId: string, extra: string) =>
+    call<PluginsInstallExtraResult>("plugins.installExtra", { sessionId, extra }),
   attachmentList: (sessionId: string) =>
     call<{ attachments: Attachment[] }>("attachment.list", { sessionId }),
   /** Sube al workspace un archivo no adjuntable de forma nativa. */
