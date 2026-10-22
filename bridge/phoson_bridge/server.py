@@ -36,7 +36,7 @@ import asyncio
 import logging
 import threading
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Callable, TextIO
 
 from phoson_cli.config import load_config, PhosonConfig, has_configured_provider
 from phoson_cli.repl import PhosonRepl
@@ -202,6 +202,9 @@ class SessionManager:
         # Construcciones en curso, compartidas entre las RPC que las esperan.
         self._building: dict[str, asyncio.Task[PhosonRepl]] = {}
         self._confirmations: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        # Lo fija el `Bridge`: se llama (síncrono) al cerrar un turno autónomo
+        # para refrescar las métricas de la sesión.
+        self.on_wake_turn_done: Callable[[str], None] | None = None
 
     # -- ciclo de vida --------------------------------------------------------
     def create(self) -> str:
@@ -267,6 +270,8 @@ class SessionManager:
             try:
                 built = await asyncio.to_thread(self._build, key, parts)
                 self._repls[key] = built
+                # Ya en el loop: el bucle de wakes no se puede crear en el hilo.
+                self._wire_wakes(key, built)
                 return built
             except Exception:
                 # La sesión NO se pierde con un build fallido (típico: clave
@@ -280,6 +285,62 @@ class SessionManager:
         task = asyncio.create_task(_run())
         self._building[key] = task
         return await task
+
+    # -- reactivación autónoma (monitores, jobs en background, peers) ---------
+    def _wire_wakes(self, key: str, repl: PhosonRepl) -> None:
+        """Arranca el bucle que reactiva al agente cuando un monitor dispara.
+
+        El CLI lo arranca desde `PhosonRepl.run()`, que el bridge no usa: sin
+        esto el monitor dispara, el wake se queda en la cola en disco y el
+        agente solo se entera con el siguiente mensaje del usuario. Cada turno
+        autónomo pasa por `_run_wake_turn` para que la GUI lo cierre igual que
+        un `turn.run`.
+        """
+        controller = repl._controller
+        set_starter = getattr(controller, "set_operation_starter", None)
+        if callable(set_starter):
+            set_starter(
+                lambda coro, _kind, k=key: asyncio.create_task(
+                    self._run_wake_turn(k, coro), name=f"wake-turn:{k}"
+                )
+            )
+        start = getattr(controller, "start_monitor_wake_loop", None)
+        if callable(start):
+            start()
+
+    async def _run_wake_turn(self, key: str, coro: Any) -> None:
+        """Ejecuta un turno autónomo y emite su `session.assistant.done`.
+
+        La GUI abre el turno al recibir `session.user_message` sin un envío
+        propio en curso; aquí se cierra. Si un turno del usuario consumió los
+        wakes antes (no se ejecutó nada) no se emite nada.
+        """
+        sink = self._repls[key]._controller.sink
+        opened = getattr(sink, "user_messages", 0)
+        outcome: Any = None
+        status = "error"
+        try:
+            outcome = await coro
+            status = getattr(outcome, "status", None) or "done"
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        finally:
+            # Engines anteriores no devuelven el outcome del wake: el contador
+            # del sink dice si el turno llegó a abrirse.
+            if outcome is not None or getattr(sink, "user_messages", 0) > opened:
+                self._emit(
+                    "session.assistant.done",
+                    {
+                        "sessionId": key,
+                        "status": status,
+                        "errorCode": getattr(outcome, "error_code", None),
+                        "finalContent": getattr(outcome, "final_content", None),
+                        "source": "wake",
+                    },
+                )
+                if self.on_wake_turn_done is not None:
+                    self.on_wake_turn_done(key)
 
     async def close(self, key: str) -> None:
         self._pending.pop(key, None)
@@ -478,6 +539,7 @@ class Bridge:
         self._out: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
         self.config = load_config()
         self.sessions = SessionManager(self.config, self._emit)
+        self.sessions.on_wake_turn_done = self._after_wake_turn
         self.stt = SttManager(self._emit)
         # Sesión inicial *reservada*: el `PhosonRepl` se construye en un hilo la
         # primera vez que alguien lo necesite (`SessionManager.get`), para que el
@@ -976,6 +1038,17 @@ class Bridge:
             "errorCode": outcome.error_code,
             "finalContent": outcome.final_content,
         }
+
+    def _after_wake_turn(self, session_id: str) -> None:
+        """Métricas tras un turno autónomo (igual que tras `turn.run`)."""
+
+        async def _emit_metrics() -> None:
+            try:
+                self._emit("session.metrics", await self._metrics(session_id))
+            except Exception:  # noqa: BLE001 — una métrica nunca tumba el bridge
+                log.debug("métricas tras wake fallaron", exc_info=True)
+
+        asyncio.create_task(_emit_metrics())
 
     async def _turn_cancel(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"cancelled": (await self.sessions.get(params["sessionId"])).cancel_current()}

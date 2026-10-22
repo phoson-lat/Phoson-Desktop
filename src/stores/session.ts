@@ -697,11 +697,42 @@ export const useSession = create<SessionState>((set, get) => {
           patchView(key, (v) => ({ ...v, subagents: progress?.tasks ?? [] }));
           break;
         }
-        case "session.user_message":
+        case "session.user_message": {
           // Los bloques de plugins son UI efímera del turno: al empezar uno
           // nuevo se limpian (los de este turno reaparecen por `plugin.block`).
-          if (key) patchView(key, (v) => ({ ...v, pluginBlocks: {} }));
+          if (!key) break;
+          // Sin un envío propio en curso, el turno lo abrió el engine: un
+          // monitor o job en background reactivó al agente. Se pinta como un
+          // turno más (su mensaje es la cabecera `[MONITOR EVENTS]`, igual que
+          // en el historial) y lo cierra el `session.assistant.done` del bridge.
+          const autonomous = !(get().sessions[key]?.sending ?? false);
+          patchView(key, (v) =>
+            autonomous
+              ? {
+                  ...v,
+                  pluginBlocks: {},
+                  sending: true,
+                  messages: [
+                    ...v.messages,
+                    {
+                      id: uid(),
+                      role: "user",
+                      text: typeof params.text === "string" ? params.text : "",
+                      parts: [],
+                      status: "done",
+                    },
+                    { id: uid(), role: "assistant", text: "", parts: [], status: "streaming" },
+                  ],
+                }
+              : { ...v, pluginBlocks: {} },
+          );
+          if (autonomous) {
+            turnStart.set(key, Date.now());
+            turnTools.set(key, []);
+            logEvent("turn.wake", { sessionId: key }, "info", "engine");
+          }
           break;
+        }
         case "plugin.block": {
           // Publicado (`replace: false`) o actualizado en sitio (`replace: true`).
           if (!key) break;
