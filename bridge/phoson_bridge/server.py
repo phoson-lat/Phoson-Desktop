@@ -69,6 +69,33 @@ _SESSION_MUTATING = frozenset(
 #: (~430 ms); el picker lo abre al instante y un turno no debe pagarlo.
 _MODELS_LIST_TTL = 300.0
 
+
+def _provider_of(cfg: Any) -> str:
+    """Proveedor normalizado (minúsculas) de una config del engine."""
+    return str(getattr(cfg, "provider", "") or "").strip().lower()
+
+
+def _config_for_provider(cfg: PhosonConfig, provider: str) -> PhosonConfig:
+    """Clon de *cfg* con `provider` (y su modelo por defecto) aplicado.
+
+    `models.list` acepta un `provider` explícito para que Ajustes consulte el
+    catálogo del proveedor que el usuario acaba de elegir en el formulario —
+    todavía sin pasar por `config.set` — sin tocar la config viva del engine.
+    El modelo del clon es el `default_model` del proveedor; así el listado (y
+    su fallback si la red falla) no arrastra un id de otro proveedor.
+    """
+    variant = copy.copy(cfg)
+    variant.provider = provider
+    try:
+        from phoson_cli.models import load_models_file, provider_settings
+
+        settings = provider_settings(load_models_file(), provider)
+        variant.model = settings.get("default_model") or cfg.model
+    except Exception:  # noqa: BLE001 — sin catálogo de defaults, se mantiene el modelo
+        variant.model = cfg.model
+    return variant
+
+
 #: Ventana de coalescido de tokens (segundos). El motor emite un evento
 #: `agent.event` POR TOKEN (cientos por segundo), y cada notificación es un
 #: JSON serializado + IPC al WebView + despacho en Tauri. Acumular 30 ms y
@@ -1006,6 +1033,10 @@ class Bridge:
         directo y aplica los overrides de `~/.phoson/models.json`. Si la red
         falla, degrada al modelo actual (comportamiento del engine).
 
+        Acepta `provider` opcional: Ajustes pide el catálogo del proveedor del
+        **borrador** (aún sin `config.set`), así que se clona la config viva con
+        ese proveedor. Sin el parámetro se usa el activo, como siempre.
+
         Cacheado por proveedor (`_MODELS_LIST_TTL`) y con single-flight: el
         picker lo abre a menudo y la respuesta solo cambia cuando cambia el
         catálogo del proveedor. Un fallo de red NO se cachea (reintenta en la
@@ -1015,9 +1046,16 @@ class Bridge:
         # basta — el catálogo es una consulta de red al proveedor, no usa tools.
         session_id = str(params.get("sessionId") or "")
         cfg = self.sessions.config_for(session_id)
+        requested = str(params.get("provider") or "").strip()
+        if requested and requested.lower() != str(cfg.provider).lower():
+            cfg = _config_for_provider(cfg, requested)
         repl = self.sessions.repl_if_built(session_id)
+        # El modelo "actual" del repl solo vale para su propio proveedor; con
+        # un `provider` pedido distinto el marcador es el modelo por defecto
+        # de ese proveedor (el que trae el clon de la config).
+        repl_matches = repl is not None and _provider_of(repl.config) == _provider_of(cfg)
         current = {
-            "model": repl.current_model if repl is not None else cfg.model,
+            "model": repl.current_model if repl_matches else cfg.model,
             "provider": cfg.provider,
         }
         key = f"{cfg.provider}|{getattr(cfg, 'base_url', '') or ''}"

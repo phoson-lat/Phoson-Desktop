@@ -30,6 +30,7 @@ import { isTauri, phoson } from "@/bridge/client";
 import type { ConfigView, McpState, PluginEntry, PluginsState, SttStatus, ToolCatalog } from "@/bridge/protocol";
 import { ProviderLogo } from "@/components/provider-logo";
 import { McpLogo } from "@/components/mcp-logo";
+import { ModelCombobox } from "@/features/model-combobox";
 import { ProviderAccount, ProviderSignIn } from "@/features/provider-auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -614,19 +615,24 @@ export function SettingsDialog({
 
                       <div className="space-y-1.5">
                         <Label className="text-xs">{t("models.primary")}</Label>
-                        <Input
-                          className="h-9 font-mono text-xs"
+                        <ModelCombobox
+                          sessionId={sessionId}
+                          provider={config.provider}
                           value={config.model}
-                          onChange={(e) => patch({ model: e.target.value })}
+                          onChange={(v) => patch({ model: v })}
                         />
+                        <p className="text-[0.68rem] text-muted-foreground">
+                          {t("models.pickHint")}
+                        </p>
                       </div>
 
                       <div className="space-y-1.5">
                         <Label className="text-xs">{t("models.subagent")}</Label>
-                        <Input
-                          className="h-9 font-mono text-xs"
+                        <ModelCombobox
+                          sessionId={sessionId}
+                          provider={config.provider}
                           value={config.subagentModel}
-                          onChange={(e) => patch({ subagentModel: e.target.value })}
+                          onChange={(v) => patch({ subagentModel: v })}
                         />
                         <p className="text-[0.68rem] text-muted-foreground">
                           {t("models.subagentHint")}

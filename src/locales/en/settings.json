@@ -22,6 +22,8 @@
     "providerCount": "{{available}} of {{total}} providers: only the ones holding a credential.",
     "addKeys": "Add keys",
     "primary": "Main model",
+    "pickTitle": "Pick from the provider catalog",
+    "pickHint": "Type an id or open the arrow to pick from the provider catalog.",
     "subagent": "Sub-agent model",
     "subagentHint": "This is the one running tools in parallel.",
     "reasoning": "Reasoning effort"

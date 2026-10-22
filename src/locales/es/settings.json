@@ -22,6 +22,8 @@
     "providerCount": "{{available}} de {{total}} proveedores: solo los que tienen credencial.",
     "addKeys": "Añadir claves",
     "primary": "Modelo principal",
+    "pickTitle": "Elegir del catálogo del proveedor",
+    "pickHint": "Escribe un id o abre la flecha para elegir del catálogo del proveedor.",
     "subagent": "Modelo de sub-agentes",
     "subagentHint": "Es el que ejecuta los tools en paralelo.",
     "reasoning": "Esfuerzo de razonamiento"
