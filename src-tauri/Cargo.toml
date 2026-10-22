@@ -7,7 +7,7 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
@@ -18,3 +18,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["process", "sync", "io-util", "macros", "rt", "time"] }
 sys-locale = "0.3.2"
+
+# Notificaciones nativas.
+#
+# macOS: `tauri-plugin-notification` usa `notify-rust`, cuyo backend en macOS es
+# `NSUserNotificationCenter`. Ese API está deprecado y en macOS 15+ deja de
+# entregar banners, por eso las notificaciones "no aparecían". `UNUserNotificationCenter`
+# es la API vigente; este crate la envuelve con soporte de respuestas (clic).
+[target.'cfg(target_os = "macos")'.dependencies]
+mac-usernotifications = "0.3"
+
+# Linux: notificaciones por D-Bus (`org.freedesktop.Notifications`).
+[target.'cfg(target_os = "linux")'.dependencies]
+notify-rust = "4"
