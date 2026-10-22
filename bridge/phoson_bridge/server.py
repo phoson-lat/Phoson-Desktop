@@ -1023,7 +1023,7 @@ class Bridge:
         repl = await self.sessions.get(params["sessionId"])
         for path in params.get("attachments") or []:
             repl._controller.attachments.attach(path)
-        outcome = await repl._run_agent(params["text"])
+        outcome = await repl.run_turn(params["text"])
         self._emit(
             "session.assistant.done",
             {
