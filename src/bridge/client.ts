@@ -34,6 +34,7 @@ import type {
   PluginsState,
   PluginsSetResult,
   PluginsInstallResult,
+  PluginsInstallExtraResult,
   RunMetrics,
   SessionMeta,
   ModelsListResult,
@@ -390,6 +391,8 @@ class MockBridge implements Bridge {
           plugins: MOCK_PLUGINS,
           canInstall: true,
           installBlocked: "",
+          canInstallExtras: true,
+          installExtrasBlocked: "",
           configPath: "~/.phoson/config.toml",
         } as unknown as T;
       case "plugins.set": {
@@ -440,6 +443,21 @@ class MockBridge implements Bridge {
           ];
         }
         return { ok: true, name, plugins: MOCK_PLUGINS, tools: this.toolCatalog() } as unknown as T;
+      }
+      case "plugins.installExtra": {
+        // El extra instalado deja de faltar: el catálogo deja de avisar.
+        const extra = String(p.extra ?? "");
+        MOCK_PLUGINS = MOCK_PLUGINS.map((e) =>
+          e.missingExtra === extra ? { ...e, missingExtra: "" } : e,
+        );
+        return {
+          ok: true,
+          extra,
+          dir: `~/.phoson/extras/${extra}`,
+          installed: [],
+          plugins: MOCK_PLUGINS,
+          tools: this.toolCatalog(),
+        } as unknown as T;
       }
       case "config.set": {
         const patch = (p.patch ?? {}) as Record<string, unknown>;
@@ -1041,6 +1059,13 @@ export const phoson = {
     call<PluginsSetResult>("plugins.set", { sessionId, id, enabled }),
   pluginsInstall: (sessionId: string, source: string) =>
     call<PluginsInstallResult>("plugins.install", { sessionId, source, confirmed: true }),
+  /**
+   * Instala un extra del engine que falta (las dependencias opcionales de un
+   * plugin: `[stt]`, `[computeruse]`…). El sidecar los instala en
+   * `~/.phoson/extras/<extra>` y los añade a su `sys.path`.
+   */
+  pluginsInstallExtra: (sessionId: string, extra: string) =>
+    call<PluginsInstallExtraResult>("plugins.installExtra", { sessionId, extra }),
   attachmentList: (sessionId: string) =>
     call<{ attachments: Attachment[] }>("attachment.list", { sessionId }),
   /** Sube al workspace un archivo no adjuntable de forma nativa. */

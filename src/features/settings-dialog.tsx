@@ -2,6 +2,7 @@ import {
   AppWindow,
   Check,
   Cpu,
+  Download,
   ExternalLink,
   FolderOpen,
   Info,
@@ -185,6 +186,8 @@ export function SettingsDialog({
   /** Catálogo de plugins del engine (sección Plugins) y su formulario. */
   const [plugins, setPlugins] = useState<PluginsState | null>(null);
   const [pluginBusy, setPluginBusy] = useState<string | null>(null);
+  /** Extra del engine que se está instalando (`stt`, `computeruse`…). */
+  const [extraInstalling, setExtraInstalling] = useState<string | null>(null);
   const [pluginSource, setPluginSource] = useState("");
   /** `input` = escribiendo el origen, `confirm` = confirmación explícita. */
   const [pluginStep, setPluginStep] = useState<"idle" | "input" | "confirm">("idle");
@@ -437,6 +440,48 @@ export function SettingsDialog({
     if (reason === "frozen") return t("plugins.install.frozen");
     if (reason === "noUv") return t("plugins.install.noUv");
     return t("plugins.install.unavailable");
+  };
+
+  /** Motivo por el que el sidecar no puede instalar extras del engine. */
+  const extraInstallBlockText = (reason: string): string => {
+    if (reason === "noPip") return t("plugins.extra.blockedNoPip");
+    return t("plugins.extra.blocked");
+  };
+
+  /** Detalle del fallo al instalar un extra (la salida del instalador). */
+  const extraInstallErrorText = (res: { reason?: string; error?: string }): string => {
+    if (res.error) return res.error;
+    if (res.reason === "noPip") return t("plugins.extra.blockedNoPip");
+    if (res.reason === "unknownExtra") return t("plugins.extra.unknown");
+    if (res.reason === "timeout") return t("plugins.extra.timeout");
+    if (res.reason === "notImportable") return t("plugins.extra.notImportable");
+    return t("plugins.extra.failed");
+  };
+
+  /**
+   * Instala el extra que le falta a un plugin (sus dependencias opcionales:
+   * `[stt]`, `[computeruse]`…). El sidecar lo instala en `~/.phoson/extras/` y
+   * lo añade a su `sys.path`: el plugin funciona sin reiniciar la app.
+   */
+  const installExtra = async (extra: string) => {
+    if (!sessionId) return;
+    setExtraInstalling(extra);
+    try {
+      const res = await phoson.pluginsInstallExtra(sessionId, extra);
+      if (!res.ok) {
+        toast.error(t("plugins.extra.failedToast", { extra }), {
+          description: extraInstallErrorText(res),
+        });
+        return;
+      }
+      if (res.plugins) setPlugins((s) => (s ? { ...s, plugins: res.plugins as PluginEntry[] } : s));
+      syncToolCatalog(res.tools);
+      toast.success(t("plugins.extra.okToast", { extra }), { description: res.dir });
+    } catch (e) {
+      toast.error(t("plugins.extra.failedToast", { extra }), { description: String(e) });
+    } finally {
+      setExtraInstalling(null);
+    }
   };
 
   /** Refresca el catálogo de tools que alimenta los selectores (p. ej. subagentes). */
@@ -1141,11 +1186,36 @@ export function SettingsDialog({
                                       {pluginLockText(p.lockReason)}
                                     </div>
                                   )}
-                                  {/* Activo pero sin su extra: el motor lo salta
-                                      (no se puede arreglar desde aquí, se avisa). */}
+                                  {/* Activo pero sin su extra: el motor lo salta. Se
+                                      puede arreglar desde aquí (el sidecar instala
+                                      las dependencias que falten). */}
                                   {p.enabled && p.missingExtra && (
-                                    <div className="text-[0.62rem] leading-snug text-warning">
-                                      {t("plugins.missingExtra", { extra: p.missingExtra })}
+                                    <div className="mt-1 space-y-1">
+                                      <div className="text-[0.62rem] leading-snug text-warning">
+                                        {t("plugins.missingExtra", { extra: p.missingExtra })}
+                                      </div>
+                                      {plugins.canInstallExtras ? (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-6 gap-1.5 px-2 text-[0.65rem] text-violet hover:bg-[var(--phoson-surface-3)] hover:text-violet"
+                                          disabled={extraInstalling !== null}
+                                          onClick={() => void installExtra(p.missingExtra)}
+                                        >
+                                          {extraInstalling === p.missingExtra ? (
+                                            <Loader2 className="size-3 animate-spin" />
+                                          ) : (
+                                            <Download className="size-3" />
+                                          )}
+                                          {extraInstalling === p.missingExtra
+                                            ? t("plugins.extra.installing")
+                                            : t("plugins.extra.install", { extra: p.missingExtra })}
+                                        </Button>
+                                      ) : (
+                                        <p className="text-[0.62rem] leading-snug text-muted-foreground">
+                                          {extraInstallBlockText(plugins.installExtrasBlocked)}
+                                        </p>
+                                      )}
                                     </div>
                                   )}
                                 </div>

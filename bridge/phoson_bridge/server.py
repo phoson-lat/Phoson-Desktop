@@ -52,6 +52,12 @@ from .stt import (
     report as stt_report,
     transcribe_wav as stt_transcribe_wav,
 )
+from . import extras as _extras
+
+# Los extras instalados desde Ajustes (`~/.phoson/extras/<extra>`) entran en el
+# `sys.path` ANTES de que el engine construya sus plugins: si no, un plugin
+# instalado ayer se saltaría hoy hasta el siguiente reinicio.
+_extras.bootstrap_paths()
 
 log = logging.getLogger("phoson_bridge")
 
@@ -117,6 +123,9 @@ _TOKEN_EVENT_TYPES = frozenset({"AgentTokenEvent", "AgentReasoningEvent"})
 _WATCHDOG_SECONDS: dict[str, float] = {
     "turn.run": 15.0,
     "plugins.install": 180.0,
+    # Instalar un extra descarga wheels (onnxruntime, Pillow…): puede tardar
+    # varios minutos sin que el sidecar dé señales de vida.
+    "plugins.installExtra": 900.0,
     # El login OAuth espera al usuario (código de dispositivo o navegador): es
     # normal que no salga nada durante minutos, así que no es un cuelgue.
     "auth.login": 15 * 60.0,
@@ -512,6 +521,7 @@ class Bridge:
             "plugins.get": self._plugins_get,
             "plugins.set": self._plugins_set,
             "plugins.install": self._plugins_install,
+            "plugins.installExtra": self._plugins_install_extra,
             "attachment.list": self._attachment_list,
             "attachment.push": self._attachment_push,
             "attachment.remove": self._attachment_remove,
@@ -1742,10 +1752,15 @@ class Bridge:
 
         cfg = self.sessions.config_for(str(params.get("sessionId") or ""))
         can_install, blocked = installable()
+        # Instalar extras (dependencias opcionales del engine) es otro camino:
+        # necesita un intérprete con `pip`, no el `uv` del gestor de plugins.
+        can_install_extras, extras_blocked = _extras.installable()
         return {
             "plugins": catalog(cfg),
             "canInstall": can_install,
             "installBlocked": blocked,
+            "canInstallExtras": can_install_extras,
+            "installExtrasBlocked": extras_blocked,
             "configPath": str(_config_path()),
         }
 
@@ -1821,6 +1836,39 @@ class Bridge:
             "plugins": catalog(cfg),
             "tools": self._tools_payload(repls),
         }
+
+    async def _plugins_install_extra(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Instala un **extra** del engine que falta (p. ej. `[stt]`, `[computeruse]`).
+
+        Un plugin del engine puede depender de un extra opcional: si falta, el
+        motor carga el plugin pero lo salta («Activo, pero falta el extra [stt]
+        en el entorno del engine»). Este handler lo arregla: resuelve los
+        requisitos del extra desde los metadatos del engine, los instala en
+        `~/.phoson/extras/<extra>` y los añade al `sys.path` del sidecar, de
+        modo que el plugin funciona sin reiniciar la app.
+
+        La instalación baja wheels (onnxruntime, Pillow…): tarda, así que corre
+        en un hilo (el event loop no se congela) y tiene su propio watchdog.
+        """
+        from .plugins import catalog
+
+        extra = str(params.get("extra") or "").strip()
+        if not extra:
+            raise ValueError("falta el extra a instalar")
+        # En un hilo: `pip install` es bloqueante (segundos o minutos) y sobre el
+        # event loop congelaría el sidecar entero.
+        result = await asyncio.to_thread(_extras.install_extra, extra)
+        if not result.get("ok"):
+            return result
+        # El plugin recién servible tiene que entrar en todas las sesiones
+        # vivas (mismo motivo que en `plugins.set`).
+        repls = self.sessions.built_repls()
+        for repl in repls:
+            await self._reload_plugins(repl)
+        cfg = self.sessions.config_for(str(params.get("sessionId") or ""))
+        result["plugins"] = catalog(cfg)
+        result["tools"] = self._tools_payload(repls)
+        return result
 
     # ── Adjuntos (pegar / arrastrar archivos) ─────────────────────────────
     #: Tope de tamaño al materializar un archivo enviado desde la UI.

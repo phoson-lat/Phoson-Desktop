@@ -416,6 +416,14 @@ export interface PluginsState {
   canInstall: boolean;
   /** Motivo accionable cuando `canInstall` es false (`frozen` | `noUv`). */
   installBlocked: string;
+  /**
+   * El sidecar puede instalar **extras** del engine (las dependencias
+   * opcionales de un plugin: `[stt]`, `[computeruse]`…): necesita un
+   * intérprete con `pip`, no el `uv` del gestor de plugins.
+   */
+  canInstallExtras: boolean;
+  /** Motivo accionable cuando `canInstallExtras` es false (`noPip`). */
+  installExtrasBlocked: string;
   /** Ruta del config.toml que se escribe. */
   configPath: string;
 }
@@ -456,6 +464,29 @@ export interface PluginsInstallResult {
   name?: string;
   /** `"frozen"` | `"noUv"` cuando el sidecar no puede instalar. */
   reason?: string;
+  plugins?: PluginEntry[];
+  /** Catálogo de tools tras recargar los engines (mismo contrato que `set`). */
+  tools?: ToolCatalog;
+}
+
+/** Resultado de `plugins.installExtra` (instalar una dependencia opcional). */
+export interface PluginsInstallExtraResult {
+  ok: boolean;
+  /** Extra instalado (`stt`, `computeruse`…). */
+  extra?: string;
+  /** Carpeta donde se instaló (`~/.phoson/extras/<extra>`). */
+  dir?: string;
+  /** Requisitos instalados (los pines del engine). */
+  installed?: string[];
+  /** Salida del instalador (para diagnóstico). */
+  output?: string;
+  /**
+   * Motivo del fallo: `noPip` (no hay intérprete con `pip`), `unknownExtra`,
+   * `installFailed`, `timeout` o `notImportable`.
+   */
+  reason?: string;
+  /** Detalle del fallo (salida del instalador). */
+  error?: string;
   plugins?: PluginEntry[];
   /** Catálogo de tools tras recargar los engines (mismo contrato que `set`). */
   tools?: ToolCatalog;

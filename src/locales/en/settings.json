@@ -109,6 +109,18 @@
       "frozen": "This app bundles the engine, so it cannot install plugins. Use “phoson-cli plugin install” from an installation with Python and uv.",
       "noUv": "uv is required on the PATH to install plugins: phoson-cli installs them with “uv pip install”.",
       "unavailable": "Plugin installation is not available on this machine."
+    },
+    "extra": {
+      "install": "Install [{{extra}}]",
+      "installing": "Installing…",
+      "okToast": "Extra [{{extra}}] installed",
+      "failedToast": "Could not install the [{{extra}}] extra",
+      "blocked": "Installing extras is not available on this machine.",
+      "blockedNoPip": "A Python with pip is required: install the extra by hand with “pip install 'phoson-engine-minimal[{{extra}}]'”.",
+      "unknown": "The engine does not declare that extra.",
+      "timeout": "The installation took too long and was cancelled.",
+      "notImportable": "It was installed, but the module still cannot be imported.",
+      "failed": "The installation failed."
     }
   },
   "agent": {
