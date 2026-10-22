@@ -1,15 +1,14 @@
 /**
- * Integración con el escritorio (Windows): notificaciones nativas del sistema y
- * bandeja del sistema (tray). Todo es no-op fuera de Tauri (modo demo en el
- * navegador), para que la app siga funcionando sin la shell nativa.
+ * Integración con el escritorio: notificaciones nativas del sistema y bandeja
+ * del sistema (tray). Todo es no-op fuera de Tauri (modo demo en el navegador),
+ * para que la app siga funcionando sin la shell nativa.
+ *
+ * Las notificaciones las envía Rust (`src-tauri/src/notify.rs`): macOS necesita
+ * `UNUserNotificationCenter`, Linux D-Bus y el clic debe traer la ventana al
+ * frente. El front solo aporta el texto, ya traducido.
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from "@tauri-apps/plugin-notification";
 
 import { isTauri } from "@/bridge/client";
 import i18n from "@/lib/i18n";
@@ -19,20 +18,16 @@ export type NotifyMode = "off" | "bell" | "desktop";
 
 const TRAY_PREF = "phoson.closeToTray";
 
-let permission: "unknown" | "granted" | "denied" = "unknown";
-
-/** Notificación nativa del sistema (toast de Windows). `true` si se mostró. */
+/**
+ * Notificación nativa del sistema. `true` si la shell la aceptó.
+ *
+ * El permiso lo gestiona Rust al arrancar (en macOS el diálogo del sistema sale
+ * una sola vez); aquí no hay estado que cachear.
+ */
 export async function desktopNotify(title: string, body?: string): Promise<boolean> {
   if (!isTauri()) return false;
   try {
-    if (permission === "denied") return false;
-    if (permission === "unknown") {
-      let granted = await isPermissionGranted();
-      if (!granted) granted = (await requestPermission()) === "granted";
-      permission = granted ? "granted" : "denied";
-    }
-    if (permission !== "granted") return false;
-    sendNotification(body ? { title, body } : { title });
+    await invoke("send_notification", { title, body: body ?? null });
     return true;
   } catch {
     return false;
@@ -61,10 +56,19 @@ export function bellBeep(): void {
   }
 }
 
-/** La app está en primer plano (no hace falta avisar: el usuario ya la ve). */
-export function appInForeground(): boolean {
-  if (typeof document !== "undefined" && !document.hasFocus()) return false;
-  return true;
+/**
+ * La app está en primer plano (no hace falta avisar: el usuario ya la ve).
+ *
+ * Se pregunta a la ventana nativa en lugar de usar `document.hasFocus()`: el
+ * webview conserva el foco lógico cuando la ventana se oculta a la bandeja, y
+ * entonces se perdía el aviso que más importa.
+ */
+export async function appInForeground(): Promise<boolean> {
+  if (!isTauri()) {
+    return typeof document === "undefined" || document.hasFocus();
+  }
+  // Si el comando falla, se asume primer plano: mejor no molestar.
+  return invoke<boolean>("app_in_foreground").catch(() => true);
 }
 
 /**
@@ -83,7 +87,7 @@ export async function notifyTurnEnd(
     bellBeep();
     return;
   }
-  if (appInForeground()) return;
+  if (await appInForeground()) return;
   // El sufijo es texto de UI: se resuelve al avisar, con el idioma activo.
   const failed = opts?.error ? ` · ${i18n.t("system:notify.errorTag")}` : "";
   await desktopNotify(`${title}${failed}`, body);

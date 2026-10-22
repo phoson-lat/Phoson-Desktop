@@ -8,7 +8,6 @@ use std::sync::{LazyLock, RwLock};
 use serde::Deserialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::{AppHandle, Manager, Wry};
-use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
 /// Textos que la bandeja y las notificaciones nativas pintan **fuera** de la
@@ -113,12 +112,7 @@ pub fn hide_main_window(app: &AppHandle) {
     }
     if !TRAY_HINT_SHOWN.swap(true, Ordering::Relaxed) {
         let l = labels();
-        let _ = app
-            .notification()
-            .builder()
-            .title(l.notice_title)
-            .body(l.notice_body)
-            .show();
+        crate::notify::send(app, &l.notice_title, &l.notice_body);
     }
 }
 
@@ -133,6 +127,25 @@ pub fn hide_to_tray(app: AppHandle) {
 #[tauri::command]
 pub fn show_window(app: AppHandle) {
     show_main_window(&app);
+}
+
+/// La app está visible **y** con el foco: el usuario ya la ve, así que no hace
+/// falta notificarle del fin de turno.
+///
+/// Se resuelve en Rust y no con `document.hasFocus()` porque el webview
+/// conserva el foco lógico al ocultar la ventana (en macOS sobre todo): con la
+/// app en la bandeja el front creía estar en primer plano y se saltaba justo
+/// la notificación que importa.
+#[tauri::command]
+pub fn app_in_foreground(app: AppHandle) -> bool {
+    app.get_webview_window("main")
+        .map(|w| {
+            w.is_visible().unwrap_or(false)
+                && w.is_focused().unwrap_or(false)
+                // Minimizada "visible": el usuario no la está viendo.
+                && !w.is_minimized().unwrap_or(false)
+        })
+        .unwrap_or(false)
 }
 
 /// Preferencia «cerrar minimiza a la bandeja» (localStorage del front).

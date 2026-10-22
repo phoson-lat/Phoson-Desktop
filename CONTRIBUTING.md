@@ -62,6 +62,25 @@ phoson-bridge --stt-transcribe talk.wav es # transcribes a WAV (no PortAudio nee
 `--stt-transcribe` goes through the same Moonshine runtime as the microphone, so
 it is the check that a frozen bundle is really able to dictate.
 
+## Notificaciones nativas
+
+Las envía **Rust** (`src-tauri/src/notify.rs`), no el webview: cada sistema
+necesita una API distinta y el clic debe traer la ventana al frente.
+
+| Plataforma | API | Notas |
+|---|---|---|
+| macOS | `UNUserNotificationCenter` (`mac-usernotifications`) | **Requiere bundle** `.app` con `CFBundleIdentifier` y firma válida (ad-hoc basta), lanzado por LaunchServices. En `tauri dev` el proceso no está empaquetado y las notificaciones no existen: se registra un `[notify] …` en stderr. Para probar en macOS: `pnpm tauri build --debug --bundles app`, copia el `.app` a `~/Applications` y ábrelo con `open`. |
+| Linux | D-Bus `org.freedesktop.Notifications` (`notify-rust`) | Necesita un daemon (GNOME/KDE/dunst) accesible en la sesión. La acción «Mostrar Phoson» abre la ventana. |
+| Windows | Toast de WinRT (`tauri-plugin-notification`) | Único sitio donde sigue usándose el plugin. |
+
+El **primer arranque** en macOS pide permiso (diálogo del sistema). Si el
+usuario lo deniega, se apaga el aviso nativo hasta que lo reactive en Ajustes
+del Sistema → Notificaciones.
+
+Quién no debe interrumpir: el front pregunta `app_in_foreground` (visible **y**
+con foco, sin minimizar). No se usa `document.hasFocus()` porque el webview
+conserva el foco lógico al ocultarse la ventana a la bandeja.
+
 ## Building the sidecar binary
 
 ```bash
@@ -95,6 +114,23 @@ python bridge/tests/smoke.py            # y el resto de bridge/tests/*.py
 ```
 
 CI (`.github/workflows/ci.yml`) runs these on every push/PR.
+
+## Iconos de la bandeja (tray)
+
+El icono de la bandeja **no** es el icono de la app: cada plataforma dibuja la
+bandeja distinto y el icono de 512 px con fondo blanco se ve como un parche en
+la barra de menús de macOS.
+
+- `src-tauri/icons/tray/tray-template.png` — macOS: *template image*
+  monocroma (negro + alfa), 36x36 px (18 pt @2x). Se carga con
+  `icon_as_template(true)` y el sistema la recolorea según el tema.
+- `src-tauri/icons/tray/tray.png` — Windows y Linux: glifo de 32x32 px sobre
+  disco blanco (contraste en barras claras y oscuras).
+
+Ambos se generan con `python3 scripts/gen-tray-icons.py` (requiere Pillow) a
+partir de la geometría de `public/icon.svg`; hay que regenerarlos si cambia la
+marca y commitear los PNG resultantes. El tamaño y la plantilla se aplican en
+`setup_tray` (`src-tauri/src/main.rs`).
 
 ## Localization (i18n)
 
