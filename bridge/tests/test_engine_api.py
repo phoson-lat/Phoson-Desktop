@@ -10,6 +10,11 @@ por nombre: si el engine renombra uno (v0.54.0 cambió ``_run_agent`` por
 prueba construye un ``PhosonRepl`` real del engine instalado y comprueba cada
 atributo que el bridge usa, para que subir el pin del engine lo detecte antes
 del release.
+
+En sentido contrario, el engine llama al ``GuiSink`` según su protocolo
+``AgentEventSink``: si añade un parámetro (v0.55.0 añadió ``tool_durations`` a
+``print_history``), un sink que no lo acepte rompe la carga de sesiones. La
+segunda prueba compara cada método del protocolo con el del ``GuiSink``.
 """
 
 from __future__ import annotations
@@ -21,8 +26,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import inspect  # noqa: E402
+
+from phoson_bridge.sink import GuiSink  # noqa: E402
 from phoson_cli.config import PhosonConfig  # noqa: E402
 from phoson_cli.repl import PhosonRepl  # noqa: E402
+from phoson_cli.ui_protocols import AgentEventSink  # noqa: E402
 
 #: Lo que `server.py` llama sobre el `PhosonRepl` de cada sesión.
 REPL_API = (
@@ -80,9 +89,29 @@ def test_repl_api() -> None:
     assert not missing, f"el engine ya no expone: {', '.join(missing)}"
 
 
+def test_sink_matches_protocol() -> None:
+    problems: list[str] = []
+    for name, proto_fn in inspect.getmembers(AgentEventSink, inspect.isfunction):
+        if name.startswith("_"):
+            continue
+        impl = getattr(GuiSink, name, None)
+        if impl is None:
+            problems.append(f"falta {name}()")
+            continue
+        impl_params = inspect.signature(impl).parameters
+        if any(p.kind is p.VAR_KEYWORD for p in impl_params.values()):
+            continue
+        missing = [p for p in inspect.signature(proto_fn).parameters if p not in impl_params]
+        if missing:
+            problems.append(f"{name}() no acepta {', '.join(missing)}")
+    assert not problems, "GuiSink no cumple AgentEventSink: " + "; ".join(problems)
+
+
 def main() -> None:
     test_repl_api()
     print("ok  test_repl_api")
+    test_sink_matches_protocol()
+    print("ok  test_sink_matches_protocol")
 
 
 if __name__ == "__main__":

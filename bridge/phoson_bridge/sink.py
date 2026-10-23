@@ -101,6 +101,7 @@ class GuiSink:
         path: list[object],
         tail: int | None = None,
         timestamps: "list | None" = None,
+        tool_durations: "dict[str, int] | None" = None,
     ) -> None:
         messages = path if tail is None else path[-tail:]
         stamps = timestamps if timestamps is None else timestamps[-(tail or len(timestamps)) :]
@@ -109,6 +110,8 @@ class GuiSink:
             {
                 "messages": [to_jsonable(m) for m in messages],
                 "timestamps": to_jsonable(stamps) if stamps is not None else None,
+                # `tool_call_id` → ms (engine >= 0.55); la UI aún no lo pinta.
+                "toolDurations": dict(tool_durations or {}),
             },
         )
 
