@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { isTauri, onTerminated, openExternal } from "@/bridge/client";
+import { isTauri, onTerminated, openExternal, phoson } from "@/bridge/client";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
@@ -24,12 +24,14 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useTurnNotifications } from "@/hooks/use-notifications";
 import { syncCloseToTray } from "@/lib/desktop";
+import i18n from "@/lib/i18n";
 import { logAction, logError, setLogContext } from "@/lib/log";
 import { isModalOpen } from "@/lib/platform";
 import { checkForUpdates } from "@/lib/updater";
 import { demoUser } from "@/lib/demo-content";
 import { mark, record, uptime } from "@/lib/perf";
 import { cleanSessionTitle } from "@/lib/session-title";
+import { extraInstallBlockText, useExtras } from "@/stores/extras";
 import { useSession } from "@/stores/session";
 import { useFilePanel } from "@/stores/file-panel";
 
@@ -348,6 +350,40 @@ export default function App() {  const {
     scrollToBottom();
     void send(value);
   };
+
+  // Al arrancar: plugins activos a los que les falta su extra (el engine los
+  // salta). Un aviso por extra con el botón para instalarlo. El dictado (`stt`)
+  // no avisa aquí: su botón del composer ya ofrece instalarlo.
+  const missingExtrasChecked = useRef(false);
+  useEffect(() => {
+    if (!ready || !isTauri() || !activeKey || onboardingNeeded || missingExtrasChecked.current) return;
+    missingExtrasChecked.current = true;
+    const key = activeKey;
+    void phoson
+      .pluginsGet(key)
+      .then((state) => {
+        const seen = new Set<string>();
+        for (const plugin of state.plugins) {
+          const extra = plugin.missingExtra;
+          if (!plugin.enabled || !extra || extra === "stt" || seen.has(extra)) continue;
+          seen.add(extra);
+          toast.warning(i18n.t("settings:plugins.extra.missingNotice", { plugin: plugin.name, extra }), {
+            id: `missing-extra:${extra}`,
+            duration: Infinity,
+            description: state.canInstallExtras
+              ? i18n.t("settings:plugins.extra.missingNoticeHint")
+              : extraInstallBlockText(state.installExtrasBlocked, extra),
+            action: state.canInstallExtras
+              ? {
+                  label: i18n.t("settings:plugins.extra.install", { extra }),
+                  onClick: () => void useExtras.getState().install(key, extra),
+                }
+              : undefined,
+          });
+        }
+      })
+      .catch((e) => logError("extras.missing", e));
+  }, [ready, activeKey, onboardingNeeded]);
 
   // Check silencioso de actualizaciones al arrancar (con cooldown de 12 h).
   useEffect(() => {

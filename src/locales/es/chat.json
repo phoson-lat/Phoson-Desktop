@@ -17,7 +17,8 @@
       "unsupported": "El dictado no está soportado en este sistema",
       "loading": "Cargando el modelo de dictado…",
       "downloading": "Descargando el modelo de dictado… {{percent}}%",
-      "ready": "Modelo de dictado listo."
+      "install": "Instalar el dictado (descarga el extra [{{extra}}])",
+      "missing": "Falta el runtime de dictado: pulsa el micrófono para instalarlo."
     },
     "send": {
       "title": "Enviar (Enter)",

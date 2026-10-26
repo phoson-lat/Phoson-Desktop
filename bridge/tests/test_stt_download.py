@@ -103,6 +103,7 @@ class _Engine:
         self, language: str, seconds: float | None = None, *, stop: Any = None, **_kw
     ) -> str:
         assert isinstance(stop, threading.Event), "el bridge debe pasar su evento de parada"
+        _kw["on_ready"]()
         while not stop.wait(0.02):
             pass
         return f"[{language}]"
@@ -183,8 +184,8 @@ _check(
 stt._DOWNLOAD_GRACE_SECONDS = 0.75  # valor real
 notes = asyncio.run(_dictate(_manager(), "s2", "en"))
 _check(
-    "caché caliente: solo el aviso de loading, sin downloading",
-    _phases(notes) == [("loading", None)],
+    "caché caliente: loading → ready al abrir el micrófono, sin downloading",
+    _phases(notes) == [("loading", None), ("ready", None)],
     str(_phases(notes)),
 )
 
@@ -194,8 +195,8 @@ get_calls.clear()
 notes = asyncio.run(_dictate(_manager(), "s3", "en"))
 fail_download = False
 _check(
-    "descarga rota: sin fase downloading, el motor reporta después",
-    ("downloading", 50) not in _phases(notes) and ("ready", None) not in _phases(notes),
+    "descarga rota: sin fase downloading; el motor puede abrir con la caché local",
+    all(phase != "downloading" for phase, _percent in _phases(notes)),
     str(_phases(notes)),
 )
 _check(

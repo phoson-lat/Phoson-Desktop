@@ -4,6 +4,7 @@ import { isTauri, phoson } from "@/bridge/client";
 import type { SttStatus } from "@/bridge/protocol";
 import i18n, { useLocale } from "@/lib/i18n";
 import { speechLocale } from "@/lib/locale";
+import { EXTRAS_INSTALLED_EVENT } from "@/stores/extras";
 
 /** Subconjunto de la Web Speech API que usamos. */
 interface SpeechRecognitionLike {
@@ -94,6 +95,8 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   const [engineSupported, setEngineSupported] = useState<boolean | null>(null);
   /** Motor/idioma elegidos por el sidecar (para el título del botón). */
   const [engine, setEngine] = useState<VoiceEngine | null>(null);
+  /** Extra del engine que falta para el dictado (`stt`); `""` si no falta nada. */
+  const [missingExtra, setMissingExtra] = useState("");
   /** Idioma que se mandará en `stt.start` (null = que decida el sidecar). */
   const languageRef = useRef<string | null>(null);
   const [listening, setListening] = useState(false);
@@ -142,6 +145,7 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
       .then((probe: SttStatus) => {
         if (cancelled) return;
         setEngineSupported(probe.supported);
+        setMissingExtra(probe.missingExtra ?? "");
         // Un idioma fijado desde Ajustes (config.toml) gana al de la interfaz;
         // si no hay, el de la UI — o nada, si el motor no lo conoce, y decide
         // el sidecar (su config/default).
@@ -150,6 +154,9 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
         languageRef.current = language;
         setEngine({ language: language ?? probe.language ?? null, model: probe.modelName ?? null });
         if (probe.supported) setError(null);
+        // Falta un extra que la app sabe instalar: en vez del «pip install…» del
+        // sidecar, se apunta al botón del micro (que lo instala).
+        else if (probe.missingExtra) setError(i18n.t("chat:composer.voice.missing"));
         else if (probe.reason) setError(probe.reason);
       })
       .catch((e) => {
@@ -172,9 +179,15 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   // Ajustes puede cambiar el idioma/modelo del dictado (`stt.config.set`): el
   // dialog lo anuncia por evento y aquí se re-sondea para que la próxima
   // captura (y el título del botón) reflejen lo nuevo sin recargar la vista.
+  // Tras instalar un extra (p. ej. `[stt]` desde este mismo botón) el motor
+  // puede haber pasado a estar disponible: se re-sondea igual.
   useEffect(() => {
     window.addEventListener("phoson:stt-config-changed", probeEngine);
-    return () => window.removeEventListener("phoson:stt-config-changed", probeEngine);
+    window.addEventListener(EXTRAS_INSTALLED_EVENT, probeEngine);
+    return () => {
+      window.removeEventListener("phoson:stt-config-changed", probeEngine);
+      window.removeEventListener(EXTRAS_INSTALLED_EVENT, probeEngine);
+    };
   }, [probeEngine]);
 
   // ── Web Speech API ─────────────────────────────────────────────────────
@@ -255,7 +268,7 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
             : phase === "downloading"
               ? i18n.t("chat:composer.voice.downloading", { percent: params.percent ?? 0 })
               : phase === "ready"
-                ? i18n.t("chat:composer.voice.ready")
+                ? null // El micrófono ya escucha: no dejar «Cargando…» fijo.
                 : params.message ?? null,
         );
       } else if (envelope.method === "stt.error") {
@@ -338,6 +351,7 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
     status,
     checking,
     engine,
+    missingExtra,
     start,
     stop,
     toggle: () => (listening ? stop() : start()),

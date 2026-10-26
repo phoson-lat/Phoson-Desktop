@@ -115,6 +115,117 @@ _check(
     str(result),
 )
 
+# 7) Con el PATH mínimo de launchd (app abierta desde Finder) se buscan también
+#    las rutas habituales de uv/Python.
+os.environ["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+search = E._search_path().split(os.pathsep)
+_check(
+    "el PATH de búsqueda suma ~/.local/bin (donde vive uv)",
+    str(Path.home() / ".local" / "bin") in search,
+    str(search),
+)
+if sys.platform == "darwin":
+    _check("el PATH de búsqueda suma Homebrew", "/opt/homebrew/bin" in search, str(search))
+
+# 8) Sin pip ni uv en el equipo, el instalador es la descarga de uv.
+_orig_candidates, _orig_which = E._interpreter_candidates, E._which
+E._interpreter_candidates = lambda: []
+E._which = lambda _name: None
+kind, prefix, blocked = E.installer()
+_check(
+    "sin instalador en el equipo se ofrece descargar uv",
+    (kind, prefix, blocked) == ("uv-download", [], "") if E._uv_asset() else kind == "",
+    str((kind, prefix, blocked)),
+)
+_check("instalable aunque el equipo no tenga pip ni uv", E.installable() == (True, "") or not E._uv_asset())
+
+# 9) La descarga de uv verifica el sha256 y solo extrae el ejecutable.
+import hashlib  # noqa: E402
+import io  # noqa: E402
+import tarfile  # noqa: E402
+import urllib.request  # noqa: E402
+
+_payload = io.BytesIO()
+with tarfile.open(fileobj=_payload, mode="w:gz") as _tf:
+    for _name, _data in (("uv-x/uv", b"#!/bin/sh\necho uv\n"), ("uv-x/uvx", b"no")):
+        _info = tarfile.TarInfo(_name)
+        _info.size = len(_data)
+        _tf.addfile(_info, io.BytesIO(_data))
+_archive = _payload.getvalue()
+_orig_asset, _orig_urlopen = E._uv_asset, urllib.request.urlopen
+urllib.request.urlopen = lambda *_a, **_k: io.BytesIO(_archive)  # type: ignore[assignment]
+
+E._uv_asset = lambda: ("uv-test.tar.gz", "0" * 64)
+try:
+    E.download_uv()
+    bad_sum = "no lanzó"
+except RuntimeError as exc:
+    bad_sum = str(exc)
+_check(
+    "una suma sha256 distinta se rechaza sin instalar uv",
+    "sha256" in bad_sum and not E._bundled_uv().exists(),
+    bad_sum,
+)
+
+E._uv_asset = lambda: ("uv-test.tar.gz", hashlib.sha256(_archive).hexdigest())
+uv_path = E.download_uv()
+_check(
+    "uv se descarga a ~/.phoson/tools y queda ejecutable",
+    uv_path == E._bundled_uv() and uv_path.read_bytes().startswith(b"#!/bin/sh")
+    and os.access(uv_path, os.X_OK),
+    str(uv_path),
+)
+_check(
+    "solo se extrae el ejecutable uv (nada más del archivo)",
+    sorted(p.name for p in uv_path.parent.iterdir()) == [uv_path.name],
+    str(list(uv_path.parent.iterdir())),
+)
+_check("con uv descargado el instalador es uv", E.installer()[0] == "uv", str(E.installer()))
+urllib.request.urlopen = _orig_urlopen  # type: ignore[assignment]
+
+# 10) uv instala los wheels de la versión de Python del sidecar (`--python X.Y`)
+#     y la fase se reporta.
+import subprocess  # noqa: E402
+
+_calls: list[list[str]] = []
+_orig_run = E.subprocess.run
+
+
+def _fake_run(args, **_kw):
+    _calls.append(list(args))
+    return subprocess.CompletedProcess(args, 0, "ok", "")
+
+
+E.subprocess.run = _fake_run  # type: ignore[assignment]
+_orig_module_for = E.module_for
+E.module_for = lambda _extra: ""
+phases: list[str] = []
+result = E.install_extra("stt", phases.append)
+wanted = "%d.%d" % sys.version_info[:2]
+_check(
+    "uv recibe --python con la versión del sidecar",
+    bool(_calls) and "--python" in _calls[-1] and _calls[-1][_calls[-1].index("--python") + 1] == wanted,
+    str(_calls[-1:]),
+)
+_check("la instalación con uv termina ok", result.get("ok") is True, str(result))
+_check("se reporta la fase de instalación", phases == ["installing"], str(phases))
+
+# 11) Sin uv local, la instalación pasa por la descarga (y la reporta).
+uv_path.unlink()
+E._uv_asset = lambda: ("uv-test.tar.gz", "0" * 64)
+urllib.request.urlopen = lambda *_a, **_k: io.BytesIO(_archive)  # type: ignore[assignment]
+phases.clear()
+result = E.install_extra("stt", phases.append)
+_check(
+    "una descarga de uv fallida se reporta con su motivo",
+    result.get("reason") == "uvDownloadFailed" and phases == ["downloadingInstaller"],
+    str((result, phases)),
+)
+urllib.request.urlopen = _orig_urlopen  # type: ignore[assignment]
+E.subprocess.run = _orig_run  # type: ignore[assignment]
+E._interpreter_candidates, E._which = _orig_candidates, _orig_which
+E._uv_asset, E.module_for = _orig_asset, _orig_module_for
+
 print("-" * 40)
 print("FAILED:", failures) if failures else print("todo OK")
 sys.exit(1 if failures else 0)

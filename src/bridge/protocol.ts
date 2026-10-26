@@ -306,6 +306,11 @@ export interface SttStatus {
   modelName?: string | null;
   /** Motivo accionable cuando `supported` es false. */
   reason?: string | null;
+  /**
+   * Extra del engine que falta para dictar (`stt`): la UI ofrece instalarlo.
+   * `""` si no falta ninguno (o la plataforma no tiene runtime).
+   */
+  missingExtra?: string;
 }
 
 /** Resultado de `stt.start`. */
@@ -422,7 +427,10 @@ export interface PluginsState {
    * intérprete con `pip`, no el `uv` del gestor de plugins.
    */
   canInstallExtras: boolean;
-  /** Motivo accionable cuando `canInstallExtras` es false (`noPip`). */
+  /**
+   * Motivo accionable cuando `canInstallExtras` es false (`noPip`: plataforma
+   * sin pip ni uv y sin binario de uv que descargar).
+   */
   installExtrasBlocked: string;
   /** Ruta del config.toml que se escribe. */
   configPath: string;
@@ -469,6 +477,14 @@ export interface PluginsInstallResult {
   tools?: ToolCatalog;
 }
 
+/** Notificación `extras.progress`: fase de una instalación en curso. */
+export interface ExtrasProgress {
+  sessionId: string;
+  extra: string;
+  /** `downloadingInstaller` (bajando uv) o `installing`. */
+  phase: "downloadingInstaller" | "installing";
+}
+
 /** Resultado de `plugins.installExtra` (instalar una dependencia opcional). */
 export interface PluginsInstallExtraResult {
   ok: boolean;
@@ -482,7 +498,8 @@ export interface PluginsInstallExtraResult {
   output?: string;
   /**
    * Motivo del fallo: `noPip` (no hay intérprete con `pip`), `unknownExtra`,
-   * `installFailed`, `timeout` o `notImportable`.
+   * `uvDownloadFailed` (no se pudo descargar el instalador), `installFailed`,
+   * `timeout` o `notImportable`.
    */
   reason?: string;
   /** Detalle del fallo (salida del instalador). */

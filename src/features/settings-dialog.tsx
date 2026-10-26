@@ -55,6 +55,7 @@ import { speechLocale } from "@/lib/locale";
 import { logPath, openLogFolder } from "@/lib/log";
 import { checkForUpdates, currentVersion, installPendingUpdate, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
+import { extraInstallBlockText, extraPhaseText, useExtras } from "@/stores/extras";
 import { useSession } from "@/stores/session";
 
 type SectionId =
@@ -186,8 +187,10 @@ export function SettingsDialog({
   /** Catálogo de plugins del engine (sección Plugins) y su formulario. */
   const [plugins, setPlugins] = useState<PluginsState | null>(null);
   const [pluginBusy, setPluginBusy] = useState<string | null>(null);
-  /** Extra del engine que se está instalando (`stt`, `computeruse`…). */
-  const [extraInstalling, setExtraInstalling] = useState<string | null>(null);
+  // Instalación de extras: compartida con el composer y el aviso de arranque.
+  const extraInstalling = useExtras((s) => s.installing);
+  const extraPhase = useExtras((s) => s.phase);
+  const installExtraShared = useExtras((s) => s.install);
   const [pluginSource, setPluginSource] = useState("");
   /** `input` = escribiendo el origen, `confirm` = confirmación explícita. */
   const [pluginStep, setPluginStep] = useState<"idle" | "input" | "confirm">("idle");
@@ -442,45 +445,17 @@ export function SettingsDialog({
     return t("plugins.install.unavailable");
   };
 
-  /** Motivo por el que el sidecar no puede instalar extras del engine. */
-  const extraInstallBlockText = (reason: string): string => {
-    if (reason === "noPip") return t("plugins.extra.blockedNoPip");
-    return t("plugins.extra.blocked");
-  };
-
-  /** Detalle del fallo al instalar un extra (la salida del instalador). */
-  const extraInstallErrorText = (res: { reason?: string; error?: string }): string => {
-    if (res.error) return res.error;
-    if (res.reason === "noPip") return t("plugins.extra.blockedNoPip");
-    if (res.reason === "unknownExtra") return t("plugins.extra.unknown");
-    if (res.reason === "timeout") return t("plugins.extra.timeout");
-    if (res.reason === "notImportable") return t("plugins.extra.notImportable");
-    return t("plugins.extra.failed");
-  };
-
   /**
    * Instala el extra que le falta a un plugin (sus dependencias opcionales:
    * `[stt]`, `[computeruse]`…). El sidecar lo instala en `~/.phoson/extras/` y
-   * lo añade a su `sys.path`: el plugin funciona sin reiniciar la app.
+   * lo añade a su `sys.path`: el plugin funciona sin reiniciar la app. El store
+   * avisa con el toast y actualiza las tools; aquí solo se refresca la lista.
    */
   const installExtra = async (extra: string) => {
     if (!sessionId) return;
-    setExtraInstalling(extra);
-    try {
-      const res = await phoson.pluginsInstallExtra(sessionId, extra);
-      if (!res.ok) {
-        toast.error(t("plugins.extra.failedToast", { extra }), {
-          description: extraInstallErrorText(res),
-        });
-        return;
-      }
-      if (res.plugins) setPlugins((s) => (s ? { ...s, plugins: res.plugins as PluginEntry[] } : s));
-      syncToolCatalog(res.tools);
-      toast.success(t("plugins.extra.okToast", { extra }), { description: res.dir });
-    } catch (e) {
-      toast.error(t("plugins.extra.failedToast", { extra }), { description: String(e) });
-    } finally {
-      setExtraInstalling(null);
+    const res = await installExtraShared(sessionId, extra);
+    if (res?.ok && res.plugins) {
+      setPlugins((s) => (s ? { ...s, plugins: res.plugins as PluginEntry[] } : s));
     }
   };
 
@@ -1208,12 +1183,12 @@ export function SettingsDialog({
                                             <Download className="size-3" />
                                           )}
                                           {extraInstalling === p.missingExtra
-                                            ? t("plugins.extra.installing")
+                                            ? extraPhaseText(extraPhase)
                                             : t("plugins.extra.install", { extra: p.missingExtra })}
                                         </Button>
                                       ) : (
                                         <p className="text-[0.62rem] leading-snug text-muted-foreground">
-                                          {extraInstallBlockText(plugins.installExtrasBlocked)}
+                                          {extraInstallBlockText(plugins.installExtrasBlocked, p.missingExtra)}
                                         </p>
                                       )}
                                     </div>

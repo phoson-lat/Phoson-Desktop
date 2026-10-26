@@ -1,4 +1,4 @@
-import { ArrowUp, FileText, Image as ImageIcon, Mic, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, Download, FileText, Image as ImageIcon, Loader2, Mic, Paperclip, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,6 +12,7 @@ import { ModelPicker } from "@/features/model-picker";
 import { ReasoningEffortPicker } from "@/features/reasoning-effort";
 import { useVoiceInput } from "@/hooks/use-voice-input";
 import { cn } from "@/lib/utils";
+import { extraPhaseText, useExtras } from "@/stores/extras";
 
 interface ComposerProps {
   value: string;
@@ -109,7 +110,7 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [value]);
 
-  const { supported, listening, error, status, checking, engine, toggle } = useVoiceInput({
+  const { supported, listening, error, status, checking, engine, missingExtra, toggle } = useVoiceInput({
     sessionId,
     onText: (text, final) => {
       if (final) {
@@ -120,6 +121,14 @@ export function Composer({
       }
     },
   });
+
+  // Sin el runtime de dictado en el engine, el botón del micro lo instala (el
+  // sidecar baja el extra `[stt]`; el hook re-sondea al terminar).
+  const extraInstalling = useExtras((s) => s.installing);
+  const extraPhase = useExtras((s) => s.phase);
+  const installExtra = useExtras((s) => s.install);
+  const offerInstall = Boolean(missingExtra) && !listening && Boolean(sessionId);
+  const installingVoice = offerInstall && extraInstalling === missingExtra;
 
   // Mantén la base en sync cuando se escribe a mano (fuera del dictado).
   useEffect(() => {
@@ -320,10 +329,16 @@ export function Composer({
 
           <div className="flex shrink-0 items-center gap-1">
             <button
-              onClick={toggle}
-              disabled={!supported}
+              onClick={() =>
+                offerInstall && sessionId ? void installExtra(sessionId, missingExtra) : toggle()
+              }
+              disabled={offerInstall ? extraInstalling !== null : !supported}
               title={
-                supported
+                offerInstall
+                  ? installingVoice
+                    ? extraPhaseText(extraPhase)
+                    : t("composer.voice.install", { extra: missingExtra })
+                  : supported
                   ? listening
                     ? t("composer.voice.stop")
                     : engine
@@ -346,10 +361,21 @@ export function Composer({
                 listening
                   ? "size-8"
                   : "size-8 text-muted-foreground dashboard-hover hover:text-foreground",
-                !supported && "opacity-40",
+                !supported && !offerInstall && "opacity-40",
               )}
             >
-              {listening ? <AudioBars active barCount={5} height={16} /> : <Mic className="size-4" />}
+              {listening ? (
+                <AudioBars active barCount={5} height={16} />
+              ) : installingVoice ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : offerInstall ? (
+                <span className="relative">
+                  <Mic className="size-4" />
+                  <Download className="absolute -right-1.5 -bottom-1 size-2.5 text-violet" />
+                </span>
+              ) : (
+                <Mic className="size-4" />
+              )}
             </button>
 
             {sending ? (
