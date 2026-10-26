@@ -34,6 +34,12 @@ export interface ToolCard {
   result?: string;
   error?: string | null;
   status: "running" | "done" | "error";
+  /**
+   * Duración de la llamada en ms (`duration_ms` del evento; en un replay, la
+   * que el engine guardó en el árbol). 0/ausente = desconocida (sesiones
+   * anteriores a que se persistieran): la fila no la pinta, como el CLI.
+   */
+  durationMs?: number;
 }
 
 /**
@@ -229,8 +235,17 @@ const fileToBase64 = (file: File) =>
  * Reconstruye el historial del replay (`print_history`) **respetando el orden**:
  * texto y tool calls intercalados, y los `ToolResultBlock` (que el engine manda
  * en mensajes de usuario) se enganchan a su tool por `tool_call_id`.
+ *
+ * Los bloques llegan con los campos del dataclass del engine (`to_jsonable`):
+ * `ToolUseBlock{tool_call_id, tool_name, args}` y
+ * `ToolResultBlock{tool_call_id, result, error}`. `toolDurations` trae la
+ * duración de cada llamada (`{tool_call_id: ms}`), como el `/details` del CLI.
  */
-function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
+function historyToMessages(payload: {
+  messages?: unknown[];
+  toolDurations?: Record<string, number>;
+}): ChatMessage[] {
+  const durations = payload.toolDurations ?? {};
   const out: ChatMessage[] = [];
   let assistant: ChatMessage | null = null;
   /** El mensaje anterior era un `ToolResultBlock`: las imágenes que vengan
@@ -256,12 +271,25 @@ function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
       for (const b of blocks) {
         if (b.type !== "ToolResultBlock") continue;
         const id = String(b.tool_call_id ?? "");
-        const result = typeof b.content === "string" ? b.content : "";
-        const target = out[out.length - 1];
+        const text = typeof b.result === "string" ? b.result : "";
+        // Igual que el replay del CLI: un resultado con `error` es el fallo de
+        // la tool (✗ y su mensaje), no su salida.
+        const failed = b.error === true;
+        // El turno del asistente aún no se ha volcado (`flush` lo hace al
+        // llegar texto del usuario), así que la tool vive en `assistant`.
+        const target: ChatMessage | null = assistant ?? out[out.length - 1] ?? null;
         if (!target) continue;
         target.parts = target.parts.map((part) =>
           part.kind === "tool" && part.tool.id === id
-            ? { kind: "tool", tool: { ...part.tool, result, status: "done" } }
+            ? {
+                kind: "tool",
+                tool: {
+                  ...part.tool,
+                  result: failed ? "" : text,
+                  error: failed ? text || "error" : null,
+                  status: failed ? "error" : "done",
+                },
+              }
             : part,
         );
       }
@@ -309,13 +337,15 @@ function historyToMessages(payload: { messages?: unknown[] }): ChatMessage[] {
       if (b.type === "TextBlock" && typeof b.text === "string" && b.text) {
         assistant.parts.push({ kind: "text", text: b.text });
       } else if (b.type === "ToolUseBlock") {
+        const id = String(b.tool_call_id ?? uid());
         assistant.parts.push({
           kind: "tool",
           tool: {
-            id: String(b.id ?? uid()),
-            name: String(b.name ?? "tool"),
-            args: b.input,
+            id,
+            name: String(b.tool_name ?? "tool"),
+            args: b.args,
             status: "done",
+            durationMs: durations[id] || undefined,
           },
         });
       }
@@ -532,6 +562,7 @@ export const useSession = create<SessionState>((set, get) => {
                     result: event.result,
                     error: event.error,
                     status: event.error ? ("error" as const) : ("done" as const),
+                    durationMs: typeof event.duration_ms === "number" ? event.duration_ms : undefined,
                   },
                 }
               : part,

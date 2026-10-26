@@ -133,7 +133,14 @@
     "writeFile": {
       "created": "created · full file",
       "updated": "updated · full file"
-    }
+    },
+    "group_one": "{{count}} tool used",
+    "group_other": "{{count}} tools used",
+    "errors_one": "{{count}} error",
+    "errors_other": "{{count}} errors",
+    "moreLines_one": "… +{{count}} more line",
+    "moreLines_other": "… +{{count}} more lines",
+    "showLess": "Show less"
   },
   "errors": {
     "attachFailed": "Could not attach: {{names}}",
