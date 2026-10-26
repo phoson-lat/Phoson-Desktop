@@ -54,6 +54,8 @@ import threading
 import time
 from typing import Any, Callable
 
+from .extras import requirements_for
+
 log = logging.getLogger("phoson_bridge")
 
 #: Segundos que ``stop`` espera a que el hilo de captura termine.
@@ -72,6 +74,10 @@ _DOWNLOAD_GRACE_SECONDS = 0.75
 
 _MISSING_RUNTIME = (
     "El runtime de dictado (moonshine-voice) no está instalado. "
+    "Instálalo con: pip install 'phoson-engine-minimal[stt]'."
+)
+_MISSING_AUDIO = (
+    "El backend de audio (sounddevice) no está instalado. "
     "Instálalo con: pip install 'phoson-engine-minimal[stt]'."
 )
 
@@ -327,10 +333,7 @@ class SttManager:
         try:
             importlib.import_module("sounddevice")
         except ImportError:
-            return None, (
-                "El backend de audio (sounddevice) no está instalado. "
-                "Instálalo con: pip install 'phoson-engine-minimal[stt]'."
-            )
+            return None, _MISSING_AUDIO
         except OSError:
             # Falta PortAudio: el motor tiene un localizador propio
             # (PHOSON_STT_PORTAUDIO / ~/.cache/phoson/portaudio); deja que
@@ -407,6 +410,12 @@ class SttManager:
             "modelArch": self._model_arch,
             "modelName": _arch_label(plugin, self._model_arch) if engine else None,
             "reason": reason,
+            # Extra del engine que lo arregla (la UI ofrece instalarlo); vacío si
+            # el fallo no es una dependencia que falte o la plataforma no la tiene
+            # (Moonshine no publica wheels para macOS Intel).
+            "missingExtra": "stt"
+            if reason in (_MISSING_RUNTIME, _MISSING_AUDIO) and requirements_for("stt")
+            else "",
         }
 
     # ── Ciclo de captura ──────────────────────────────────────────────────

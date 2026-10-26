@@ -1946,8 +1946,22 @@ class Bridge:
         if not extra:
             raise ValueError("falta el extra a instalar")
         # En un hilo: `pip install` es bloqueante (segundos o minutos) y sobre el
-        # event loop congelaría el sidecar entero.
-        result = await asyncio.to_thread(_extras.install_extra, extra)
+        # event loop congelaría el sidecar entero. La fase (descargar el
+        # instalador, instalar) se emite al loop con `call_soon_threadsafe`.
+        loop = asyncio.get_running_loop()
+        session_id = str(params.get("sessionId") or "")
+
+        def _progress(phase: str) -> None:
+            # `life=False`: la emite el bridge, no demuestra que el motor viva.
+            loop.call_soon_threadsafe(
+                lambda: self._emit(
+                    "extras.progress",
+                    {"sessionId": session_id, "extra": extra, "phase": phase},
+                    life=False,
+                )
+            )
+
+        result = await asyncio.to_thread(_extras.install_extra, extra, _progress)
         if not result.get("ok"):
             return result
         # El plugin recién servible tiene que entrar en todas las sesiones
@@ -1955,7 +1969,7 @@ class Bridge:
         repls = self.sessions.built_repls()
         for repl in repls:
             await self._reload_plugins(repl)
-        cfg = self.sessions.config_for(str(params.get("sessionId") or ""))
+        cfg = self.sessions.config_for(session_id)
         result["plugins"] = catalog(cfg)
         result["tools"] = self._tools_payload(repls)
         return result

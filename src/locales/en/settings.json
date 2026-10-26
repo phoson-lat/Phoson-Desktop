@@ -113,6 +113,7 @@
     "extra": {
       "install": "Install [{{extra}}]",
       "installing": "Installing…",
+      "downloadingInstaller": "Downloading the installer (uv)…",
       "okToast": "Extra [{{extra}}] installed",
       "failedToast": "Could not install the [{{extra}}] extra",
       "blocked": "Installing extras is not available on this machine.",
@@ -120,7 +121,10 @@
       "unknown": "The engine does not declare that extra.",
       "timeout": "The installation took too long and was cancelled.",
       "notImportable": "It was installed, but the module still cannot be imported.",
-      "failed": "The installation failed."
+      "failed": "The installation failed.",
+      "uvDownloadFailed": "Could not download the installer (uv). Check your connection and try again.",
+      "missingNotice": "{{plugin}} is enabled, but the [{{extra}}] extra is missing",
+      "missingNoticeHint": "The engine skips it until it is installed. It downloads to ~/.phoson/extras."
     }
   },
   "agent": {

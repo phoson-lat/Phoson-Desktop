@@ -20,10 +20,18 @@ Este módulo permite arreglarlos **desde la app**:
 El motor de instalación es ``pip`` (``python -m pip install --target``) o ``uv``
 (``uv pip install --target``), el primero que se encuentre con un intérprete
 real: el sidecar congelado no puede ejecutar su propio ``sys.executable``.
+
+Si el equipo no tiene ninguno, se descarga el binario oficial de ``uv`` (versión
+fija, verificado contra su sha256) a ``~/.phoson/tools/``: ``uv`` trae su propio
+Python de la versión del sidecar si hace falta, así que la instalación funciona
+en un equipo sin Python. La app abierta desde Finder hereda el ``PATH`` mínimo
+de launchd (``/usr/bin:/bin:…``), así que antes se buscan también las rutas
+habituales (Homebrew, ``~/.local/bin``…).
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import importlib.util
 import os
@@ -32,8 +40,11 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
+import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 #: Distribución del engine: es la que declara los extras en sus metadatos.
 ENGINE_DIST = "phoson-engine-minimal"
@@ -46,6 +57,44 @@ _PLATFORM_SIBLINGS: dict[str, dict[str, str]] = {
 
 #: Tope de la instalación (una descarga de `onnxruntime` puede tardar minutos).
 _INSTALL_TIMEOUT = 900.0
+
+#: Versión de `uv` que se descarga cuando el equipo no tiene instalador.
+UV_VERSION = "0.13.0"
+
+#: Asset oficial de `uv` por plataforma → sha256 (publicado junto al release).
+#: Fijado aquí, no leído de la red: un asset alterado no pasa la verificación.
+_UV_ASSETS: dict[tuple[str, str], tuple[str, str]] = {
+    ("darwin", "arm64"): (
+        "uv-aarch64-apple-darwin.tar.gz",
+        "a9c1b29002cf3c83f07fa9cd8a887a3be0107d90e23189721221e7257db8e3d6",
+    ),
+    ("darwin", "x86_64"): (
+        "uv-x86_64-apple-darwin.tar.gz",
+        "5f44dcbde809b632f47c36fadb241cb4d6f9af71d0c8f172b5d2026d3dde742c",
+    ),
+    ("linux", "x86_64"): (
+        "uv-x86_64-unknown-linux-gnu.tar.gz",
+        "1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154",
+    ),
+    ("linux", "aarch64"): (
+        "uv-aarch64-unknown-linux-gnu.tar.gz",
+        "3ccfb6af6e242433eb552f7d9676abd5412c6595c497e990d9c8cb7b5bd4d2c3",
+    ),
+    ("win32", "amd64"): (
+        "uv-x86_64-pc-windows-msvc.zip",
+        "088962f9e7b7bd9ea740c04c650b2a21c8928c345bd99ac24350dc924dba656c",
+    ),
+    ("win32", "arm64"): (
+        "uv-aarch64-pc-windows-msvc.zip",
+        "cb54028b59aa87f11cf6dec293ce000420043a49a8aea522e822a671321f8932",
+    ),
+}
+
+#: Tope de la descarga de `uv` (~20 MB).
+_UV_DOWNLOAD_TIMEOUT = 120.0
+
+#: Fases que reporta `install_extra` (la UI las traduce).
+Progress = Callable[[str], None]
 
 #: `extra == 'x'` dentro de un marker de `Requires-Dist`.
 _EXTRA_RE = re.compile(r"extra\s*==\s*['\"]([^'\"]+)['\"]")
@@ -260,6 +309,43 @@ def module_for(extra: str) -> str:
 # ── Instalación ─────────────────────────────────────────────────────────────
 
 
+def tools_root() -> Path:
+    """Donde vive el `uv` descargado por la app (``~/.phoson/tools``)."""
+    return Path("~/.phoson/tools").expanduser()
+
+
+def _search_path() -> str:
+    """El ``PATH`` del sidecar más las rutas donde suelen vivir Python y uv.
+
+    La app abierta desde Finder/el dock hereda el ``PATH`` de launchd
+    (``/usr/bin:/bin:/usr/sbin:/sbin``): ni Homebrew ni ``~/.local/bin`` (donde
+    el instalador oficial deja ``uv``) aparecen, y el sidecar concluía que no
+    había instalador aunque el usuario lo tuviera.
+    """
+    home = Path.home()
+    extra = [
+        home / ".local" / "bin",
+        home / ".cargo" / "bin",
+    ]
+    if sys.platform == "darwin":
+        extra += [Path("/opt/homebrew/bin"), Path("/usr/local/bin")]
+    elif sys.platform == "win32":
+        local = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
+        extra += [local / "Programs" / "Python" / f"Python{sys.version_info[0]}{sys.version_info[1]}"]
+    else:
+        extra += [Path("/usr/local/bin")]
+    parts = [p for p in (os.environ.get("PATH") or "").split(os.pathsep) if p]
+    for path in extra:
+        text = str(path)
+        if text not in parts:
+            parts.append(text)
+    return os.pathsep.join(parts)
+
+
+def _which(name: str) -> str | None:
+    return shutil.which(name, path=_search_path())
+
+
 def _has_pip(interpreter: str) -> bool:
     """¿Este intérprete tiene un `pip` usable?
 
@@ -315,14 +401,11 @@ def _interpreter_candidates() -> list[str]:
     if not getattr(sys, "frozen", False):
         candidates.append(sys.executable)
     for name in (
-        "python3.13",
-        "python3.12",
-        "python3.11",
-        "python3.10",
+        f"python{wanted[0]}.{wanted[1]}",
         "python3",
         "python",
     ):
-        found = shutil.which(name)
+        found = _which(name)
         if found and found not in candidates:
             candidates.append(found)
     matching = [c for c in candidates if _python_version(c) == wanted]
@@ -334,11 +417,88 @@ def _interpreter_candidates() -> list[str]:
     return matching
 
 
+def _uv_asset() -> tuple[str, str] | None:
+    """``(asset, sha256)`` de `uv` para esta plataforma, o ``None`` si no hay."""
+    plat = "darwin" if sys.platform == "darwin" else "win32" if sys.platform == "win32" else "linux"
+    return _UV_ASSETS.get((plat, platform.machine().lower()))
+
+
+def _bundled_uv() -> Path:
+    """Ruta del `uv` que descarga la app (exista o no)."""
+    name = "uv.exe" if sys.platform == "win32" else "uv"
+    return tools_root() / f"uv-{UV_VERSION}" / name
+
+
+def _ssl_context():
+    """Contexto TLS con los certificados de ``certifi`` si está (sidecar congelado).
+
+    El Python congelado no siempre encuentra el almacén del sistema; ``certifi``
+    viaja en el bundle (lo arrastra ``httpx``).
+    """
+    import ssl
+
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa: BLE001 — sin certifi, el almacén del sistema
+        return ssl.create_default_context()
+
+
+def download_uv() -> Path:
+    """Descarga el `uv` fijado, verifica su sha256 y lo deja en ``~/.phoson/tools``.
+
+    Lanza ``RuntimeError`` con un motivo legible si la plataforma no tiene
+    asset, la descarga falla o la suma no coincide (en ese caso no se instala
+    nada).
+    """
+    import urllib.request
+
+    target = _bundled_uv()
+    if target.is_file():
+        return target
+    asset = _uv_asset()
+    if asset is None:
+        raise RuntimeError(f"no hay binario de uv para {sys.platform}/{platform.machine()}")
+    name, expected = asset
+    url = f"https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/{name}"
+    tools_root().mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=tools_root()) as tmp:
+        archive = Path(tmp) / name
+        with urllib.request.urlopen(  # noqa: S310 — URL fija de GitHub (https)
+            url, timeout=_UV_DOWNLOAD_TIMEOUT, context=_ssl_context()
+        ) as response, archive.open("wb") as out:
+            shutil.copyfileobj(response, out)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        if digest != expected:
+            raise RuntimeError(f"la suma sha256 de {name} no coincide ({digest})")
+        # Solo se extrae el ejecutable `uv`, por nombre: nada del archivo se
+        # escribe fuera de la carpeta temporal.
+        wanted = target.name
+        extracted = Path(tmp) / wanted
+        if name.endswith(".zip"):
+            with zipfile.ZipFile(archive) as zf:
+                member = next(m for m in zf.namelist() if Path(m).name == wanted)
+                extracted.write_bytes(zf.read(member))
+        else:
+            with tarfile.open(archive, "r:gz") as tf:
+                member = next(m for m in tf.getmembers() if Path(m.name).name == wanted and m.isfile())
+                source = tf.extractfile(member)
+                if source is None:
+                    raise RuntimeError(f"{name} no contiene {wanted}")
+                extracted.write_bytes(source.read())
+        extracted.chmod(0o755)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(extracted, target)
+    return target
+
+
 def installer() -> tuple[str, list[str], str]:
     """El instalador disponible: ``(tipo, comando, motivo)``.
 
-    Tipo: ``"pip"`` o ``"uv"``; el comando es el prefijo del comando a ejecutar.
-    El motivo es ``""`` cuando hay instalador o ``"noPip"`` cuando no.
+    Tipo: ``"pip"``, ``"uv"`` o ``"uv-download"`` (no hay ninguno en el equipo,
+    pero se puede descargar `uv`; el comando está vacío hasta entonces). El
+    motivo es ``""`` cuando hay instalador o ``"noPip"`` cuando no.
 
     El sidecar congelado no cuenta como intérprete: su ``sys.executable`` es el
     binario de la app, que no puede ejecutar ``-m pip``.
@@ -346,9 +506,11 @@ def installer() -> tuple[str, list[str], str]:
     for candidate in _interpreter_candidates():
         if _has_pip(candidate):
             return "pip", [candidate, "-m", "pip", "install"], ""
-    uv = shutil.which("uv")
-    if uv:
-        return "uv", [uv, "pip", "install"], ""
+    for uv in (_which("uv"), str(_bundled_uv()) if _bundled_uv().is_file() else None):
+        if uv:
+            return "uv", [uv, "pip", "install"], ""
+    if _uv_asset() is not None:
+        return "uv-download", [], ""
     return "", [], "noPip"
 
 
@@ -358,13 +520,15 @@ def installable() -> tuple[bool, str]:
     return (bool(kind), blocked)
 
 
-def install_extra(extra: str) -> dict[str, Any]:
+def install_extra(extra: str, on_progress: Progress | None = None) -> dict[str, Any]:
     """Instala el extra en ``~/.phoson/extras/<extra>`` y lo habilita.
 
     Devuelve ``{"ok": True, …}`` o ``{"ok": False, "reason": …}`` con el
-    motivo (``noPip``, ``unknownExtra``, ``installFailed``…) y la salida del
-    instalador.
+    motivo (``noPip``, ``unknownExtra``, ``uvDownloadFailed``,
+    ``installFailed``…) y la salida del instalador. ``on_progress`` recibe la
+    fase en curso (``downloadingInstaller``, ``installing``).
     """
+    progress = on_progress or (lambda _phase: None)
     extra = str(extra or "").strip()
     requirements = requirements_for(extra)
     if not requirements:
@@ -373,6 +537,13 @@ def install_extra(extra: str) -> dict[str, Any]:
     kind, prefix, blocked = installer()
     if not kind:
         return {"ok": False, "reason": blocked, "extra": extra}
+    if kind == "uv-download":
+        progress("downloadingInstaller")
+        try:
+            uv = download_uv()
+        except Exception as exc:  # noqa: BLE001 — red, TLS, suma: todo es «no se pudo»
+            return {"ok": False, "reason": "uvDownloadFailed", "extra": extra, "error": str(exc)}
+        kind, prefix = "uv", [str(uv), "pip", "install"]
 
     target = extras_root() / extra
     target.mkdir(parents=True, exist_ok=True)
@@ -382,14 +553,22 @@ def install_extra(extra: str) -> dict[str, Any]:
         # congelado no las encontraría.
         args = [*prefix, "--target", str(target), "--upgrade", "--ignore-installed", *requirements]
     else:
-        args = [*prefix, "--target", str(target), "--reinstall", *requirements]
+        # `--python X.Y`: los wheels tienen que ser los de la versión del
+        # sidecar. Sin él, uv usaba el primer Python que encontrara (el 3.9 de
+        # macOS) y el engine no podía importar los módulos nativos. Si no hay
+        # ese Python en el equipo, uv descarga uno gestionado.
+        wanted = "%d.%d" % sys.version_info[:2]
+        args = [*prefix, "--target", str(target), "--python", wanted, "--reinstall", *requirements]
 
+    progress("installing")
+    env = {**os.environ, "PATH": _search_path()}
     try:
         proc = subprocess.run(
             args,
             capture_output=True,
             text=True,
             timeout=_INSTALL_TIMEOUT,
+            env=env,
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "reason": "timeout", "extra": extra}

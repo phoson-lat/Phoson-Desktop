@@ -16,7 +16,9 @@
       "checking": "Checking the dictation engine…",
       "unsupported": "Dictation is not supported on this system",
       "loading": "Loading the dictation model…",
-      "downloading": "Downloading the dictation model… {{percent}}%"
+      "downloading": "Downloading the dictation model… {{percent}}%",
+      "install": "Install dictation (downloads the [{{extra}}] extra)",
+      "missing": "The dictation runtime is missing: click the microphone to install it."
     },
     "send": {
       "title": "Send (Enter)",
