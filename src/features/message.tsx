@@ -7,6 +7,7 @@ import {
   Copy,
   PanelRightOpen,
   RotateCcw,
+  Settings2,
   Square,
 } from "lucide-react";
 import { memo, useMemo, useState } from "react";
@@ -25,9 +26,22 @@ import {
 import { ThinkingIndicator } from "@/components/thinking-indicator";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { fileUrlToPath } from "@/lib/files";
-import { toolDetail, toolPresentation } from "@/lib/tool-labels";
+import {
+  bashOutput,
+  errorHeadline,
+  formatDurationMs,
+  toolDetail,
+  toolGroupSummary,
+  toolPresentation,
+} from "@/lib/tool-labels";
 import { cn } from "@/lib/utils";
-import { messageText, useSession, type ChatMessage, type ToolCard } from "@/stores/session";
+import {
+  messageText,
+  useSession,
+  type ChatMessage,
+  type MessagePart,
+  type ToolCard,
+} from "@/stores/session";
 import { FILE_TOOLS, useFilePanel } from "@/stores/file-panel";
 
 /* ── Llamada a herramienta (fila discreta, expandible) ──────────────────── */
@@ -83,8 +97,17 @@ function ToolRow({ tool, messageId }: { tool: ToolCard; messageId: string }) {
           {presentation.verb}
         </span>
         {detail ? (
-          <span className="min-w-0 truncate font-mono text-[0.7rem] text-muted-foreground">
+          <span
+            className="min-w-0 truncate font-mono text-[0.7rem] text-muted-foreground"
+            title={detail}
+          >
             · {detail}
+          </span>
+        ) : null}
+        {/* Como en el CLI: la duración cierra la fila (0 = desconocida). */}
+        {tool.status !== "running" && tool.durationMs ? (
+          <span className="shrink-0 font-mono text-[0.7rem] text-muted-foreground">
+            · {formatDurationMs(tool.durationMs)}
           </span>
         ) : null}
         <Icon
@@ -96,12 +119,122 @@ function ToolRow({ tool, messageId }: { tool: ToolCard; messageId: string }) {
           )}
         />
       </button>
+      {/* El fallo se lee sin desplegar: su primera línea bajo la fila (CLI). */}
+      {tool.status === "error" && tool.error && !open ? (
+        <p className="truncate pr-2 pl-[2.6rem] font-mono text-[0.7rem] text-destructive" title={tool.error}>
+          {errorHeadline(tool.error)}
+        </p>
+      ) : null}
       {open && imagePath ? <ImagePreview path={imagePath} className="px-2" /> : null}
-      {open && (tool.result || tool.error) ? (
+      {open && tool.name === "bash" && !tool.error && tool.result ? (
+        <BashOutput result={tool.result} />
+      ) : open && (tool.result || tool.error) ? (
         <pre className="mt-1 max-h-56 overflow-auto rounded-lg border border-[var(--dashboard-border)] bg-[var(--muted)] px-3 py-2 font-mono text-[0.72rem] text-muted-foreground">
-          {tool.error ?? tool.result}
+          {tool.error || tool.result}
         </pre>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Salida de `bash` como en el CLI: sin escapes de terminal, las primeras líneas
+ * y «… +N líneas más» para ver el resto.
+ */
+function BashOutput({ result }: { result: string }) {
+  const { t } = useTranslation("chat");
+  const [all, setAll] = useState(false);
+  const output = useMemo(() => bashOutput(result), [result]);
+  if (output.all.length === 0) return null;
+  return (
+    <div className="mt-1 rounded-lg border border-[var(--dashboard-border)] bg-[var(--muted)] px-3 py-2">
+      <pre className="max-h-72 overflow-auto font-mono text-[0.72rem] text-muted-foreground">
+        {(all ? output.all : output.preview).join("\n")}
+      </pre>
+      {output.hidden > 0 ? (
+        <button
+          onClick={() => setAll((v) => !v)}
+          className="mt-1 font-mono text-[0.7rem] text-muted-foreground hover:text-foreground"
+        >
+          {all ? t("tools.showLess") : t("tools.moreLines", { count: output.hidden })}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Racha de tools consecutivas (entre dos trozos de texto del agente). */
+type MessageSegment =
+  | { kind: "text"; text: string; index: number }
+  | { kind: "tools"; tools: ToolCard[]; index: number };
+
+/** Agrupa las partes en texto y rachas de tools, conservando el orden. */
+const segmentParts = (parts: MessagePart[]): MessageSegment[] => {
+  const out: MessageSegment[] = [];
+  parts.forEach((part, index) => {
+    const prev = out[out.length - 1];
+    if (part.kind === "text") out.push({ kind: "text", text: part.text, index });
+    else if (prev?.kind === "tools") prev.tools.push(part.tool);
+    else out.push({ kind: "tools", tools: [part.tool], index });
+  });
+  return out;
+};
+
+/**
+ * Racha de tools: mientras corre (o si es una sola) se ve llamada a llamada; una
+ * vez cerrada se pliega en una línea, como el modo `summary` del `/details` del
+ * CLI: «⚙ 4 herramientas usadas · bash ×2, read_file, grep · ✗ 1 error · 3.2s».
+ * Al desplegarla vuelven las filas de cada llamada.
+ */
+function ToolGroup({
+  tools,
+  closed,
+  messageId,
+}: {
+  tools: ToolCard[];
+  closed: boolean;
+  messageId: string;
+}) {
+  const { t } = useTranslation("chat");
+  const [open, setOpen] = useState(false);
+  const foldable = closed && tools.length > 1 && tools.every((tool) => tool.status !== "running");
+  const summary = useMemo(() => toolGroupSummary(tools), [tools]);
+  const rows = tools.map((tool, i) => (
+    <ToolRow key={`tool-${tool.id}-${i}`} tool={tool} messageId={messageId} />
+  ));
+  if (!foldable) return <>{rows}</>;
+  return (
+    <div className="my-1">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs dashboard-hover"
+      >
+        <ChevronRight
+          className={cn("size-3 text-muted-foreground transition-transform", open && "rotate-90")}
+        />
+        <Settings2 className="size-3 shrink-0 text-muted-foreground" />
+        <span className="shrink-0">{t("tools.group", { count: summary.count })}</span>
+        <span className="min-w-0 truncate font-mono text-[0.7rem] text-muted-foreground">
+          · {summary.names.join(", ")}
+        </span>
+        {summary.errors > 0 ? (
+          <span className="shrink-0 font-mono text-[0.7rem] text-destructive">
+            · ✗ {t("tools.errors", { count: summary.errors })}
+          </span>
+        ) : null}
+        {summary.totalMs > 0 ? (
+          <span className="shrink-0 font-mono text-[0.7rem] text-muted-foreground">
+            · {formatDurationMs(summary.totalMs)}
+          </span>
+        ) : null}
+        {summary.errors > 0 ? (
+          <AlertTriangle className="ml-auto size-3 text-destructive" />
+        ) : (
+          <Check className="ml-auto size-3 text-success" />
+        )}
+      </button>
+      {open ? <div className="ml-3 border-l border-[var(--dashboard-border)] pl-1">{rows}</div> : null}
     </div>
   );
 }
@@ -273,15 +406,21 @@ function MessageRowView({
         )
       ) : (
         <>
-          {message.parts.map((part, index) =>
-            part.kind === "tool" ? (
-              <ToolRow key={`tool-${part.tool.id}-${index}`} tool={part.tool} messageId={message.id} />
+          {segmentParts(message.parts).map((segment, i, segments) =>
+            segment.kind === "tools" ? (
+              <ToolGroup
+                key={`tools-${segment.tools[0].id}-${segment.index}`}
+                tools={segment.tools}
+                // Cerrada = ya hay texto después o el turno terminó (= CLI).
+                closed={i < segments.length - 1 || message.status !== "streaming"}
+                messageId={message.id}
+              />
             ) : (
               <TextBlock
-                key={`text-${index}`}
-                text={part.text}
+                key={`text-${segment.index}`}
+                text={segment.text}
                 // Solo el último bloque (el que aún llega) se renderiza en modo stream.
-                streaming={message.status === "streaming" && index === lastIndex}
+                streaming={message.status === "streaming" && segment.index === lastIndex}
               />
             ),
           )}

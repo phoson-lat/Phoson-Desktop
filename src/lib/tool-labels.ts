@@ -236,6 +236,9 @@ const argsPreview = (args: Record<string, unknown>): string => {
  * "Sobre qué" actúa la tool: el comando en `bash`, el patrón en las búsquedas,
  * la ruta/consulta/url en el resto (mismo orden de preferencia que el CLI) y,
  * si no hay ninguno, el resumen de argumentos de `argsPreview`.
+ *
+ * Como en el CLI, la ruta/consulta/url va **completa**: solo el comando y el
+ * patrón se recortan. La fila ya trunca con CSS y deja el valor en el tooltip.
  */
 export const toolDetail = (name: string, args: Record<string, unknown> | undefined): string => {
   const a = args ?? {};
@@ -249,7 +252,75 @@ export const toolDetail = (name: string, args: Record<string, unknown> | undefin
   }
   for (const key of ["path", "query", "url", "pattern", "name"]) {
     const value = a[key];
-    if (typeof value === "string" && value) return clip(value);
+    if (typeof value === "string" && value) return value;
   }
   return argsPreview(a);
+};
+
+/** `850ms` bajo un segundo, `1.2s` bajo un minuto, `2m05s` después (= CLI). */
+export const formatDurationMs = (ms: number): string => {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s`;
+};
+
+/** Primera línea del error, recortada como en la tarjeta del CLI. */
+export const errorHeadline = (error: string): string => {
+  const first = error.split(/\r?\n/).find((line) => line.trim()) ?? error;
+  return first.length > MAX_DETAIL ? `${first.slice(0, MAX_DETAIL)}…` : first;
+};
+
+/** Líneas de salida de `bash` que se ven sin pedir más (= `_BASH_PREVIEW_LINES`). */
+export const BASH_PREVIEW_LINES = 6;
+
+/** Secuencias de escape de terminal (OSC de título/colores y CSI/SGR). */
+const TERMINAL_ESCAPES = /\x1b\][^\x1b\x07\n]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]/g;
+
+/**
+ * Salida de `bash` como la enseña el CLI: sin escapes de terminal (`ls
+ * --color`, títulos de ventana…), las primeras `BASH_PREVIEW_LINES` líneas y
+ * cuántas quedan ocultas. `all` trae la salida limpia completa.
+ */
+export const bashOutput = (result: string): { all: string[]; preview: string[]; hidden: number } => {
+  const clean = result.replace(TERMINAL_ESCAPES, "").trim();
+  const all = clean ? clean.split(/\r?\n/) : [];
+  const preview = all.slice(0, BASH_PREVIEW_LINES);
+  return { all, preview, hidden: all.length - preview.length };
+};
+
+/** Nombres distintos que lista el resumen de un grupo antes de elidir (= CLI). */
+const SUMMARY_MAX_NAMES = 4;
+
+export interface ToolGroupSummary {
+  count: number;
+  /** `bash ×2`, `read_file`… (en orden de aparición; `…` si hay más). */
+  names: string[];
+  errors: number;
+  /** Suma de duraciones conocidas (0 = ninguna conocida). */
+  totalMs: number;
+}
+
+/**
+ * Resumen de una racha de tools consecutivas (espejo de
+ * `render_tool_group_summary`): `7 tools used · read_file ×4, grep ×2, bash ·
+ * ✗ 1 error · 3.2s`.
+ */
+export const toolGroupSummary = (
+  tools: { name: string; status: string; durationMs?: number }[],
+): ToolGroupSummary => {
+  const counts = new Map<string, number>();
+  for (const tool of tools) counts.set(tool.name, (counts.get(tool.name) ?? 0) + 1);
+  const entries = [...counts.entries()];
+  const names = entries
+    .slice(0, SUMMARY_MAX_NAMES)
+    .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name));
+  if (entries.length > SUMMARY_MAX_NAMES) names.push("…");
+  return {
+    count: tools.length,
+    names,
+    errors: tools.filter((tool) => tool.status === "error").length,
+    totalMs: tools.reduce((sum, tool) => sum + (tool.durationMs ?? 0), 0),
+  };
 };
