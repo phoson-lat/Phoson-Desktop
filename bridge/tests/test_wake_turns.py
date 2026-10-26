@@ -16,6 +16,8 @@ Sin pytest: asserts y un `main()` que imprime qué verifica. Lo que la UI nota:
 4. Con un engine anterior (el wake no devuelve outcome) el cierre se deduce de
    `session.user_message`.
 5. Cancelar el turno autónomo emite `cancelled` y propaga la cancelación.
+6. Con el plugin cargado desde `[defaults].plugins` (flag `enable_*` apagado)
+   un engine <= 0.57 no arranca el bucle: el bridge lo arranca él.
 """
 
 from __future__ import annotations
@@ -141,6 +143,46 @@ async def test_cancel_emits_cancelled() -> None:
     assert done["status"] == "cancelled"
 
 
+class _GatedController(_FakeController):
+    """Controller de un engine <= 0.57: el bucle depende de los flags."""
+
+    def __init__(self, sink: GuiSink) -> None:
+        super().__init__(sink)
+        self._monitor_wake_task: Any = None
+        self.ticks = 0
+
+    async def _monitor_wake_loop(self) -> None:
+        self.ticks += 1
+        await asyncio.sleep(60)
+
+
+class _WakePlugin:
+    def drain_pending_wakes(self, session_id: Any) -> list:
+        return []
+
+
+async def test_starts_loop_for_listed_plugin() -> None:
+    manager, _, key = _manager()
+    sink = manager._repls[key]._controller.sink
+    controller = _GatedController(sink)
+    repl = SimpleNamespace(
+        _controller=controller,
+        engine=SimpleNamespace(_loaded_plugins=[_WakePlugin()]),
+    )
+    manager._wire_wakes(key, repl)  # type: ignore[arg-type]
+    task = controller._monitor_wake_task
+    assert isinstance(task, asyncio.Task)
+    await asyncio.sleep(0)
+    assert controller.ticks == 1
+    # Sin proveedores de wakes cargados no se arranca nada.
+    idle = _GatedController(sink)
+    manager._wire_wakes(
+        key, SimpleNamespace(_controller=idle, engine=SimpleNamespace(_loaded_plugins=[]))
+    )  # type: ignore[arg-type]
+    assert idle._monitor_wake_task is None
+    task.cancel()
+
+
 async def _run_all() -> None:
     for test in (
         test_wires_loop_and_starter,
@@ -148,6 +190,7 @@ async def _run_all() -> None:
         test_consumed_wake_emits_nothing,
         test_old_engine_closes_from_user_message,
         test_cancel_emits_cancelled,
+        test_starts_loop_for_listed_plugin,
     ):
         await test()
         print(f"ok  {test.__name__}")

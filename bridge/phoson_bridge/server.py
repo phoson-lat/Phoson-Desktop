@@ -40,7 +40,11 @@ from typing import Any, Callable, TextIO
 
 from phoson_cli.config import load_config, PhosonConfig, has_configured_provider
 from phoson_cli.repl import PhosonRepl
-from phoson_cli.session_utils import engine_masked_count, engine_visible_tools
+from phoson_cli.session_utils import (
+    engine_masked_count,
+    engine_visible_tools,
+    find_wake_plugins,
+)
 
 from .sink import GuiSink
 from .protocol import dump, to_jsonable
@@ -307,6 +311,19 @@ class SessionManager:
         start = getattr(controller, "start_monitor_wake_loop", None)
         if callable(start):
             start()
+        # Engines <= 0.57 solo arrancan el bucle con un flag `enable_*` activo:
+        # con el plugin cargado desde `[defaults].plugins` (flag apagado) el
+        # monitor dispara y nadie reactiva al agente. Si hay proveedores de
+        # wakes cargados y el bucle no arrancó, se arranca aquí.
+        loop_body = getattr(controller, "_monitor_wake_loop", None)
+        if (
+            callable(loop_body)
+            and getattr(controller, "_monitor_wake_task", "absent") is None
+            and find_wake_plugins(list(getattr(repl.engine, "_loaded_plugins", [])))
+        ):
+            controller._monitor_wake_task = asyncio.create_task(
+                loop_body(), name="monitors:wake-loop"
+            )
 
     async def _run_wake_turn(self, key: str, coro: Any) -> None:
         """Ejecuta un turno autónomo y emite su `session.assistant.done`.
