@@ -16,8 +16,7 @@
       "checking": "Checking the dictation engine…",
       "unsupported": "Dictation is not supported on this system",
       "loading": "Loading the dictation model…",
-      "downloading": "Downloading the dictation model… {{percent}}%",
-      "ready": "Dictation model ready."
+      "downloading": "Downloading the dictation model… {{percent}}%"
     },
     "send": {
       "title": "Send (Enter)",

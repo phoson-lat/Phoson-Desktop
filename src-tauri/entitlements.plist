@@ -20,5 +20,9 @@
     -->
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+    <!-- El sidecar Python captura audio; TCC exige este permiso en la app responsable
+         cuando se firma con hardened runtime, o deniega el micro sin mostrar aviso. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
 </dict>
 </plist>

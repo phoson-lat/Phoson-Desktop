@@ -488,14 +488,7 @@ class SttManager:
         emitted = 0
         last_partial = ""
         try:
-            downloaded = await asyncio.to_thread(
-                self._download_model, language, key, _emit_threadsafe
-            )
-            if downloaded == "downloaded":
-                self._emit(
-                    "stt.progress",
-                    {"sessionId": key, "phase": "ready", "message": _READY_MESSAGE},
-                )
+            await asyncio.to_thread(self._download_model, language, key, _emit_threadsafe)
             if stop.is_set():
                 # El usuario cortó el dictado mientras bajaba el modelo.
                 self._emit("stt.done", {"sessionId": key, "text": ""})
@@ -508,6 +501,10 @@ class SttManager:
                     stop=stop,
                     on_line=captured.append,
                     on_partial=lambda text: partial.__setitem__("text", text),
+                    on_ready=lambda: _emit_threadsafe(
+                        "stt.progress",
+                        {"sessionId": key, "phase": "ready", "message": _READY_MESSAGE},
+                    ),
                 )
             )
             while not worker.done():

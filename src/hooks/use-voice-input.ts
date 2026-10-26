@@ -255,7 +255,7 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
             : phase === "downloading"
               ? i18n.t("chat:composer.voice.downloading", { percent: params.percent ?? 0 })
               : phase === "ready"
-                ? i18n.t("chat:composer.voice.ready")
+                ? null // El micrófono ya escucha: no dejar «Cargando…» fijo.
                 : params.message ?? null,
         );
       } else if (envelope.method === "stt.error") {
