@@ -227,6 +227,7 @@
     "logs": "Registro de acciones",
     "logsHint": "Diagnóstico local: cada acción, RPC y error (JSONL rotativo). Nada sale de tu equipo.",
     "openFolder": "Abrir carpeta",
+    "exportDiagnostics": "Exportar diagnóstico (sin conversaciones ni claves)",
     "updateAvailable": "Nueva versión disponible: <version>v{{version}}</version>",
     "download": "Descargar e instalar",
     "updates": "Actualizaciones",
@@ -257,7 +258,9 @@
     "sttSaveFailed": "No se pudo guardar el ajuste de dictado",
     "sttDownloaded": "Modelo de dictado descargado",
     "sttDownloadCached": "El modelo ya estaba descargado",
-    "sttDownloadFailed": "No se pudo descargar el modelo"
+    "sttDownloadFailed": "No se pudo descargar el modelo",
+    "diagnosticsExported": "Diagnóstico exportado",
+    "diagnosticsExportFailed": "No se pudo exportar el diagnóstico"
   },
   "modelPicker": {
     "title": "Cambiar modelo",

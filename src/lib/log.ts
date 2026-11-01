@@ -22,6 +22,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -87,18 +88,24 @@ export function trunc(value: unknown, max = TRUNC): unknown {
   return value;
 }
 
-/** Saneo superficial de un objeto (recursivo, con límite de profundidad). */
-function sanitize(value: unknown, depth = 0): unknown {
+const SENSITIVE_KEY = /(?:api.?key|secret|token|password|authorization|credential)/i;
+
+/**
+ * Saneo superficial de un objeto (recursivo, con límite de profundidad).
+ * Las credenciales se redactan por nombre de campo: los parámetros de
+ * `config.set` pasan por este log y nunca deben copiar las claves a disco.
+ */
+export function sanitizeLogValue(value: unknown, depth = 0): unknown {
   if (value == null) return value;
   if (typeof value === "string") return trunc(value);
   if (typeof value !== "object") return value;
   if (depth >= 3) return "[…]";
   if (Array.isArray(value)) {
-    return value.slice(0, 12).map((v) => sanitize(v, depth + 1));
+    return value.slice(0, 12).map((v) => sanitizeLogValue(v, depth + 1));
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = sanitize(v, depth + 1);
+    out[k] = SENSITIVE_KEY.test(k) ? "[redacted]" : sanitizeLogValue(v, depth + 1);
   }
   return out;
 }
@@ -125,7 +132,7 @@ export function logEvent(
     up: Math.round(now()),
     session: context.session,
     workspace: context.workspace,
-    ...(data ? { data: sanitize(data) as Record<string, unknown> } : {}),
+    ...(data ? { data: sanitizeLogValue(data) as Record<string, unknown> } : {}),
   };
 
   memory.push(ev);
@@ -372,6 +379,23 @@ export async function logPath(): Promise<string | null> {
 export async function openLogFolder(): Promise<void> {
   if (!isTauri()) return;
   await invoke("log_open_dir").catch(() => {});
+}
+
+/**
+ * Exporta diagnóstico solo tras una acción explícita y un diálogo de destino.
+ * El saneamiento final vive también en Rust: no confía en la forma de los eventos
+ * que pueda haber añadido el frontend o un plugin.
+ */
+export async function exportDiagnostics(): Promise<string | null> {
+  if (!isTauri()) return null;
+  await flush();
+  const path = await save({
+    defaultPath: `phoson-diagnostics-${new Date().toISOString().slice(0, 10)}.json`,
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (!path) return null;
+  await invoke("diagnostics_export", { path });
+  return path;
 }
 
 /** Descarga el buffer en memoria como JSONL (útil en modo navegador). */

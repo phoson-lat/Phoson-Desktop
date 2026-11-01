@@ -76,7 +76,7 @@ import { PROVIDER_META, providerLabel, providerNote } from "@/lib/providers";
 import { hideToTray, isCloseToTrayEnabled, setCloseToTrayPref } from "@/lib/desktop";
 import { useLocale } from "@/lib/i18n";
 import { speechLocale } from "@/lib/locale";
-import { logPath, openLogFolder } from "@/lib/log";
+import { exportDiagnostics, logPath, openLogFolder } from "@/lib/log";
 import { checkForUpdates, currentVersion, installPendingUpdate, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { extraInstallBlockText, extraPhaseText, useExtras } from "@/stores/extras";
@@ -152,6 +152,7 @@ export function SettingsDialog({
   const [mcp, setMcp] = useState<McpState | null>(null);
   const [version, setVersion] = useState("0.0.0");
   const [logFilePath, setLogFilePath] = useState<string | null>(null);
+  const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
   const [checking, setChecking] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [upToDate, setUpToDate] = useState(false);
@@ -1761,6 +1762,23 @@ export function SettingsDialog({
                           >
                             <FolderOpen className="size-3.5" />
                             {t("about.openFolder")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!isTauri() || exportingDiagnostics}
+                            onClick={() => {
+                              setExportingDiagnostics(true);
+                              void exportDiagnostics()
+                                .then((path) => {
+                                  if (path) toast.success(t("toasts.diagnosticsExported"), { description: path });
+                                })
+                                .catch((error) => toast.error(t("toasts.diagnosticsExportFailed"), { description: String(error) }))
+                                .finally(() => setExportingDiagnostics(false));
+                            }}
+                          >
+                            {exportingDiagnostics ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                            {t("about.exportDiagnostics")}
                           </Button>
                         </div>
                       </Row>

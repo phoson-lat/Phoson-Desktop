@@ -227,6 +227,7 @@
     "logs": "Activity log",
     "logsHint": "Local diagnostics: every action, RPC and error (rotating JSONL). Nothing leaves your machine.",
     "openFolder": "Open folder",
+    "exportDiagnostics": "Export diagnostics (no conversations or keys)",
     "updateAvailable": "New version available: <version>v{{version}}</version>",
     "download": "Download and install",
     "updates": "Updates",
@@ -257,7 +258,9 @@
     "sttSaveFailed": "Could not save the dictation setting",
     "sttDownloaded": "Dictation model downloaded",
     "sttDownloadCached": "The model was already downloaded",
-    "sttDownloadFailed": "Could not download the model"
+    "sttDownloadFailed": "Could not download the model",
+    "diagnosticsExported": "Diagnostics exported",
+    "diagnosticsExportFailed": "Couldn't export diagnostics"
   },
   "modelPicker": {
     "title": "Switch model",

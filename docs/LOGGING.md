@@ -47,6 +47,7 @@ Una línea por evento:
 | `turn.cancel` / `turn.regenerate` | app | control del turno                       |
 | `tool.start` / `tool.done`    | engine | invocación de herramientas                 |
 | `engine.ready` / `engine.terminated` | engine | ciclo de vida del sidecar           |
+| `engine.recovered` | app | sesiones rehidratadas tras una caída |
 | `engine.spawn` / `engine.stderr` / `engine.process-error` | engine | proceso del sidecar |
 | `engine.notify` / `confirm.request` | engine | avisos y peticiones de confirmación |
 | `session.new` / `session.open` / `session.close` / `session.activate` | app | sesiones |
@@ -57,8 +58,16 @@ Una línea por evento:
 ## Privacidad
 
 - Los textos se **truncan** (~240 chars) y las estructuras se sanean (profundidad ≤ 3, arrays ≤ 12).
-- Los campos `password` se **omiten**.
+- Campos de API keys, secretos, tokens, contraseñas, autorización y credenciales se **redactan**.
 - No hay envío a red: solo escritura local vía el comando Rust `log_append`.
+
+## Exportar diagnóstico
+
+**Ajustes → Acerca de → Registro de acciones → Exportar diagnóstico** genera un
+JSON solo tras una acción explícita y un diálogo para elegir destino. Incluye
+versión, plataforma y los últimos 1000 eventos, pero Rust vuelve a sanear el
+contenido: elimina prompts, respuestas, rutas, adjuntos, parámetros RPC y claves.
+El archivo no se sube a ningún sitio; el usuario decide si lo comparte con soporte.
 
 ## Desde la consola (DevTools) — `phosonLog`
 

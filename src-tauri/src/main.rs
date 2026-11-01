@@ -28,6 +28,7 @@ fn main() {
             logging::log_append,
             logging::log_path,
             logging::log_open_dir,
+            logging::diagnostics_export,
             native::app_info,
             native::open_path,
             native::open_url,
