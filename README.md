@@ -67,6 +67,10 @@ core has no UI dependency, so the desktop app is a new *sink*, not a fork.
 
 - **Multiple projects & sessions at once** — per-workspace sidecars, per-session
   state, a unified (global) history list, and session routing by workspace.
+- **Teams (peers)** — a Slack-like **Equipos** section with multiple teams and named
+  agents. Each agent has its own role, chat history and workspace (the same project
+  or different ones); presence is shared across sidecars, direct agent-to-agent
+  messages wake the recipient, and `@agent` mentions use `peer_ask`.
 - **Faithful streaming** — text and tool calls are rendered in the real order the
   ReAct loop emits them; a collapsible **reasoning** block (“Thinking…”) with
   live duration.

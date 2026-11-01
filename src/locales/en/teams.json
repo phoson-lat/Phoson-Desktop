@@ -1,0 +1,65 @@
+{
+  "teams": "Teams",
+  "openTeam": "Open team {{name}}",
+  "memberCount_one": "{{count}} agent",
+  "memberCount_other": "{{count}} agents",
+  "agents": "Agents",
+  "noAgents": "There are no agents in this team yet.",
+  "team": {
+    "new": "New team",
+    "hint": "Each team has its own message bus and can bring together agents from multiple workspaces.",
+    "name": "Team name",
+    "placeholder": "platform",
+    "create": "Create team",
+    "invalidName": "Use lowercase letters, numbers, dots, dashes, or underscores, with no spaces.",
+    "duplicate": "A team with that name already exists."
+  },
+  "agent": {
+    "new": "New agent",
+    "hint": "The agent will have its own session and workspace inside {{team}}.",
+    "name": "Agent name",
+    "namePlaceholder": "backend",
+    "nameRule": "Lowercase letters, numbers, dots, dashes, or underscores; no spaces.",
+    "role": "Role (optional)",
+    "rolePlaceholder": "Reviews the engine and helps with backend tasks…",
+    "workspace": "Workspace",
+    "chooseWorkspace": "Choose folder",
+    "creating": "Creating…",
+    "create": "Create agent",
+    "created": "Agent {{name}} created",
+    "createFailed": "Couldn't create the agent",
+    "connectFailed": "Couldn't connect to {{name}}",
+    "invalidName": "The agent name is invalid: don't use spaces or uppercase letters.",
+    "duplicate": "An agent with that name already exists in this team.",
+    "workspaceRequired": "Choose a workspace for the agent.",
+    "remove": "Remove from team (keeps history)"
+  },
+  "presence": {
+    "offline": "offline",
+    "idle": "available",
+    "busy": "working",
+    "waiting": "waiting for another agent"
+  },
+  "relay": {
+    "action": "Message another agent",
+    "title": "Message from {{name}}",
+    "hint": "It will be delivered to the recipient's mailbox and wake that agent, even in another workspace.",
+    "recipient": "Recipient",
+    "message": "Message",
+    "placeholder": "Share context and request a concrete task…",
+    "send": "Send as agent",
+    "delivered": "Message delivered to {{name}}",
+    "queued": "{{name}} is offline: message saved to its mailbox",
+    "failed": "Couldn't deliver the message",
+    "empty": "Create another agent in this team to connect them."
+  },
+  "emptyChat": {
+    "title": "Start talking to {{name}}",
+    "hint": "Its first response will include the role you configured. History is kept as a regular session."
+  },
+  "mentionHint": "Mention @agent to ask them something through peer_ask.",
+  "welcome": {
+    "title": "Coordinate the {{team}} team",
+    "hint": "Create agents in the same workspace or different projects, chat with each one, and connect them."
+  }
+}

@@ -40,6 +40,8 @@ import type {
   RunMetrics,
   SessionMeta,
   ModelsListResult,
+  PeerSessionOptions,
+  PeersListResult,
   SttStatus,
   SttStartResult,
   SttConfigSetResult,
@@ -161,6 +163,12 @@ class MockBridge implements Bridge {
           },
           metrics: this.metrics("demo"),
         } as unknown as T;
+      case "peers.start":
+        return { ok: true, name: p.peerName ?? "demo-agent", team: p.peerTeam ?? "default", cwd: "/home/me" } as T;
+      case "peers.list":
+        return { team: p.team ?? "default", peers: [] } as T;
+      case "peers.send":
+        return { ok: true, id: `demo-${Date.now()}`, delivered: true } as T;
       case "session.new": {
         const id = "demo-" + Math.random().toString(36).slice(2, 7);
         this.sessions.set(id, { model: "deepseek/deepseek-v4.1-flash", provider: "openrouter" });
@@ -991,17 +999,29 @@ export const phoson = {
       "system.ping",
     ),
   initialize: (workspace?: string | null) => callIn<InitResult>(workspace ?? currentWorkspace, "initialize"),
-  newSession: (workspace?: string | null) =>
+  newSession: (workspace?: string | null, peer?: PeerSessionOptions) =>
     callIn<{ sessionId: string; cwd?: string; metrics?: RunMetrics }>(
       workspace ?? currentWorkspace,
       "session.new",
+      peer ? { peerName: peer.name, peerTeam: peer.team } : {},
     ),
-  openSession: (engineId: string, workspace?: string | null) =>
+  openSession: (engineId: string, workspace?: string | null, peer?: PeerSessionOptions) =>
     callIn<{ sessionId: string; cwd?: string; cwdMissing?: boolean; metrics?: RunMetrics }>(
       workspace ?? currentWorkspace,
       "session.open",
-      { id: engineId },
+      { id: engineId, ...(peer ? { peerName: peer.name, peerTeam: peer.team } : {}) },
     ),
+  peersStart: (sessionId: string) =>
+    call<{ ok: boolean; name: string; team: string; cwd: string }>("peers.start", { sessionId }),
+  peersList: (team: string, workspace?: string | null) =>
+    callIn<PeersListResult>(workspace ?? currentWorkspace, "peers.list", { team }),
+  peersSend: (team: string, sender: string, recipient: string, content: string, workspace?: string | null) =>
+    callIn<{ ok: boolean; id: string; delivered: boolean }>(workspace ?? currentWorkspace, "peers.send", {
+      team,
+      sender,
+      recipient,
+      content,
+    }),
   closeSession: (sessionId: string) => call("session.close", { sessionId }),
   /** Deshace el último turno de usuario (el engine mueve el cursor atrás). */
   sessionUndo: (sessionId: string) =>

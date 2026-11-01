@@ -42,6 +42,9 @@
       "default": "default"
     }
   },
+  "teams": {
+    "title": "Teams"
+  },
   "sessions": {
     "title": "Sessions",
     "new": "New session",

@@ -157,6 +157,16 @@ def _config_path() -> Path:
     return Path("~/.phoson/config.toml").expanduser()
 
 
+def _peer_identity(params: dict[str, Any]) -> tuple[str, str]:
+    """Nombre/_equipo normalizados para una sesión de Equipos (vacío = normal)."""
+    from phoson_plugin_peers.storage import normalize_name
+
+    raw_name = str(params.get("peerName") or "").strip()
+    name = normalize_name(raw_name) if raw_name else ""
+    team = normalize_name(str(params.get("peerTeam") or "default"), "team name")
+    return name, team
+
+
 def _blank_metrics(session_key: str, cfg: PhosonConfig) -> dict[str, Any]:
     """Métricas en cero de una sesión cuyo engine aún no se ha construido.
 
@@ -213,7 +223,7 @@ class SessionManager:
         self.on_wake_turn_done: Callable[[str], None] | None = None
 
     # -- ciclo de vida --------------------------------------------------------
-    def create(self) -> str:
+    def create(self, peer_name: str = "", peer_team: str = "default") -> str:
         """Reserva una sesión. NO construye el ``PhosonRepl`` (≈1.7 s).
 
         Construirlo aquí bloqueaba el event loop antes de que el sidecar
@@ -227,6 +237,10 @@ class SessionManager:
         # `copy.copy` (superficial) basta: lo que se muta son escalares; el
         # config trae un `mappingproxy` en `_secret_sources` que rompe deepcopy.
         config = copy.copy(self._base_config)
+        # Identidad POR SESIÓN, no global en config.toml: un mismo sidecar puede
+        # alojar varios agentes y otros workspaces comparten el bus del equipo.
+        config.peer_name = peer_name
+        config.peer_team = peer_team
         sink = GuiSink(key, self._emit)
         confirmation = GuiConfirmation(key, self.request_user)
         # El sink puede leer el título vivo del árbol (hook `on_session_title`).
@@ -572,6 +586,9 @@ class Bridge:
             "initialize": self._initialize,
             "session.new": self._session_new,
             "session.list": self._session_list,
+            "peers.start": self._peers_start,
+            "peers.list": self._peers_list,
+            "peers.send": self._peers_send,
             "session.open": self._session_open,
             "session.close": self._session_close,
             "session.delete": self._session_delete,
@@ -964,8 +981,9 @@ class Bridge:
             "metrics": await self._metrics(self._default_session),
         }
 
-    async def _session_new(self, _params: dict[str, Any]) -> dict[str, Any]:
-        key = self.sessions.create()
+    async def _session_new(self, params: dict[str, Any]) -> dict[str, Any]:
+        peer_name, peer_team = _peer_identity(params)
+        key = self.sessions.create(peer_name, peer_team)
         # El cwd del proceso es el workspace del sidecar (uno por proyecto).
         # Las métricas van desde ya (en cero, sin construir el engine): el chip de
         # modelo del composer sale de ahí y sin esto una sesión nueva se queda sin
@@ -974,6 +992,84 @@ class Bridge:
             "sessionId": key,
             "cwd": os.getcwd(),
             "metrics": _blank_metrics(key, self.sessions.config_for(key)),
+        }
+
+    async def _peers_start(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Construye la sesión nombrada para reclamar presencia y activar wakes."""
+        key = str(params.get("sessionId") or "")
+        repl = await self.sessions.get(key)
+        name = str(getattr(repl.config, "peer_name", "") or "")
+        if not name:
+            raise ValueError("la sesión no tiene identidad de agente")
+        # PhosonRepl inicializa los plugins al construirse; este hook además es
+        # idempotente y garantiza el heartbeat en engines que lo difieren.
+        for plugin in getattr(repl.engine, "_loaded_plugins", []):
+            if getattr(plugin, "name", "") == "phoson-plugin-peers":
+                ensure = getattr(plugin, "ensure_started", None)
+                if callable(ensure):
+                    await ensure()
+        return {
+            "ok": True,
+            "name": name,
+            "team": str(getattr(repl.config, "peer_team", "default")),
+            "cwd": os.getcwd(),
+        }
+
+    async def _peers_list(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Presencia compartida entre sidecars, sin construir ningún engine."""
+        from phoson_plugin_peers.storage import PeerStore, normalize_name
+
+        team = normalize_name(str(params.get("team") or "default"), "team name")
+        store = PeerStore(self.config.peers_data_dir, team)
+        present = await asyncio.to_thread(store.peers, include_stale=True)
+        return {
+            "team": team,
+            "peers": [
+                {
+                    "name": peer.name,
+                    "cwd": peer.cwd,
+                    "state": peer.state,
+                    "waitingOn": peer.waiting_on,
+                    "live": peer.is_live(store.stale_seconds),
+                    "heartbeat": peer.heartbeat,
+                }
+                for peer in present
+            ],
+        }
+
+    async def _peers_send(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Mensaje fire-and-forget de un agente a otro, despertando al destino."""
+        from phoson_plugin_peers.storage import (
+            PeerError,
+            PeerMessage,
+            PeerStore,
+            normalize_name,
+        )
+
+        team = normalize_name(str(params.get("team") or "default"), "team name")
+        sender = normalize_name(str(params.get("sender") or ""))
+        recipient = normalize_name(str(params.get("recipient") or ""))
+        content = str(params.get("content") or "").strip()
+        if sender == recipient:
+            raise PeerError("un agente no puede enviarse un mensaje a sí mismo")
+        if not content:
+            raise ValueError("el mensaje no puede estar vacío")
+        store = PeerStore(self.config.peers_data_dir, team)
+        if store.get(recipient) is None:
+            # Crear el buzón permite dejar mensajes incluso antes del primer
+            # arranque del destinatario; su plugin los consumirá al inicializarse.
+            store.mailbox_dirs(recipient)
+        message = PeerMessage(
+            id=uuid.uuid4().hex,
+            sender=sender,
+            recipient=recipient,
+            content=content,
+        )
+        await asyncio.to_thread(store.deliver, message)
+        return {
+            "ok": True,
+            "id": message.id,
+            "delivered": store.live(recipient) is not None,
         }
 
     async def _session_list(self, _params: dict[str, Any]) -> dict[str, Any]:
@@ -1017,7 +1113,8 @@ class Bridge:
         return {"ok": True, "id": session_id}
 
     async def _session_open(self, params: dict[str, Any]) -> dict[str, Any]:
-        key = self.sessions.create()
+        peer_name, peer_team = _peer_identity(params)
+        key = self.sessions.create(peer_name, peer_team)
         repl = await self.sessions.get(key)
         ok = await repl.load_session(params["id"])
         if not ok:

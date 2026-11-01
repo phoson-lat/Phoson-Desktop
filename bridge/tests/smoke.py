@@ -109,6 +109,27 @@ def main() -> int:
         s2 = r["result"]["sessionId"]
         check("multi-sesión (claves distintas)", s2 != default, f"{s2[:8]} vs {default[:8]}")
 
+        # Equipos: una sesión nombrada reclama presencia en el bus real sin
+        # ejecutar turnos (no hay coste de LLM ni mensajes que despierten al peer).
+        team = f"smoke-{os.getpid()}"
+        r = cli.call("session.new", {"peerName": "backend", "peerTeam": team})
+        peer = r.get("result", {}).get("sessionId", "")
+        check("session.new con identidad peers", bool(peer), str(r.get("error", {})))
+        r = cli.call("peers.start", {"sessionId": peer})
+        check(
+            "peers.start reclama presencia",
+            r.get("result", {}).get("name") == "backend",
+            str(r.get("result", r.get("error", {}))),
+        )
+        r = cli.call("peers.list", {"team": team})
+        check(
+            "peers.list compartido",
+            any(p.get("name") == "backend" and p.get("live") for p in r.get("result", {}).get("peers", [])),
+            str(r.get("result", r.get("error", {}))),
+        )
+        if peer:
+            cli.call("session.close", {"sessionId": peer})
+
         r = cli.call("session.list")
         check("session.list", "result" in r, f"{len(r.get('result', {}).get('sessions', []))} sesiones")
 

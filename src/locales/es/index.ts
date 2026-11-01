@@ -8,9 +8,10 @@ import onboarding from "./onboarding.json";
 import palette from "./palette.json";
 import settings from "./settings.json";
 import system from "./system.json";
+import teams from "./teams.json";
 import tools from "./tools.json";
 import welcome from "./welcome.json";
 
-const es = { chat, chrome, common, onboarding, palette, settings, system, tools, welcome };
+const es = { chat, chrome, common, onboarding, palette, settings, system, teams, tools, welcome };
 
 export default es;

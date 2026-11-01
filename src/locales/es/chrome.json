@@ -42,6 +42,9 @@
       "default": "predeterminado"
     }
   },
+  "teams": {
+    "title": "Equipos"
+  },
   "sessions": {
     "title": "Sesiones",
     "new": "Nueva sesión",

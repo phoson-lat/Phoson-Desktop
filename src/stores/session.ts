@@ -22,6 +22,7 @@ import type {
   ConfirmRequest,
   NotifyMessage,
   PluginBlock,
+  PeerSessionOptions,
   RunMetrics,
   SubagentTask,
   ToolCatalog,
@@ -121,6 +122,8 @@ export interface SessionView {
   sending: boolean;
   /** Workspace (cwd del sidecar) al que pertenece esta sesión. */
   workspace: string;
+  /** Identidad peers si la sesión pertenece a Equipos. */
+  peer?: PeerSessionOptions;
   /** Subtareas (subagentes) en curso o finalizadas de este turno. */
   subagents: SubagentTask[];
   /**
@@ -158,7 +161,7 @@ interface SessionState {
    * Envía un turno. `reattach` son rutas de imágenes que hay que volver a
    * adjuntar antes de arrancarlo (al regenerar, el engine ya las consumió).
    */
-  send: (text: string, reattach?: string[]) => Promise<void>;
+  send: (text: string, reattach?: string[], options?: { prompt?: string }) => Promise<void>;
   cancel: () => Promise<void>;
   /** Repite el último turno de usuario (undo en el engine + reenvío). */
   regenerate: () => Promise<void>;
@@ -168,8 +171,8 @@ interface SessionState {
   jumpToTurn: (userNodeId: string) => Promise<boolean>;
   /** Compacta el contexto; devuelve before/after (o null si falló). */
   compactContext: (profile?: string) => Promise<{ before: number; after: number } | null>;
-  newSession: (workspace?: string | null) => Promise<void>;
-  openSession: (engineId: string, workspace?: string | null) => Promise<void>;
+  newSession: (workspace?: string | null, peer?: PeerSessionOptions) => Promise<string>;
+  openSession: (engineId: string, workspace?: string | null, peer?: PeerSessionOptions) => Promise<string>;
   closeSession: (key: string) => Promise<void>;
   setActive: (key: string) => void;
   respondConfirm: (requestId: string, decision: "yes" | "always" | "no") => Promise<void>;
@@ -962,8 +965,8 @@ export const useSession = create<SessionState>((set, get) => {
           // Si el usuario la cerró durante el backoff, no hay nada que restaurar.
           if (!previous) continue;
           const restored = previous.engineId
-            ? await phoson.openSession(previous.engineId, workspace)
-            : await phoson.newSession(workspace);
+            ? await phoson.openSession(previous.engineId, workspace, previous.peer)
+            : await phoson.newSession(workspace, previous.peer);
           const newKey = restored.sessionId;
 
           // Las imágenes pendientes vivían en el controller del proceso muerto.
@@ -1002,6 +1005,7 @@ export const useSession = create<SessionState>((set, get) => {
               messages: previous.engineId ? fresh.messages : previous.messages,
               metrics: restored.metrics ?? fresh.metrics ?? previous.metrics,
               workspace: restored.cwd || workspace,
+              peer: previous.peer,
               sending: false,
               confirmations: [],
               subagents: [],
@@ -1042,7 +1046,7 @@ export const useSession = create<SessionState>((set, get) => {
       return task;
     },
 
-    send: async (text: string, reattach?: string[]) => {
+    send: async (text: string, reattach?: string[], options?: { prompt?: string }) => {
       const key = get().activeKey;
       if (!key) return;
       const view = get().sessions[key];
@@ -1076,7 +1080,7 @@ export const useSession = create<SessionState>((set, get) => {
             .map((u) => u.relative)
             .join(", ")} — read them with read_file or glob.]`
         : "";
-      const outgoing = text + reference;
+      const outgoing = (options?.prompt ?? text) + reference;
       patchView(key, (v) => ({
         ...v,
         sending: true,
@@ -1209,13 +1213,13 @@ export const useSession = create<SessionState>((set, get) => {
       await get().send(lastUser.text, lastUser.images);
     },
 
-    newSession: async (workspace) => {
+    newSession: async (workspace, peer) => {
       const target = workspace ?? undefined;
       // Clave con la que se ENRUTA (no el cwd reportado): el sidecar reporta su
       // `os.getcwd()`, que puede no coincidir con la clave del mapa (p. ej. `""`
       // para el sidecar por defecto) y dejaría la sesión inalcanzable.
       const routeKey = target ?? getCurrentWorkspace() ?? "";
-      const { sessionId, cwd, metrics } = await phoson.newSession(routeKey);
+      const { sessionId, cwd, metrics } = await phoson.newSession(routeKey, peer);
       bindSessionWorkspace(sessionId, routeKey);
       const effective = cwd || target || get().cwd;
       if (effective) {
@@ -1237,17 +1241,20 @@ export const useSession = create<SessionState>((set, get) => {
               // el chip del composer las pinta sin esperar al primer turno.
               metrics: metrics ?? base.metrics,
               workspace: effective || base.workspace || "",
+              title: peer?.name ?? base.title,
+              peer: peer ?? base.peer,
             },
           },
         };
       });
       logAction("session.new", { sessionId, workspace: effective || routeKey });
+      return sessionId;
     },
 
-    openSession: async (engineId, workspace) => {
+    openSession: async (engineId, workspace, peer) => {
       const target = workspace ?? undefined;
       const routeKey = target ?? getCurrentWorkspace() ?? "";
-      const { sessionId, cwd, cwdMissing, metrics } = await phoson.openSession(engineId, routeKey);
+      const { sessionId, cwd, cwdMissing, metrics } = await phoson.openSession(engineId, routeKey, peer);
       bindSessionWorkspace(sessionId, routeKey);
       const effective = cwd || target || get().cwd;
       if (effective) {
@@ -1259,7 +1266,11 @@ export const useSession = create<SessionState>((set, get) => {
         // reales: sin ellas el chip de modelo quedaba sin valor (o con el de la
         // sesión anterior) hasta el primer turno.
         const prev = s.sessions[sessionId] ?? emptyView(sessionId);
-        const base = metrics ? { ...prev, metrics } : prev;
+        const base = {
+          ...(metrics ? { ...prev, metrics } : prev),
+          title: peer?.name ?? prev.title,
+          peer: peer ?? prev.peer,
+        };
         return {
           activeKey: sessionId,
           order: s.order.includes(sessionId) ? s.order : [...s.order, sessionId],
@@ -1284,6 +1295,7 @@ export const useSession = create<SessionState>((set, get) => {
         };
       });
       logAction("session.open", { sessionId, engineId, workspace: effective || routeKey });
+      return sessionId;
     },
 
     closeSession: async (key: string) => {

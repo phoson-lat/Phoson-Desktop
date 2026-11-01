@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, Loader2, Search, PanelLeft, MessageSquare, Settings, Trash2, X, SquarePen } from "lucide-react";
+import { AlertTriangle, Bot, Loader2, Search, PanelLeft, MessageSquare, Settings, Trash2, Users, X, SquarePen } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -24,6 +24,8 @@ interface SidebarProps {
   workspace?: string;
   onSelect: (key: string) => void;
   onNew: () => void;
+  teamsActive?: boolean;
+  onOpenTeams: () => void;
   onOpen: (engineId: string, workspace?: string) => void;
   onClose: (key: string) => void;
   /** Responsive: en móvil se muestra como cajón superpuesto. */
@@ -142,6 +144,8 @@ export function Sidebar({
   workspace,
   onSelect,
   onNew,
+  teamsActive = false,
+  onOpenTeams,
   onOpen,
   onClose,
   mobile = false,
@@ -292,6 +296,7 @@ export function Sidebar({
                 <PhosonLogo size={22} showText={false} />
               </button>
               <IconButton icon={SquarePen} label={t("sessions.new")} onClick={onNew} />
+              <IconButton icon={Users} label={t("teams.title")} onClick={onOpenTeams} />
               <IconButton
                 icon={Search}
                 label={t("sessions.search")}
@@ -361,8 +366,9 @@ export function Sidebar({
                 </div>
               )}
 
-              <div className="px-2 pb-1 pt-1">
+              <div className="space-y-0.5 px-2 pb-1 pt-1">
                 <Row icon={SquarePen} label={t("sessions.new")} primary onClick={onNew} />
+                <Row icon={Users} label={t("teams.title")} active={teamsActive} onClick={onOpenTeams} />
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto pb-3">
@@ -375,7 +381,7 @@ export function Sidebar({
                           key={key}
                           icon={MessageSquare}
                           label={titleOf(sessions[key])}
-                          active={key === activeKey}
+                          active={!teamsActive && key === activeKey}
                           onClick={() => onSelect(key)}
                           trailing={
                             <span className="flex shrink-0 items-center gap-1.5">

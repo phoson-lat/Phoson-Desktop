@@ -75,7 +75,7 @@ describe("recoverWorkspace", () => {
     expect(state.sessions.new.title).toBe("Persistida");
     expect(state.sessions.new.sending).toBe(false);
     expect(state.sessions.new.attachments).toHaveLength(1);
-    expect(api.openSession).toHaveBeenCalledWith("engine-1", "/workspace");
+    expect(api.openSession).toHaveBeenCalledWith("engine-1", "/workspace", undefined);
     expect(api.attachmentAdd).toHaveBeenCalledWith("new", "/tmp/image.png");
   });
 
@@ -88,6 +88,6 @@ describe("recoverWorkspace", () => {
 
     expect(useSession.getState().sessions.new.messages[0].text).toBe("antes");
     expect(useSession.getState().sessions.new.messages[1].status).toBe("error");
-    expect(api.newSession).toHaveBeenCalledWith("/workspace");
+    expect(api.newSession).toHaveBeenCalledWith("/workspace", undefined);
   });
 });

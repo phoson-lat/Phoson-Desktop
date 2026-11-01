@@ -47,6 +47,25 @@ export interface RunMetrics {
   isRunning: boolean;
 }
 
+export interface PeerSessionOptions {
+  name: string;
+  team: string;
+}
+
+export interface PeerPresence {
+  name: string;
+  cwd: string;
+  state: "idle" | "busy" | "waiting" | string;
+  waitingOn: string;
+  live: boolean;
+  heartbeat: number;
+}
+
+export interface PeersListResult {
+  team: string;
+  peers: PeerPresence[];
+}
+
 export interface SessionMeta {
   id: string;
   title: string;

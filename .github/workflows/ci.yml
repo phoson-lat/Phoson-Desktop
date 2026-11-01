@@ -81,6 +81,7 @@ jobs:
           python -m pytest -q
           bridge/tests/test_engine_api.py
           bridge/tests/test_plugin_blocks.py
+          bridge/tests/test_peers.py
           bridge/tests/test_questions.py
           bridge/tests/test_token_batch.py
           bridge/tests/test_wake_turns.py

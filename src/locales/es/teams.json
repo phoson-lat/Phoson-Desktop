@@ -1,0 +1,65 @@
+{
+  "teams": "Equipos",
+  "openTeam": "Abrir equipo {{name}}",
+  "memberCount_one": "{{count}} agente",
+  "memberCount_other": "{{count}} agentes",
+  "agents": "Agentes",
+  "noAgents": "Todavía no hay agentes en este equipo.",
+  "team": {
+    "new": "Nuevo equipo",
+    "hint": "Cada equipo tiene su propio bus de mensajes y puede reunir agentes de varios workspaces.",
+    "name": "Nombre del equipo",
+    "placeholder": "plataforma",
+    "create": "Crear equipo",
+    "invalidName": "Usa minúsculas, números, puntos, guiones o guiones bajos, sin espacios.",
+    "duplicate": "Ya existe un equipo con ese nombre."
+  },
+  "agent": {
+    "new": "Nuevo agente",
+    "hint": "El agente tendrá una sesión y un workspace propios dentro de {{team}}.",
+    "name": "Nombre del agente",
+    "namePlaceholder": "backend",
+    "nameRule": "Minúsculas, números, puntos, guiones o guiones bajos; sin espacios.",
+    "role": "Rol (opcional)",
+    "rolePlaceholder": "Revisa el engine y ayuda con tareas de backend…",
+    "workspace": "Workspace",
+    "chooseWorkspace": "Elegir carpeta",
+    "creating": "Creando…",
+    "create": "Crear agente",
+    "created": "Agente {{name}} creado",
+    "createFailed": "No se pudo crear el agente",
+    "connectFailed": "No se pudo conectar con {{name}}",
+    "invalidName": "El nombre del agente no es válido: no uses espacios ni mayúsculas.",
+    "duplicate": "Ya existe un agente con ese nombre en el equipo.",
+    "workspaceRequired": "Elige un workspace para el agente.",
+    "remove": "Quitar del equipo (conserva el historial)"
+  },
+  "presence": {
+    "offline": "sin conexión",
+    "idle": "disponible",
+    "busy": "trabajando",
+    "waiting": "esperando a otro agente"
+  },
+  "relay": {
+    "action": "Mensaje a otro agente",
+    "title": "Mensaje desde {{name}}",
+    "hint": "Se entregará en el buzón del destinatario y despertará a ese agente, aunque esté en otro workspace.",
+    "recipient": "Destinatario",
+    "message": "Mensaje",
+    "placeholder": "Comparte contexto y pide una tarea concreta…",
+    "send": "Enviar como agente",
+    "delivered": "Mensaje entregado a {{name}}",
+    "queued": "{{name}} está sin conexión: mensaje guardado en su buzón",
+    "failed": "No se pudo entregar el mensaje",
+    "empty": "Crea otro agente en este equipo para poder comunicarlos."
+  },
+  "emptyChat": {
+    "title": "Empieza a hablar con {{name}}",
+    "hint": "Su primera respuesta incluirá el rol que configuraste. El historial se conserva como una sesión normal."
+  },
+  "mentionHint": "Menciona @agente para pedirle algo a través de peer_ask.",
+  "welcome": {
+    "title": "Coordina el equipo {{team}}",
+    "hint": "Crea agentes en el mismo workspace o en proyectos distintos, habla con cada uno y conéctalos entre sí."
+  }
+}

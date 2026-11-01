@@ -57,6 +57,9 @@ const FilePanel = lazy(() =>
 const Onboarding = lazy(() =>
   import("@/features/onboarding").then((m) => ({ default: m.Onboarding })),
 );
+const TeamsView = lazy(() =>
+  import("@/features/teams-view").then((m) => ({ default: m.TeamsView })),
+);
 
 export default function App() {  const {
     ready,
@@ -95,6 +98,7 @@ export default function App() {  const {
   const setDraft = (v: string) =>
     setDrafts((d) => (activeKey ? { ...d, [activeKey]: v } : d));
   const [navOpen, setNavOpen] = useState(false);
+  const [section, setSection] = useState<"chat" | "teams">("chat");
   const [collapsed, setCollapsed] = useState(
     () => typeof localStorage !== "undefined" && localStorage.getItem("phoson.nav") === "collapsed",
   );
@@ -491,15 +495,23 @@ export default function App() {  const {
           open={navOpen}
           collapsed={collapsed}
           onDismiss={() => setNavOpen(false)}
+          teamsActive={section === "teams"}
+          onOpenTeams={() => {
+            setSection("teams");
+            setNavOpen(false);
+          }}
           onNew={() => {
+            setSection("chat");
             void newSession();
             setNavOpen(false);
           }}
           onSelect={(k) => {
+            setSection("chat");
             setActive(k);
             setNavOpen(false);
           }}
           onOpen={(id, ws) => {
+            setSection("chat");
             void openSession(id, ws);
             setNavOpen(false);
           }}
@@ -510,6 +522,11 @@ export default function App() {  const {
 
         <div className="relative min-h-0 min-w-0 flex-1">
           <div className="absolute inset-0 flex min-h-0 min-w-0">
+          {section === "teams" ? (
+            <Suspense fallback={null}>
+              <TeamsView currentWorkspace={cwd} />
+            </Suspense>
+          ) : (
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="flex items-center gap-2 border-b border-dashboard-border-soft px-3 py-2.5 sm:gap-3 sm:px-4">
             {isMobile && (
@@ -672,6 +689,7 @@ export default function App() {  const {
             onRemoveUpload={removeUpload}
           />
           </main>
+          )}
 
           {/* Panel de archivo del agente: entre el thread y el explorador. */}
           {filePanelTarget && (

@@ -34,6 +34,7 @@ export const NAMESPACES = [
   "settings",
   "system",
   "tools",
+  "teams",
 ] as const;
 
 /** `lang` del documento: accesibilidad, guiones y corrector ortográfico. */
