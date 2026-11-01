@@ -568,6 +568,7 @@ class Bridge:
         # esos segundos si llega cuando el engine ya está construido.
         self._warm_task: asyncio.Task[Any] = asyncio.create_task(self._warm_default())
         self._methods = {
+            "system.ping": self._system_ping,
             "initialize": self._initialize,
             "session.new": self._session_new,
             "session.list": self._session_list,
@@ -846,6 +847,18 @@ class Bridge:
             log.exception("watchdog: no se pudo escribir el aviso")
 
     # ── Helpers ───────────────────────────────────────────────────────────
+    async def _system_ping(self, _params: dict[str, Any]) -> dict[str, Any]:
+        """Health check mínimo: no construye el engine ni toca proveedores.
+
+        Rust crea el proceso si no existe al recibir esta RPC; el frontend la usa
+        con backoff antes de reabrir las sesiones de un sidecar que terminó.
+        """
+        return {
+            "ok": True,
+            "pid": os.getpid(),
+            "uptimeSec": round(time.monotonic() - self._started, 3),
+        }
+
     async def _perf(self, _params: dict[str, Any]) -> dict[str, Any]:
         """Uso de recursos del sidecar (RSS + CPU), para medir desde la app."""
         try:

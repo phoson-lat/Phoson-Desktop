@@ -11,7 +11,10 @@
     "connectError": "No se pudo conectar con el engine",
     "stopped": "El motor de un espacio de trabajo se detuvo",
     "restart": "Se reiniciará al volver a usarlo.",
-    "restartWithPath": "Se reiniciará al volver a usarlo: {{path}}"
+    "restartWithPath": "Se reiniciará al volver a usarlo: {{path}}",
+    "recovering": "Recuperando las sesiones de {{path}}…",
+    "recovered": "Sesiones recuperadas en {{description}}",
+    "recoveryFailed": "No se pudieron recuperar las sesiones de {{description}}"
   },
   "update": {
     "available": "Nueva versión v{{version}} disponible",

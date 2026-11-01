@@ -135,6 +135,8 @@ class MockBridge implements Bridge {
   async rpc<T = Json>(method: string, params?: Json): Promise<T> {
     const p = (params ?? {}) as Record<string, unknown>;
     switch (method) {
+      case "system.ping":
+        return { ok: true, pid: 0, uptimeSec: 0 } as T;
       case "initialize":
         return {
           config: {
@@ -982,6 +984,12 @@ export function normalizeAttachment(raw: RawAttachment): Attachment {
 export const phoson = {
   rpc: call,
   onNotify: (handler: (envelope: Envelope) => void) => bridge.onNotify(handler),
+  /** Sondeo barato usado antes de rehidratar sesiones tras una caída. */
+  health: (workspace?: string | null) =>
+    callIn<{ ok: boolean; pid: number; uptimeSec: number }>(
+      workspace ?? currentWorkspace,
+      "system.ping",
+    ),
   initialize: (workspace?: string | null) => callIn<InitResult>(workspace ?? currentWorkspace, "initialize"),
   newSession: (workspace?: string | null) =>
     callIn<{ sessionId: string; cwd?: string; metrics?: RunMetrics }>(

@@ -14,6 +14,7 @@ import { logAction, logError, logEvent } from "../lib/log";
 import i18n from "../lib/i18n";
 import { basenameOf, fileUrlToPath, isImageFile, isInlineSource } from "../lib/files";
 import { cleanSessionTitle } from "../lib/session-title";
+import { withBackoff } from "../lib/recovery";
 import type {
   AgentEvent,
   Attachment,
@@ -147,6 +148,12 @@ interface SessionState {
    */
   applyToolCatalog: (tools: ToolCatalog) => void;
   init: () => Promise<void>;
+  /**
+   * Rearma el sidecar de un workspace y reabre sus sesiones persistidas.
+   * Devuelve el mapa id efímero anterior → nuevo para conservar los borradores;
+   * `null` indica que el health check no llegó a responder.
+   */
+  recoverWorkspace: (workspace: string) => Promise<Record<string, string> | null>;
   /**
    * Envía un turno. `reattach` son rutas de imágenes que hay que volver a
    * adjuntar antes de arrancarlo (al regenerar, el engine ya las consumió).
@@ -798,6 +805,8 @@ export const useSession = create<SessionState>((set, get) => {
   };
 
   let bootPromise: Promise<void> | null = null;
+  /** Una recuperación por workspace, aunque el evento se entregue dos veces. */
+  const recoveries = new Map<string, Promise<Record<string, string> | null>>();
 
   return {
     ready: false,
@@ -890,6 +899,147 @@ export const useSession = create<SessionState>((set, get) => {
         }
       })();
       return bootPromise;
+    },
+
+    recoverWorkspace: (workspace) => {
+      const running = recoveries.get(workspace);
+      if (running) return running;
+
+      const task = (async (): Promise<Record<string, string> | null> => {
+        const snapshot = Object.entries(get().sessions).filter(
+          ([, view]) => view.workspace === workspace,
+        );
+        if (snapshot.length === 0) return {};
+
+        // Un turno que estaba en vuelo no se reanuda solo: podría repetir tools
+        // con efectos. Se cierra como interrumpido y el usuario decide si reenvía.
+        for (const [key] of snapshot) {
+          drainPending(key);
+          patchLastAssistant(key, (message) =>
+            message.status === "streaming"
+              ? {
+                  ...message,
+                  status: "error",
+                  composingTool: undefined,
+                  composingIndex: undefined,
+                  error: i18n.t("chat:errors.engineInterrupted"),
+                }
+              : message,
+          );
+          patchView(key, (view) => ({
+            ...view,
+            sending: false,
+            confirmations: [],
+            subagents: [],
+          }));
+        }
+
+        try {
+          await withBackoff(() => phoson.health(workspace));
+        } catch (error) {
+          logError("engine.recovery", error, { workspace });
+          for (const [key] of snapshot) {
+            patchView(key, (view) => ({
+              ...view,
+              notifications: [
+                ...view.notifications,
+                {
+                  sessionId: key,
+                  kind: "error" as const,
+                  message: i18n.t("chat:errors.engineRecoveryFailed"),
+                },
+              ],
+            }));
+          }
+          return null;
+        }
+
+        const mapping: Record<string, string> = {};
+        for (const [oldKey] of snapshot) {
+          // Recoge el estado ya marcado como interrumpido y cualquier edición
+          // que haya ocurrido mientras esperaba el backoff.
+          const previous = get().sessions[oldKey];
+          // Si el usuario la cerró durante el backoff, no hay nada que restaurar.
+          if (!previous) continue;
+          const restored = previous.engineId
+            ? await phoson.openSession(previous.engineId, workspace)
+            : await phoson.newSession(workspace);
+          const newKey = restored.sessionId;
+
+          // Las imágenes pendientes vivían en el controller del proceso muerto.
+          // Se vuelven a adjuntar best-effort; una ruta borrada no impide volver.
+          const attachments: Attachment[] = [];
+          for (const attachment of previous.attachments) {
+            try {
+              await phoson.attachmentAdd(newKey, attachment.path);
+              attachments.push(attachment);
+            } catch {
+              // El aviso de recuperación ya explica que hubo que reconectar.
+            }
+          }
+
+          // También pudo cerrarse mientras openSession/attachmentAdd esperaban.
+          // El historial de `newKey` puede haber llegado ya: se cierra para no
+          // resucitar una vista que el usuario acaba de descartar.
+          if (!get().sessions[oldKey]) {
+            await phoson.closeSession(newKey).catch(() => {});
+            continue;
+          }
+          bindSessionWorkspace(newKey, workspace);
+          unbindSessionWorkspace(oldKey);
+          mapping[oldKey] = newKey;
+
+          set((state) => {
+            const fresh = state.sessions[newKey] ?? emptyView(newKey);
+            const sessions = { ...state.sessions };
+            delete sessions[oldKey];
+            sessions[newKey] = {
+              ...fresh,
+              key: newKey,
+              title: previous.title || fresh.title,
+              // Una sesión persistida se rehidrata desde su JSONL; una que aún no
+              // tenía engineId conserva al menos lo visible en la UI.
+              messages: previous.engineId ? fresh.messages : previous.messages,
+              metrics: restored.metrics ?? fresh.metrics ?? previous.metrics,
+              workspace: restored.cwd || workspace,
+              sending: false,
+              confirmations: [],
+              subagents: [],
+              pluginBlocks: {},
+              attachments,
+              uploads: previous.uploads,
+              notifications: [
+                ...previous.notifications,
+                {
+                  sessionId: newKey,
+                  kind: "info" as const,
+                  message: i18n.t(
+                    previous.engineId ? "chat:recovery.restored" : "chat:recovery.newSession",
+                  ),
+                },
+              ],
+            };
+            const order = state.order
+              .map((key) => (key === oldKey ? newKey : key))
+              .filter((key, index, all) => all.indexOf(key) === index);
+            if (!order.includes(newKey)) order.push(newKey);
+            return {
+              sessions,
+              order,
+              activeKey: state.activeKey === oldKey ? newKey : state.activeKey,
+            };
+          });
+        }
+        logAction("engine.recovered", { workspace, sessions: Object.keys(mapping).length });
+        return mapping;
+      })()
+        .catch((error: unknown) => {
+          logError("engine.recovery", error, { workspace });
+          return null;
+        })
+        .finally(() => recoveries.delete(workspace));
+      recoveries.set(workspace, task);
+      return task;
     },
 
     send: async (text: string, reattach?: string[]) => {

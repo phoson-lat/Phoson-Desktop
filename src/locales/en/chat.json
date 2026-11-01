@@ -142,7 +142,13 @@
     "moreLines_other": "… +{{count}} more lines",
     "showLess": "Show less"
   },
+  "recovery": {
+    "restored": "The engine restarted and the session was restored from its history.",
+    "newSession": "The engine restarted. This session wasn't saved yet; the visible text was kept and you can continue in a new session."
+  },
   "errors": {
+    "engineInterrupted": "The engine stopped and the turn was interrupted. Check the result before resending it.",
+    "engineRecoveryFailed": "The engine didn't respond after several attempts. You can restart it from the command palette.",
     "attachFailed": "Could not attach: {{names}}",
     "turnRun": "Could not run the turn: {{reason}}",
     "turnCode": "The engine returned “{{code}}”.",

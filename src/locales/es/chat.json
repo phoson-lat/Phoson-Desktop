@@ -142,7 +142,13 @@
     "moreLines_other": "… +{{count}} líneas más",
     "showLess": "Ver menos"
   },
+  "recovery": {
+    "restored": "El motor se reinició y la sesión se restauró desde su historial.",
+    "newSession": "El motor se reinició. Esta sesión aún no estaba guardada; se conservó el texto visible y puedes continuar en una sesión nueva."
+  },
   "errors": {
+    "engineInterrupted": "El motor se detuvo y el turno quedó interrumpido. Revisa el resultado antes de reenviarlo.",
+    "engineRecoveryFailed": "El motor no respondió tras varios intentos. Puedes reiniciarlo desde la paleta de comandos.",
     "attachFailed": "No se pudieron adjuntar: {{names}}",
     "turnRun": "No se pudo ejecutar el turno: {{reason}}",
     "turnCode": "El engine devolvió «{{code}}».",

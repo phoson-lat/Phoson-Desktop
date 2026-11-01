@@ -4,12 +4,16 @@
   "version": "0.1.0-alpha.27",
   "type": "module",
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:unit": "vitest run",
     "check:i18n": "node scripts/check-i18n.mjs",
     "tauri": "tauri",
     "gen:icons": "node scripts/gen-provider-icons.mjs",
@@ -86,6 +90,7 @@
     "tailwindcss": "^4.2.0",
     "tw-animate-css": "1.3.3",
     "typescript": "5.7.3",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "vitest": "^5.0.5"
   }
 }

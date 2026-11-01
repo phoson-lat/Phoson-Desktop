@@ -11,7 +11,10 @@
     "connectError": "Couldn't connect to the engine",
     "stopped": "The engine for a workspace stopped",
     "restart": "It will restart the next time you use it.",
-    "restartWithPath": "It will restart the next time you use it: {{path}}"
+    "restartWithPath": "It will restart the next time you use it: {{path}}",
+    "recovering": "Recovering sessions in {{path}}…",
+    "recovered": "Sessions recovered in {{description}}",
+    "recoveryFailed": "Couldn't recover sessions in {{description}}"
   },
   "update": {
     "available": "New version v{{version}} available",

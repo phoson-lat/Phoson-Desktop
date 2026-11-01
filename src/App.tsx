@@ -31,6 +31,8 @@ import { checkForUpdates } from "@/lib/updater";
 import { demoUser } from "@/lib/demo-content";
 import { mark, record, uptime } from "@/lib/perf";
 import { cleanSessionTitle } from "@/lib/session-title";
+import { loadDrafts, saveDrafts } from "@/lib/drafts";
+import { remapRecordKeys } from "@/lib/recovery";
 import { extraInstallBlockText, useExtras } from "@/stores/extras";
 import { useSession } from "@/stores/session";
 import { useFilePanel } from "@/stores/file-panel";
@@ -62,6 +64,7 @@ export default function App() {  const {
     order,
     sessions,
     init,
+    recoverWorkspace,
     send,
     cancel,
     regenerate,
@@ -87,7 +90,7 @@ export default function App() {  const {
   const { t } = useTranslation(["chrome", "common"]);
   // Borrador POR SESIÓN: cambiar de sesión no debe arrastrar (ni enviar) el
   // texto que estabas escribiendo en otra.
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>(loadDrafts);
   const draft = (activeKey ? drafts[activeKey] : "") ?? "";
   const setDraft = (v: string) =>
     setDrafts((d) => (activeKey ? { ...d, [activeKey]: v } : d));
@@ -203,10 +206,13 @@ export default function App() {  const {
     }
   }, [collapsed]);
 
-  // Si el motor de un workspace se cae, avisamos: sus sesiones en memoria se
-  // pierden y el sidecar se respawnea al volver a usarlo. Las expulsiones por
-  // inactividad (`idle: true`, el recolector de Rust) son silenciosas: son
-  // mantenimiento, no un fallo.
+  // Persistencia local por sesión: sobrevive tanto a un reload del WebView como
+  // a la rehidratación de ids efímeros tras una caída del sidecar.
+  useEffect(() => saveDrafts(drafts), [drafts]);
+
+  // Una caída dispara health checks con backoff y reabre las sesiones desde el
+  // historial persistido. Las expulsiones por inactividad son silenciosas: no se
+  // vuelve a gastar RAM hasta que el usuario retome ese workspace.
   useEffect(() => {
     let dispose: (() => void) | undefined;
     void onTerminated(({ workspace, idle }) => {
@@ -214,17 +220,25 @@ export default function App() {  const {
         logAction("engine.idle-evicted", { workspace });
         return;
       }
-      toast.error(t("engine.stopped"), {
-        description: workspace
-          ? t("engine.restartWithPath", { path: basename(workspace) })
-          : t("engine.restart"),
+      const description = workspace ? basename(workspace) : undefined;
+      toast.warning(t("engine.stopped"), {
+        description: t("engine.recovering", { path: description }),
       });
       logError("engine.terminated", "sidecar detenido", { workspace });
+      void recoverWorkspace(workspace).then((mapping) => {
+        if (!mapping) {
+          toast.error(t("engine.recoveryFailed"), { description });
+          return;
+        }
+        // Los ids de SessionManager son efímeros; los borradores siguen al nuevo.
+        setDrafts((current) => remapRecordKeys(current, mapping));
+        toast.success(t("engine.recovered"), { description });
+      });
     }).then((fn) => {
       dispose = fn;
     });
     return () => dispose?.();
-  }, []);
+  }, [recoverWorkspace, t]);
 
   // Pegado al fondo: solo auto-scroll si el usuario ya está abajo. Si sube a
   // leer un mensaje anterior, no le arrastramos la vista en cada token.
