@@ -145,7 +145,7 @@ function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
     if (statSync(path).isDirectory()) walk(path, out);
-    else if (/\.(ts|tsx)$/.test(path)) out.push(path);
+    else if (/\.(ts|tsx)$/.test(path) && !/\.test\.tsx?$/.test(path)) out.push(path);
   }
   return out;
 }

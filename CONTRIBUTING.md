@@ -106,9 +106,10 @@ scripts/build-sidecar.sh        # PyInstaller onedir → src-tauri/binaries/phos
 ## Checks before a PR
 
 ```bash
+pnpm test:unit                # Vitest (store, bridge client y utilidades)
 pnpm build                    # tsc + vite build
 pnpm check:i18n               # locale parity + untranslated UI strings
-cd src-tauri && cargo check && cd ..
+cd src-tauri && cargo check && cargo test && cd ..
 python -m py_compile bridge/phoson_bridge/*.py
 python bridge/tests/smoke.py            # y el resto de bridge/tests/*.py
 ```

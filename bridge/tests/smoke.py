@@ -92,6 +92,13 @@ def main() -> int:
         checks.append((name, bool(cond), detail))
 
     try:
+        r = cli.call("system.ping")
+        check(
+            "system.ping",
+            r.get("result", {}).get("ok") is True and r.get("result", {}).get("pid", 0) > 0,
+            str(r.get("result", r.get("error", {}))),
+        )
+
         r = cli.call("initialize")
         check("initialize", "result" in r, r.get("error", {}).get("message", ""))
         info = r["result"]
@@ -150,6 +157,22 @@ def main() -> int:
             (p for p in state.get("plugins", []) if p.get("enabled") and not p.get("locked")),
             None,
         )
+        if activo is None:
+            # HOME limpio en CI: ningún plugin está activo todavía. Activa uno sin
+            # extras y repite la misma llamada para comprobar la idempotencia.
+            activo = next(
+                (
+                    p
+                    for p in state.get("plugins", [])
+                    if not p.get("locked") and not p.get("missingExtra")
+                ),
+                None,
+            )
+            if activo is not None:
+                cli.call(
+                    "plugins.set",
+                    {"sessionId": default, "id": activo["id"], "enabled": True},
+                )
         r = cli.call(
             "plugins.set",
             {"sessionId": default, "id": activo["id"] if activo else "", "enabled": True},

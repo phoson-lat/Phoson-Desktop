@@ -26,6 +26,9 @@ jobs:
       - name: deps
         run: pnpm install --frozen-lockfile
 
+      - name: unit tests
+        run: pnpm test:unit
+
       - name: typecheck + build
         run: pnpm build
 
@@ -51,6 +54,10 @@ jobs:
         working-directory: src-tauri
         run: cargo check --locked
 
+      - name: tests de Rust
+        working-directory: src-tauri
+        run: cargo test --locked
+
   bridge:
     runs-on: ubuntu-22.04
     steps:
@@ -61,7 +68,37 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: compilar el sidecar (sintaxis)
+      - name: instalar bridge y dependencias de test
         run: |
-          python -m py_compile bridge/phoson_bridge/*.py
-          echo "bridge OK"
+          python -m pip install --upgrade pip
+          python -m pip install -e "./bridge[test]"
+
+      - name: compilar el sidecar (sintaxis)
+        run: python -m py_compile bridge/phoson_bridge/*.py
+
+      - name: tests pytest del sidecar
+        run: >-
+          python -m pytest -q
+          bridge/tests/test_engine_api.py
+          bridge/tests/test_plugin_blocks.py
+          bridge/tests/test_questions.py
+          bridge/tests/test_token_batch.py
+          bridge/tests/test_wake_turns.py
+          bridge/tests/test_watchdog_models.py
+
+      # Estos arneses anteriores son scripts con aserciones al importar; se
+      # ejecutan en procesos separados para aislar HOME y los mocks globales.
+      - name: arneses del sidecar
+        run: |
+          for test in test_extras.py test_plugins.py test_stt_config.py test_stt_download.py test_stt_engine.py test_stt_transcribe.py; do
+            python "bridge/tests/$test" || exit 1
+          done
+
+      - name: integración JSON-RPC (sin LLM)
+        working-directory: bridge
+        env:
+          HOME: ${{ runner.temp }}/phoson-home
+          USERPROFILE: ${{ runner.temp }}/phoson-home
+          PHOSON_PROVIDER: ollama
+          PHOSON_MODEL: test-model
+        run: python tests/smoke.py

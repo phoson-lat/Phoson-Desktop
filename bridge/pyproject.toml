@@ -17,6 +17,7 @@ checkpoint = ["phoson-engine-minimal[checkpoint]"]
 bundle = [
     "phoson-engine-minimal[mcp,stt,checkpoint]",
 ]
+test = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
 
 [project.scripts]
 phoson-bridge = "phoson_bridge.__main__:run"
@@ -27,3 +28,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["phoson_bridge"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
