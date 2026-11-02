@@ -57,6 +57,8 @@ from .stt import (
     transcribe_wav as stt_transcribe_wav,
 )
 from . import extras as _extras
+from . import mcp_catalog
+from .mcp_config import clean_spec, merge_secret_map
 
 # Los extras instalados desde Ajustes (`~/.phoson/extras/<extra>`) entran en el
 # `sys.path` ANTES de que el engine construya sus plugins: si no, un plugin
@@ -597,6 +599,7 @@ class Bridge:
             "mcp.get": self._mcp_get,
             "mcp.save": self._mcp_save,
             "mcp.remove": self._mcp_remove,
+            "mcp.catalog": self._mcp_catalog,
             "plugins.get": self._plugins_get,
             "plugins.set": self._plugins_set,
             "plugins.install": self._plugins_install,
@@ -1726,6 +1729,7 @@ class Bridge:
         for name, spec in sorted(self._mcp_servers(self._mcp_load(cfg)).items()):
             spec = spec if isinstance(spec, dict) else {}
             env = spec.get("env") or {}
+            headers = spec.get("headers") or {}
             servers.append(
                 {
                     "name": name,
@@ -1736,6 +1740,7 @@ class Bridge:
                     "enabled": bool(spec.get("enabled", True)),
                     # Solo los NOMBRES: los valores suelen ser tokens.
                     "envKeys": sorted(env.keys()) if isinstance(env, dict) else [],
+                    "headerKeys": sorted(headers.keys()) if isinstance(headers, dict) else [],
                 }
             )
         return {
@@ -1750,7 +1755,14 @@ class Bridge:
         return self._mcp_summary(repl.config)
 
     async def _mcp_save(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Crea o actualiza un servidor MCP, y recarga los plugins."""
+        """Crea o actualiza un servidor MCP, y recarga los plugins.
+
+        ``env``/``headers`` se fusionan con lo guardado: un valor vacío **conserva**
+        el que hubiera (la UI nunca recibe los tokens, así que al editar llegan
+        solo las claves), y ``envRemove``/``headersRemove`` borran las claves que
+        el usuario quitó del formulario. Así se edita un servidor sin reescribir
+        secretos que no se pueden mostrar.
+        """
         repl = await self.sessions.get(params["sessionId"])
         cfg = repl.config
         name = str(params["name"]).strip()
@@ -1770,20 +1782,10 @@ class Bridge:
         if "enabled" in incoming:
             spec["enabled"] = bool(incoming["enabled"])
 
-        env = dict(spec.get("env") or {})
-        for key, value in (incoming.get("env") or {}).items():
-            if value:
-                env[key] = value
-            else:
-                env.pop(key, None)  # vaciar un valor lo elimina
-        if env:
-            spec["env"] = env
-        else:
-            spec.pop("env", None)
+        for key, remove_key in (("env", "envRemove"), ("headers", "headersRemove")):
+            merge_secret_map(spec, incoming, key, remove_key)
 
-        for key in ("command", "url", "args"):
-            if not spec.get(key):
-                spec.pop(key, None)
+        clean_spec(spec)
 
         servers[name] = spec
         data["mcpServers"] = servers
@@ -1801,6 +1803,20 @@ class Bridge:
         path = self._mcp_store(cfg, data)
         await self._reload_plugins(repl)
         return {"ok": True, "path": path, "mcp": self._mcp_summary(cfg)}
+
+    async def _mcp_catalog(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Busca servidores en el registro oficial de MCP (solo consulta).
+
+        No toca `mcps.json` ni recarga plugins: el usuario añade el servidor con
+        `mcp.save` después de rellenar sus claves. La descarga va en un hilo
+        aparte para no bloquear el loop (el resto de sesiones siguen vivas).
+        """
+        query = str(params.get("query") or "")
+        try:
+            limit = int(params.get("limit") or 30)
+        except (TypeError, ValueError):
+            limit = 30
+        return await asyncio.to_thread(mcp_catalog.search, query, limit)
 
     # ── Plugins del engine ────────────────────────────────────────────────
     # El estado de los plugins vive en `config.toml` (flags `enable_*` y/o las

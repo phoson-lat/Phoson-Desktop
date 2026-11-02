@@ -368,7 +368,7 @@ export interface FsReadResult {
   truncated?: boolean;
 }
 
-/** Servidor MCP (los valores de `env` nunca salen del sidecar). */
+/** Servidor MCP (los valores de `env` y `headers` nunca salen del sidecar). */
 export interface McpServer {
   name: string;
   transport: "stdio" | "sse" | "http" | string;
@@ -376,7 +376,42 @@ export interface McpServer {
   args?: string[];
   url?: string;
   enabled: boolean;
+  /** Nombres de las variables de entorno guardadas (sin valores). */
   envKeys: string[];
+  /** Nombres de las cabeceras HTTP guardadas (sin valores). */
+  headerKeys: string[];
+}
+
+/** Entrada del catálogo de MCP (`mcp.catalog`, registro oficial). */
+export interface McpCatalogEntry {
+  /** Nombre completo en el registro (`com.pulsemcp/remote-filesystem`). */
+  id: string;
+  /** Nombre sugerido para `mcps.json` (único y legible). */
+  name: string;
+  title: string;
+  description: string;
+  transport: "stdio" | "sse" | "http" | string;
+  command: string;
+  args: string[];
+  url: string;
+  envKeys: string[];
+  headerKeys: string[];
+  /** Claves obligatorias: lo que hay que rellenar antes de usar el servidor. */
+  required: string[];
+  /** `npm` | `pypi` | `oci` | `remote`. */
+  source: string;
+  repository: string;
+  version: string;
+}
+
+/** Resultado de `mcp.catalog`. `reason` llega traducido por la UI. */
+export interface McpCatalogResult {
+  ok: boolean;
+  entries: McpCatalogEntry[];
+  query: string;
+  reason: "network" | "http" | "badResponse" | string | null;
+  error?: string;
+  cached?: boolean;
 }
 
 export interface McpState {
