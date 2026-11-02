@@ -13,24 +13,48 @@ import {
   Monitor,
   Moon,
   Palette,
+  Pencil,
   Plug,
   Plus,
   Puzzle,
   RefreshCw,
+  Search,
   Server,
   ShieldCheck,
   Sun,
   Trash2,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, phoson } from "@/bridge/client";
-import type { ConfigView, McpState, PluginEntry, PluginsState, SttStatus, ToolCatalog } from "@/bridge/protocol";
+import type {
+  ConfigView,
+  McpCatalogEntry,
+  McpState,
+  PluginEntry,
+  PluginsState,
+  SttStatus,
+  ToolCatalog,
+} from "@/bridge/protocol";
 import { ProviderLogo } from "@/components/provider-logo";
 import { McpLogo } from "@/components/mcp-logo";
+import {
+  MCP_CURATED,
+  curatedEntry,
+  emptyMcpForm,
+  formFromEntry,
+  formFromServer,
+  headerKeys,
+  missingKeys,
+  parseHeaders,
+  parsePairs,
+  removedKeys,
+  splitArgs,
+  type McpFormValues,
+} from "@/lib/mcp-catalog";
 import { ModelCombobox } from "@/features/model-combobox";
 import { ProviderAccount, ProviderSignIn } from "@/features/provider-auth";
 import { Button } from "@/components/ui/button";
@@ -86,50 +110,6 @@ const SECTIONS: { id: SectionId; icon: ComponentType<{ className?: string }> }[]
   { id: "desktop", icon: AppWindow },
   { id: "appearance", icon: Palette },
   { id: "about", icon: Info },
-];
-
-/** Plantillas de servidores MCP comunes (rellenan el formulario). */
-const MCP_PRESETS = [
-  {
-    label: "filesystem",
-    name: "filesystem",
-    transport: "stdio",
-    command: "npx",
-    args: "-y @modelcontextprotocol/server-filesystem /tmp",
-    env: "",
-  },
-  {
-    label: "github",
-    name: "github",
-    transport: "stdio",
-    command: "npx",
-    args: "-y @modelcontextprotocol/server-github",
-    env: "GITHUB_PERSONAL_ACCESS_TOKEN=",
-  },
-  {
-    label: "brave-search",
-    name: "brave-search",
-    transport: "stdio",
-    command: "npx",
-    args: "-y @modelcontextprotocol/server-brave-search",
-    env: "BRAVE_API_KEY=",
-  },
-  {
-    label: "memory",
-    name: "memory",
-    transport: "stdio",
-    command: "npx",
-    args: "-y @modelcontextprotocol/server-memory",
-    env: "",
-  },
-  {
-    label: "postgres",
-    name: "postgres",
-    transport: "stdio",
-    command: "npx",
-    args: "-y @modelcontextprotocol/server-postgres postgresql://user:pass@localhost/db",
-    env: "",
-  },
 ];
 
 /**
@@ -263,15 +243,106 @@ export function SettingsDialog({
   const patch = (p: Partial<ConfigView>) => setConfig((c) => (c ? { ...c, ...p } : c));
 
   // ── MCP ───────────────────────────────────────────────────────────────
-  const [form, setForm] = useState({
-    name: "",
-    transport: "stdio",
-    command: "",
-    args: "",
-    url: "",
-    env: "",
-  });
+  const [form, setForm] = useState<McpFormValues>(emptyMcpForm);
   const [formOpen, setFormOpen] = useState(false);
+  /** Servidor que se está editando (`null` = alta nueva). */
+  const [editing, setEditing] = useState<string | null>(null);
+  /** Pestaña de la sección: servidores guardados o catálogo del registro. */
+  const [mcpTab, setMcpTab] = useState<"installed" | "catalog">("installed");
+  const [catalogQuery, setCatalogQuery] = useState("");
+  /** Resultados del registro (null = aún no se ha buscado). */
+  const [catalogEntries, setCatalogEntries] = useState<McpCatalogEntry[] | null>(null);
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  /** `network` | `http` | `badResponse` | null: se traduce en la UI. */
+  const [catalogFailure, setCatalogFailure] = useState<string | null>(null);
+  /** Fuerza una nueva búsqueda de la misma consulta («Reintentar»). */
+  const [catalogReload, setCatalogReload] = useState(0);
+  /** El formulario puede quedar fuera de la vista si el catálogo estaba bajado. */
+  const formRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!formOpen) return;
+    formRef.current?.scrollIntoView({ block: "nearest" });
+  }, [formOpen, editing]);
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditing(null);
+    setForm(emptyMcpForm());
+  };
+
+  const openForm = () => {
+    closeForm();
+    setMcpTab("installed");
+    setFormOpen(true);
+  };
+
+  const startEdit = (server: McpState["servers"][number]) => {
+    setEditing(server.name);
+    setForm(formFromServer(server));
+    setMcpTab("installed");
+    setFormOpen(true);
+  };
+
+  /** Catálogo curado: se pinta sin red y con los textos del idioma activo. */
+  const curatedCards = t("mcp.catalog.cards", { returnObjects: true }) as unknown as Record<
+    string,
+    string
+  >;
+  const curatedCatalog: McpCatalogEntry[] = MCP_CURATED.map((entry) =>
+    curatedEntry(entry, curatedCards?.[entry.descriptionKey] ?? ""),
+  );
+
+  /**
+   * Búsqueda en el registro oficial (con retardo para no consultar por tecla).
+   * Por debajo de 2 caracteres se enseña la lista curada, que no necesita red.
+   */
+  const trimmedCatalogQuery = catalogQuery.trim();
+  useEffect(() => {
+    if (!open || section !== "mcp" || mcpTab !== "catalog") return;
+    if (trimmedCatalogQuery.length < 2) {
+      setCatalogEntries(null);
+      setCatalogBusy(false);
+      setCatalogFailure(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setCatalogBusy(true);
+      phoson
+        .mcpCatalog(trimmedCatalogQuery)
+        .then((res) => {
+          if (cancelled) return;
+          setCatalogEntries(res.entries);
+          setCatalogFailure(res.ok ? null : (res.reason ?? "failed"));
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setCatalogEntries([]);
+          setCatalogFailure("failed");
+        })
+        .finally(() => {
+          if (!cancelled) setCatalogBusy(false);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [open, section, mcpTab, trimmedCatalogQuery, catalogReload]);
+
+  /** Una tarjeta del catálogo rellena el formulario (claves, sin valores). */
+  const useCatalogEntry = (entry: McpCatalogEntry) => {
+    // Si el nombre ya existe, se numera: guardar con el mismo nombre fusionaría
+    // (y pisaría) el servidor que ya tienes.
+    const taken = new Set((mcp?.servers ?? []).map((s) => s.name));
+    let name = entry.name;
+    for (let n = 2; taken.has(name) && n < 100; n += 1) name = `${entry.name}-${n}`;
+    setEditing(null);
+    setForm({ ...formFromEntry(entry), name });
+    setMcpTab("installed");
+    setFormOpen(true);
+  };
 
   const saveServer = async (name: string, server: Record<string, unknown>) => {
     if (!sessionId) return;
@@ -294,31 +365,45 @@ export function SettingsDialog({
     }
   };
 
-  const addServer = async () => {
+  /**
+   * Alta y edición comparten formulario. Al editar solo viajan los valores
+   * escritos: las claves con el valor vacío conservan el token guardado (el
+   * sidecar nunca lo devuelve) y `*Remove` borra las líneas eliminadas.
+   */
+  const submitServer = async () => {
     const name = form.name.trim();
     if (!name) {
       toast.error(t("toasts.mcpNameRequired"));
       return;
     }
-    // env: una entrada `CLAVE=valor` por línea.
-    const env = Object.fromEntries(
-      form.env
-        .split("\n")
-        .map((line) => line.split("="))
-        .filter((parts) => parts.length >= 2 && parts[0].trim())
-        .map((parts) => [parts[0].trim(), parts.slice(1).join("=").trim()]),
-    );
-    await saveServer(name, {
+    const remote = form.transport !== "stdio";
+    if (remote && !form.url.trim()) {
+      toast.error(t("toasts.mcpUrlRequired"));
+      return;
+    }
+    if (!remote && !form.command.trim()) {
+      toast.error(t("toasts.mcpCommandRequired"));
+      return;
+    }
+    const previous = editing ? mcp?.servers.find((s) => s.name === editing) : undefined;
+    const payload: Record<string, unknown> = {
       transport: form.transport,
-      command: form.command.trim(),
-      args: form.args.split(/\s+/).filter(Boolean),
-      url: form.url.trim(),
-      enabled: true,
-      env,
-    });
-    setForm({ name: "", transport: "stdio", command: "", args: "", url: "", env: "" });
-    setFormOpen(false);
-    toast.success(t("toasts.mcpAdded"), { description: name });
+      command: remote ? "" : form.command.trim(),
+      args: remote ? [] : splitArgs(form.args),
+      url: remote ? form.url.trim() : "",
+      enabled: previous?.enabled ?? true,
+      env: parsePairs(form.env, "="),
+      headers: remote ? parseHeaders(form.headers) : {},
+    };
+    if (previous) {
+      payload.envRemove = removedKeys(previous.envKeys, form.env, "=");
+      payload.headersRemove = remote
+        ? missingKeys(previous.headerKeys, headerKeys(form.headers))
+        : previous.headerKeys;
+    }
+    await saveServer(name, payload);
+    closeForm();
+    toast.success(previous ? t("toasts.mcpUpdated") : t("toasts.mcpAdded"), { description: name });
   };
 
   const save = async () => {
@@ -802,27 +887,21 @@ export function SettingsDialog({
                     </div>
                   )}
 
-                  {/* MCP */}
+                  {/* MCP: servidores guardados + catálogo del registro oficial */}
                   {section === "mcp" && (
                     <div className="space-y-5">
                       <div className="flex items-start justify-between gap-4">
-                        <SectionTitle
-                          title={t("mcp.title")}
-                          hint={t("mcp.hint")}
-                        />
+                        <SectionTitle title={t("mcp.title")} hint={t("mcp.hint")} />
                         <Button
                           size="sm"
                           className="h-8 shrink-0 gap-1.5 bg-violet text-xs text-white hover:bg-violet/90"
-                          onClick={() => setFormOpen((o) => !o)}
+                          onClick={openForm}
                         >
                           <Plus className="size-3.5" /> {t("common:actions.add")}
                         </Button>
                       </div>
 
-                      <Row
-                        label={t("mcp.enable")}
-                        hint={mcp?.configPath ?? "~/.phoson/mcps.json"}
-                      >
+                      <Row label={t("mcp.enable")} hint={mcp?.configPath ?? "~/.phoson/mcps.json"}>
                         <Switch
                           checked={!!config.enableMcp}
                           onCheckedChange={(v) => patch({ enableMcp: v })}
@@ -842,173 +921,336 @@ export function SettingsDialog({
                         </p>
                       )}
 
-                      <div className="space-y-2">
-                        {(mcp?.servers ?? []).length === 0 && (
-                          <p className="text-[0.7rem] text-muted-foreground">
-                            {t("mcp.empty")}
-                          </p>
-                        )}
-                        {(mcp?.servers ?? []).map((s) => (
-                          <div
-                            key={s.name}
-                            className="flex items-center gap-2 rounded-lg bg-[var(--phoson-surface-2)] px-3 py-2"
+                      {/* Dos vistas: lo guardado y el catálogo del registro. */}
+                      <div className="flex gap-1 rounded-lg border border-[var(--dashboard-border)] p-1">
+                        {(["installed", "catalog"] as const).map((id) => (
+                          <button
+                            key={id}
+                            onClick={() => setMcpTab(id)}
+                            className={cn(
+                              "flex-1 rounded-md px-2 py-1.5 text-[0.7rem] transition-colors",
+                              mcpTab === id
+                                ? "bg-[var(--phoson-surface-2)] text-foreground"
+                                : "text-muted-foreground dashboard-hover hover:text-foreground",
+                            )}
                           >
-                            <McpLogo name={s.name} size={16} className="text-violet" />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="truncate text-xs">{s.name}</span>
-                                <span className="shrink-0 rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[0.6rem] uppercase text-muted-foreground">
-                                  {s.transport}
-                                </span>
-                              </div>
-                              <div className="truncate font-mono text-[0.65rem] text-muted-foreground">
-                                {s.url ||
-                                  [s.command, ...(s.args ?? [])].filter(Boolean).join(" ") ||
-                                  "—"}
-                                {s.envKeys.length > 0 && ` · env: ${s.envKeys.join(", ")}`}
-                              </div>
-                            </div>
-                            <Switch
-                              checked={s.enabled}
-                              onCheckedChange={(v) => void saveServer(s.name, { enabled: v })}
-                            />
-                            <button
-                              onClick={() => void removeServer(s.name)}
-                              title={t("common:actions.delete")}
-                              className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-destructive"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
-                          </div>
+                            {id === "installed" ? t("mcp.tabs.installed") : t("mcp.tabs.catalog")}
+                          </button>
                         ))}
                       </div>
 
-                      {formOpen && (
-                        <div className="space-y-4 rounded-xl border border-[var(--dashboard-border)] p-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-xs font-medium">{t("mcp.newServer")}</span>
-                            <button
-                              onClick={() => setFormOpen(false)}
-                              className="text-[0.7rem] text-muted-foreground transition-colors hover:text-foreground"
+                      {mcpTab === "installed" && (
+                        <div className="space-y-3">
+                          {formOpen && (
+                            <div
+                              ref={formRef}
+                              className="space-y-4 rounded-xl border border-[var(--dashboard-border)] p-4"
                             >
-                              {t("common:actions.cancel")}
-                            </button>
-                          </div>
-
-                          <div>
-                            <Label className="text-[0.7rem] text-muted-foreground">
-                              {t("mcp.template")}
-                            </Label>
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
-                              {MCP_PRESETS.map((preset) => (
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-xs font-medium">
+                                  {editing
+                                    ? t("mcp.editServer", { name: editing })
+                                    : t("mcp.newServer")}
+                                </span>
                                 <button
-                                  key={preset.label}
-                                  onClick={() =>
-                                    setForm({
-                                      name: preset.name,
-                                      transport: preset.transport,
-                                      command: preset.command,
-                                      args: preset.args,
-                                      url: "",
-                                      env: preset.env,
-                                    })
-                                  }
-                                  className="flex items-center gap-1.5 rounded-full border border-[var(--dashboard-border)] px-2.5 py-1 text-[0.68rem] text-muted-foreground transition-colors dashboard-hover hover:text-violet"
+                                  onClick={closeForm}
+                                  className="text-[0.7rem] text-muted-foreground transition-colors hover:text-foreground"
                                 >
-                                  <McpLogo name={preset.name} size={13} />
-                                  {preset.label}
+                                  {t("common:actions.cancel")}
                                 </button>
-                              ))}
-                            </div>
-                          </div>
+                              </div>
 
-                          <Field label={t("common:words.name")} hint={t("mcp.nameHint")}>
-                            <Input
-                              className="h-8 text-xs"
-                              placeholder={t("mcp.namePlaceholder")}
-                              value={form.name}
-                              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                            />
-                          </Field>
-
-                          <Field
-                            label={t("mcp.transport")}
-                            hint={t("mcp.transportHint")}
-                          >
-                            <Select
-                              value={form.transport}
-                              onValueChange={(v) => setForm((f) => ({ ...f, transport: v }))}
-                            >
-                              <SelectTrigger className="h-8 w-full text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {["stdio", "sse", "http"].map((t) => (
-                                  <SelectItem key={t} value={t} className="text-xs">
-                                    {t}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </Field>
-
-                          {form.transport === "stdio" ? (
-                            <Field
-                              label={t("mcp.command")}
-                              hint={t("mcp.commandHint")}
-                            >
-                              <div className="flex gap-2">
+                              <Field
+                                label={t("common:words.name")}
+                                hint={editing ? t("mcp.nameLocked") : t("mcp.nameHint")}
+                              >
                                 <Input
-                                  className="h-8 w-28 shrink-0 font-mono text-xs"
-                                  placeholder="npx"
-                                  value={form.command}
+                                  className="h-8 text-xs disabled:opacity-60"
+                                  placeholder={t("mcp.namePlaceholder")}
+                                  disabled={!!editing}
+                                  value={form.name}
                                   onChange={(e) =>
-                                    setForm((f) => ({ ...f, command: e.target.value }))
+                                    setForm((f) => ({ ...f, name: e.target.value }))
                                   }
                                 />
-                                <Input
-                                  className="h-8 min-w-0 flex-1 font-mono text-xs"
-                                  placeholder="-y @modelcontextprotocol/server-filesystem /tmp"
-                                  value={form.args}
-                                  onChange={(e) => setForm((f) => ({ ...f, args: e.target.value }))}
+                              </Field>
+
+                              <Field label={t("mcp.transport")} hint={t("mcp.transportHint")}>
+                                <Select
+                                  value={form.transport}
+                                  onValueChange={(v) => setForm((f) => ({ ...f, transport: v }))}
+                                >
+                                  <SelectTrigger className="h-8 w-full text-xs">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {["stdio", "sse", "http"].map((transport) => (
+                                      <SelectItem
+                                        key={transport}
+                                        value={transport}
+                                        className="text-xs"
+                                      >
+                                        {transport}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </Field>
+
+                              {form.transport === "stdio" ? (
+                                <Field label={t("mcp.command")} hint={t("mcp.commandHint")}>
+                                  <div className="flex gap-2">
+                                    <Input
+                                      className="h-8 w-28 shrink-0 font-mono text-xs"
+                                      placeholder="npx"
+                                      value={form.command}
+                                      onChange={(e) =>
+                                        setForm((f) => ({ ...f, command: e.target.value }))
+                                      }
+                                    />
+                                    <Input
+                                      className="h-8 min-w-0 flex-1 font-mono text-xs"
+                                      placeholder="-y @modelcontextprotocol/server-filesystem /tmp"
+                                      value={form.args}
+                                      onChange={(e) =>
+                                        setForm((f) => ({ ...f, args: e.target.value }))
+                                      }
+                                    />
+                                  </div>
+                                </Field>
+                              ) : (
+                                <Field label={t("mcp.url")} hint={t("mcp.urlHint")}>
+                                  <Input
+                                    className="h-8 font-mono text-xs"
+                                    placeholder={t("mcp.urlPlaceholder")}
+                                    value={form.url}
+                                    onChange={(e) =>
+                                      setForm((f) => ({ ...f, url: e.target.value }))
+                                    }
+                                  />
+                                </Field>
+                              )}
+
+                              {/* SSE/HTTP: cabeceras con las que se autentica el
+                                  servidor remoto (Authorization, X-Api-Key…). */}
+                              {form.transport !== "stdio" && (
+                                <Field
+                                  label={t("mcp.headers")}
+                                  hint={editing ? t("mcp.envHintEdit") : t("mcp.headersHint")}
+                                >
+                                  <textarea
+                                    className="h-16 w-full resize-none rounded-md border border-[var(--dashboard-border)] bg-transparent p-2 font-mono text-[0.7rem] outline-none focus:border-violet"
+                                    placeholder={t("mcp.headersPlaceholder")}
+                                    value={form.headers}
+                                    onChange={(e) =>
+                                      setForm((f) => ({ ...f, headers: e.target.value }))
+                                    }
+                                  />
+                                </Field>
+                              )}
+
+                              <Field
+                                label={t("mcp.env")}
+                                hint={editing ? t("mcp.envHintEdit") : t("mcp.envHint")}
+                              >
+                                <textarea
+                                  className="h-16 w-full resize-none rounded-md border border-[var(--dashboard-border)] bg-transparent p-2 font-mono text-[0.7rem] outline-none focus:border-violet"
+                                  placeholder={t("mcp.envPlaceholder")}
+                                  value={form.env}
+                                  onChange={(e) =>
+                                    setForm((f) => ({ ...f, env: e.target.value }))
+                                  }
                                 />
+                              </Field>
+
+                              <div className="flex justify-end gap-2">
+                                <Button variant="ghost" size="sm" onClick={closeForm}>
+                                  {t("common:actions.cancel")}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="gap-1.5 bg-violet text-xs text-white hover:bg-violet/90"
+                                  onClick={() => void submitServer()}
+                                >
+                                  {editing ? (
+                                    <Check className="size-3.5" />
+                                  ) : (
+                                    <Plus className="size-3.5" />
+                                  )}
+                                  {editing ? t("common:actions.save") : t("mcp.addServer")}
+                                </Button>
                               </div>
-                            </Field>
-                          ) : (
-                            <Field label={t("mcp.url")} hint={t("mcp.urlHint")}>
-                              <Input
-                                className="h-8 font-mono text-xs"
-                                placeholder={t("mcp.urlPlaceholder")}
-                                value={form.url}
-                                onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-                              />
-                            </Field>
+                            </div>
                           )}
 
-                          <Field
-                            label={t("mcp.env")}
-                            hint={t("mcp.envHint")}
-                          >
-                            <textarea
-                              className="h-16 w-full resize-none rounded-md border border-[var(--dashboard-border)] bg-transparent p-2 font-mono text-[0.7rem] outline-none focus:border-violet"
-                              placeholder={t("mcp.envPlaceholder")}
-                              value={form.env}
-                              onChange={(e) => setForm((f) => ({ ...f, env: e.target.value }))}
-                            />
-                          </Field>
-
-                          <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="sm" onClick={() => setFormOpen(false)}>
-                              {t("common:actions.cancel")}
-                            </Button>
-                            <Button
-                              size="sm"
-                              className="gap-1.5 bg-violet text-xs text-white hover:bg-violet/90"
-                              onClick={() => void addServer()}
-                            >
-                              <Plus className="size-3.5" /> {t("mcp.addServer")}
-                            </Button>
+                          <div className="space-y-2">
+                            {(mcp?.servers ?? []).length === 0 && (
+                              <p className="text-[0.7rem] text-muted-foreground">{t("mcp.empty")}</p>
+                            )}
+                            {(mcp?.servers ?? []).map((s) => (
+                              <div
+                                key={s.name}
+                                className="flex items-center gap-2 rounded-lg bg-[var(--phoson-surface-2)] px-3 py-2"
+                              >
+                                <McpLogo name={s.name} size={16} className="text-violet" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="truncate text-xs">{s.name}</span>
+                                    <span className="shrink-0 rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[0.6rem] uppercase text-muted-foreground">
+                                      {s.transport}
+                                    </span>
+                                  </div>
+                                  <div className="truncate font-mono text-[0.65rem] text-muted-foreground">
+                                    {s.url ||
+                                      [s.command, ...(s.args ?? [])].filter(Boolean).join(" ") ||
+                                      "—"}
+                                  </div>
+                                  {(s.envKeys.length > 0 || s.headerKeys.length > 0) && (
+                                    <div className="truncate text-[0.6rem] text-muted-foreground">
+                                      {s.envKeys.length > 0 &&
+                                        t("mcp.serverEnv", { keys: s.envKeys.join(", ") })}
+                                      {s.envKeys.length > 0 && s.headerKeys.length > 0 && " · "}
+                                      {s.headerKeys.length > 0 &&
+                                        t("mcp.serverHeaders", {
+                                          keys: s.headerKeys.join(", "),
+                                        })}
+                                    </div>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={() => startEdit(s)}
+                                  title={t("common:actions.edit")}
+                                  className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-foreground"
+                                >
+                                  <Pencil className="size-3.5" />
+                                </button>
+                                <Switch
+                                  checked={s.enabled}
+                                  onCheckedChange={(v) => void saveServer(s.name, { enabled: v })}
+                                />
+                                <button
+                                  onClick={() => void removeServer(s.name)}
+                                  title={t("common:actions.delete")}
+                                  className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors dashboard-hover hover:text-destructive"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </div>
+                            ))}
                           </div>
+                        </div>
+                      )}
+
+                      {mcpTab === "catalog" && (
+                        <div className="space-y-3">
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              className="h-9 pl-8 text-xs"
+                              placeholder={t("mcp.catalog.searchPlaceholder")}
+                              value={catalogQuery}
+                              onChange={(e) => setCatalogQuery(e.target.value)}
+                            />
+                          </div>
+                          <p className="text-[0.65rem] leading-snug text-muted-foreground">
+                            {t("mcp.catalog.hint")}
+                          </p>
+
+                          {catalogFailure && (
+                            <div className="flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-[0.68rem] text-warning">
+                              <span className="min-w-0 flex-1">
+                                {catalogFailure === "network"
+                                  ? t("mcp.catalog.offline")
+                                  : t("mcp.catalog.failed")}
+                              </span>
+                              <button
+                                onClick={() => setCatalogReload((n) => n + 1)}
+                                className="shrink-0 font-medium underline-offset-2 hover:underline"
+                              >
+                                {t("mcp.catalog.retry")}
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[0.62rem] uppercase tracking-wide text-muted-foreground">
+                              {trimmedCatalogQuery.length < 2
+                                ? t("mcp.catalog.curated")
+                                : t("mcp.catalog.results", {
+                                    count: (catalogEntries ?? []).length,
+                                  })}
+                            </span>
+                            {catalogBusy && (
+                              <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                            )}
+                          </div>
+
+                          {trimmedCatalogQuery.length === 1 && (
+                            <p className="text-[0.65rem] text-muted-foreground">
+                              {t("mcp.catalog.minChars")}
+                            </p>
+                          )}
+
+                          {!catalogBusy &&
+                            !catalogFailure &&
+                            trimmedCatalogQuery.length >= 2 &&
+                            (catalogEntries ?? []).length === 0 && (
+                              <p className="text-[0.7rem] text-muted-foreground">
+                                {t("mcp.catalog.empty", { query: trimmedCatalogQuery })}
+                              </p>
+                            )}
+
+                          <div className="space-y-1.5">
+                            {(trimmedCatalogQuery.length < 2
+                              ? curatedCatalog
+                              : (catalogEntries ?? [])
+                            ).map((entry) => (
+                              <button
+                                key={entry.id}
+                                onClick={() => useCatalogEntry(entry)}
+                                title={t("mcp.catalog.configure")}
+                                className="flex w-full items-start gap-2.5 rounded-lg border border-transparent bg-[var(--phoson-surface-2)] p-2.5 text-left transition-colors dashboard-hover hover:border-violet/40"
+                              >
+                                <McpLogo
+                                  name={entry.name}
+                                  size={16}
+                                  className="mt-0.5 text-violet"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="truncate text-xs font-medium">
+                                      {entry.title || entry.name}
+                                    </span>
+                                    <span className="shrink-0 rounded border border-[var(--dashboard-border)] px-1.5 py-0.5 text-[0.58rem] uppercase text-muted-foreground">
+                                      {entry.transport}
+                                    </span>
+                                    {entry.source && entry.source !== "remote" && (
+                                      <span className="shrink-0 rounded bg-[var(--phoson-surface)] px-1.5 py-0.5 text-[0.58rem] text-muted-foreground">
+                                        {entry.source}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {entry.description && (
+                                    <p className="mt-0.5 line-clamp-2 text-[0.65rem] leading-snug text-muted-foreground">
+                                      {entry.description}
+                                    </p>
+                                  )}
+                                  {entry.required.length > 0 && (
+                                    <p className="mt-1 truncate text-[0.6rem] text-warning">
+                                      {t("mcp.catalog.required", {
+                                        keys: entry.required.join(", "),
+                                      })}
+                                    </p>
+                                  )}
+                                </div>
+                                <Plus className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                              </button>
+                            ))}
+                          </div>
+
+                          <p className="text-[0.6rem] text-muted-foreground">
+                            {t("mcp.catalog.source")}
+                          </p>
                         </div>
                       )}
                     </div>

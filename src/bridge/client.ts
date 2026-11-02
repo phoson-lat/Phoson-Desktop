@@ -28,6 +28,8 @@ import type {
   FsListResult,
   FsReadResult,
   InitResult,
+  McpCatalogEntry,
+  McpCatalogResult,
   McpServer,
   McpState,
   PluginEntry,
@@ -45,6 +47,7 @@ import type {
   Json,
 } from "./protocol";
 import { demoAssistant, demoUser } from "../lib/demo-content";
+import { MCP_CURATED, curatedEntry } from "../lib/mcp-catalog";
 
 export interface Bridge {
   rpc<T = Json>(method: string, params?: Json, workspace?: string | null): Promise<T>;
@@ -360,6 +363,16 @@ class MockBridge implements Bridge {
         const incoming = (p.server ?? {}) as Record<string, unknown>;
         const prev = MOCK_MCP.servers.find((s) => s.name === name);
         const env = (incoming.env ?? {}) as Record<string, string>;
+        const headers = (incoming.headers ?? {}) as Record<string, string>;
+        const merge = (saved: string[] | undefined, pairs: Record<string, string>, drop: unknown) =>
+          [
+            ...new Set([
+              ...(saved ?? []),
+              ...Object.entries(pairs)
+                .filter(([, value]) => String(value).trim())
+                .map(([key]) => key),
+            ]),
+          ].filter((key) => !((drop as string[] | undefined) ?? []).includes(key));
         const next: McpServer = {
           name,
           transport: String(incoming.transport ?? prev?.transport ?? "stdio"),
@@ -367,15 +380,27 @@ class MockBridge implements Bridge {
           args: (incoming.args as string[]) ?? prev?.args ?? [],
           url: String(incoming.url ?? prev?.url ?? ""),
           enabled: Boolean(incoming.enabled ?? prev?.enabled ?? true),
-          envKeys: Object.keys(env).length
-            ? [...new Set([...(prev?.envKeys ?? []), ...Object.keys(env)])]
-            : (prev?.envKeys ?? []),
+          envKeys: merge(prev?.envKeys, env, incoming.envRemove),
+          headerKeys: merge(prev?.headerKeys, headers, incoming.headersRemove),
         };
         MOCK_MCP = {
           ...MOCK_MCP,
           servers: [...MOCK_MCP.servers.filter((s) => s.name !== name), next],
         };
         return { ok: true, mcp: MOCK_MCP } as unknown as T;
+      }
+      case "mcp.catalog": {
+        // En el navegador no hay sidecar ni registro: se filtra la lista curada
+        // para poder probar el catálogo entero sin red.
+        const query = String(p.query ?? "").trim().toLowerCase();
+        const entries = mockCatalog().filter(
+          (entry) =>
+            !query ||
+            `${entry.title} ${entry.name} ${entry.description} ${entry.envKeys.join(" ")}`
+              .toLowerCase()
+              .includes(query),
+        );
+        return { ok: true, entries, query, reason: null, cached: true } as unknown as T;
       }
       case "mcp.remove":
         MOCK_MCP = {
@@ -703,6 +728,7 @@ let MOCK_MCP: McpState = {
       args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
       enabled: true,
       envKeys: [],
+      headerKeys: [],
     },
     {
       name: "github",
@@ -711,9 +737,22 @@ let MOCK_MCP: McpState = {
       args: ["-y", "@modelcontextprotocol/server-github"],
       enabled: true,
       envKeys: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+      headerKeys: [],
     },
   ],
 };
+
+/**
+ * Catálogo del modo demo: la lista curada con su descripción traducida. El
+ * sidecar real devuelve lo mismo (más los ~55k del registro) desde `mcp.catalog`.
+ */
+const mockCatalog = (): McpCatalogEntry[] =>
+  MCP_CURATED.map((entry) =>
+    curatedEntry(
+      entry,
+      String(i18n.t(`mcp.catalog.cards.${entry.descriptionKey}` as never, { ns: "settings" })),
+    ),
+  );
 
 /**
  * Plugins del engine en modo demo: el catálogo real (`phoson_cli.labels`) con
@@ -1049,6 +1088,13 @@ export const phoson = {
     call<{ ok: boolean; mcp: McpState }>("mcp.save", { sessionId, name, server }),
   mcpRemove: (sessionId: string, name: string) =>
     call<{ ok: boolean; mcp: McpState }>("mcp.remove", { sessionId, name }),
+  /**
+   * Busca en el catálogo de MCP (registro oficial). Sin `sessionId`: no toca la
+   * config ni el engine, solo consulta el registro a través del sidecar (que es
+   * quien tiene red y evita el CSP/CORS de la webview).
+   */
+  mcpCatalog: (query: string, limit = 30) =>
+    call<McpCatalogResult>("mcp.catalog", { query, limit }),
   // Plugins del engine (Ajustes → Plugins). Activar/desactivar escribe en
   // `config.toml` (flags `enable_*` o las listas de specs) y reconstruye el
   // engine; instalar es código nuevo en el entorno del sidecar y el backend
