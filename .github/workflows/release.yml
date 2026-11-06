@@ -21,7 +21,7 @@ jobs:
           # PyInstaller, así que se usa el host como target.
           - platform: ubuntu-22.04 # x86_64-unknown-linux-gnu
           - platform: windows-latest # x86_64-pc-windows-msvc
-          - platform: macos-14 # aarch64-apple-darwin (Apple Silicon)
+          - platform: macos-15 # aarch64-apple-darwin (Apple Silicon)
           # macOS Intel (macos-13) queda fuera: los runners Intel son escasos y
           # el updater serviría un set incompleto. Se puede reactivar cuando haya
           # disponibilidad (añade `- platform: macos-13`).
@@ -152,7 +152,7 @@ jobs:
       # `APPLE_CERTIFICATE` definida y vacía: el bundler la leería como presente
       # e intentaría importar un certificado vacío.
       - name: macOS — configurar firma (ad-hoc si no hay certificado)
-        if: matrix.platform == 'macos-14'
+        if: runner.os == 'macOS'
         shell: bash
         env:
           IN_CERT: ${{ secrets.APPLE_CERTIFICATE }}
