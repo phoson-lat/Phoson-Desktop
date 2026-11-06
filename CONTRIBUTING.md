@@ -69,7 +69,7 @@ necesita una API distinta y el clic debe traer la ventana al frente.
 
 | Plataforma | API | Notas |
 |---|---|---|
-| macOS | `UNUserNotificationCenter` (`mac-usernotifications`) | **Requiere bundle** `.app` con `CFBundleIdentifier` y firma válida (ad-hoc basta), lanzado por LaunchServices. En `tauri dev` el proceso no está empaquetado y las notificaciones no existen: se registra un `[notify] …` en stderr. Para probar en macOS: `pnpm tauri build --debug --bundles app`, copia el `.app` a `~/Applications` y ábrelo con `open`. |
+| macOS | `UNUserNotificationCenter` (`mac-usernotifications`) | **La app empaquetada requiere bundle** `.app` con `CFBundleIdentifier` y firma válida (ad-hoc basta), lanzado por LaunchServices; el clic recupera la ventana. En `tauri dev` el proceso no está empaquetado: solo en debug se usa `osascript` como fallback para mostrar el banner, sin acción de clic. Para probar el comportamiento completo ejecuta `scripts/dev-macos-app.sh`: genera el `.app` con identificador `lat.phoson.desktop.debug`, lo firma ad-hoc y lo abre. El identificador separado evita compartir permisos y firma con el release. |
 | Linux | D-Bus `org.freedesktop.Notifications` (`notify-rust`) | Necesita un daemon (GNOME/KDE/dunst) accesible en la sesión. La acción «Mostrar Phoson» abre la ventana. |
 | Windows | Toast de WinRT (`tauri-plugin-notification`) | Único sitio donde sigue usándose el plugin. |
 
