@@ -472,8 +472,13 @@ export default function App() {  const {
 
   return (
     <TooltipProvider delayDuration={200}>
+      {/* macOS: franja propia para el título y los semáforos; el sidebar y el
+          contenido empiezan debajo, sin desplazar sus cabeceras internas. */}
+      <div data-window-drag className="macos-titlebar" aria-hidden="true">
+        <span>{title} · Phoson</span>
+      </div>
       <div
-        className="dashboard-shell-overlay flex h-full min-h-0 w-full overflow-hidden"
+        className="app-window-shell dashboard-shell-overlay flex h-full min-h-0 w-full overflow-hidden"
         onDragOver={handleDragOver}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -528,7 +533,10 @@ export default function App() {  const {
             </Suspense>
           ) : (
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="flex items-center gap-2 border-b border-dashboard-border-soft px-3 py-2.5 sm:gap-3 sm:px-4">
+          <header
+            data-window-drag
+            className="app-window-header flex items-center gap-2 border-b border-dashboard-border-soft px-3 py-2.5 sm:gap-3 sm:px-4"
+          >
             {isMobile && (
               <Button
                 variant="ghost"

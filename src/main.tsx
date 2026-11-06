@@ -5,6 +5,7 @@ import { ThemeProvider } from "next-themes";
 import App from "./App";
 import { initI18n } from "@/lib/i18n";
 import { installNativeLabels } from "@/lib/native-labels";
+import { installNativeWindow } from "@/lib/native-window";
 import { installLogger } from "@/lib/log";
 import { mark } from "@/lib/perf";
 import "./styles/globals.css";
@@ -24,6 +25,7 @@ import "katex/dist/katex.min.css";
 async function bootstrap(): Promise<void> {
   // Instrumentación de acciones: lo antes posible para no perder el arranque.
   installLogger();
+  installNativeWindow();
   // Tiempo desde que la webview empieza a ejecutar el bundle.
   mark("ui:main-eval");
 

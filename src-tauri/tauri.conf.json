@@ -12,17 +12,25 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Phoson Desktop",
         "width": 1200,
         "height": 820,
         "minWidth": 900,
         "minHeight": 600,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 16
+        }
       }
     ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' asset: data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost"
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
