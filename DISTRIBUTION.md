@@ -63,9 +63,34 @@ En CI (GitHub Actions → *Settings → Secrets and variables → Actions*), añ
 
 ### Firma de los instaladores
 
-- **Windows**: Authenticode (`signtool` o Azure Trusted Signing) →
-  `bundle.windows.certificateThumbprint` / variables `WINDOWS_CERTIFICATE*`.
+- **Windows**: Authenticode con `signtool`, configurado automáticamente en CI
+  cuando existe el secreto `WINDOWS_CERTIFICATE` (ver abajo).
 - **macOS**: Developer ID + notarización (ver abajo).
+
+### Windows (Authenticode y SmartScreen)
+
+El instalador y el ejecutable necesitan un certificado de **firma de código**
+(no sirve un certificado TLS/SSL). En GitHub Actions → *Settings → Secrets and
+variables → Actions*, configura:
+
+| Secreto | Contenido |
+| --- | --- |
+| `WINDOWS_CERTIFICATE` | `.pfx` en base64 (`openssl base64 -A -in cert.pfx`) |
+| `WINDOWS_CERTIFICATE_PASSWORD` | contraseña de exportación del `.pfx` |
+| `WINDOWS_CERTIFICATE_THUMBPRINT` | opcional; CI la deriva del certificado importado |
+
+La variable `WINDOWS_TIMESTAMP_URL` es opcional (por defecto,
+`http://timestamp.digicert.com`). `release.yml` importa el PFX solo en el runner,
+inyecta `certificateThumbprint`/`digestAlgorithm`/`timestampUrl` en la config de
+release y valida el instalador resultante con `Get-AuthenticodeSignature`. Ningún
+certificado ni huella se guarda en el repo.
+
+> Firmar **no elimina SmartScreen de inmediato**. Desde 2024, OV y EV construyen
+> reputación bajo las mismas reglas; reutilizar el mismo certificado conserva la
+> reputación entre releases. En Windows 11 con *Smart App Control*, una app nueva
+> sin firmar puede bloquearse sin opción de excepción. Para claves gestionadas en
+> la nube también se puede usar `bundle.windows.signCommand` con Azure Artifact
+> Signing en lugar del PFX.
 
 ### macOS (firma ad-hoc, y Developer ID + notarización)
 
@@ -133,8 +158,9 @@ codesign --verify --deep --strict "Phoson Desktop.app"   # "valid on disk"
 spctl -a -vv "Phoson Desktop.app"                        # "accepted" solo si está notarizada
 ```
 
-La firma de **instaladores de Windows** sigue **pendiente** (el updater **sí**
-queda operativo con la clave de §2.1).
+El pipeline de **instaladores de Windows** ya queda preparado para Authenticode;
+se activa al añadir los secretos de §2.2. El updater es una firma independiente y
+sigue usando la clave de §2.1.
 
 ## 3. Updater — solución elegida
 

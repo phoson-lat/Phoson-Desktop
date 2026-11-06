@@ -95,6 +95,52 @@ jobs:
           "$PY" -m pip install -e "./engine"
           PHOSON_ENGINE_DIR="$PWD/engine" bash scripts/build-sidecar.sh
 
+      # Windows: Authenticode para el ejecutable y el instalador NSIS. El PFX
+      # vive solo en el runner temporal; la huella se deriva del certificado y
+      # se inyecta en la config de release sin versionarla. Sin certificado el
+      # build sigue disponible, pero SmartScreen/Smart App Control puede bloquearlo.
+      - name: Windows — importar certificado Authenticode
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          IN_CERT: ${{ secrets.WINDOWS_CERTIFICATE }}
+          IN_CERT_PW: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          IN_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+          IN_TIMESTAMP: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:IN_CERT)) {
+            Write-Host "::warning title=Windows sin certificado::WINDOWS_CERTIFICATE no configurado: el instalador quedará sin firmar y SmartScreen puede bloquearlo."
+            exit 0
+          }
+
+          $certDir = Join-Path $env:RUNNER_TEMP "phoson-authenticode"
+          $pfx = Join-Path $certDir "certificate.pfx"
+          New-Item -ItemType Directory -Force -Path $certDir | Out-Null
+          try {
+            # Acepta base64 con o sin saltos de línea (certutil/openssl).
+            $bytes = [Convert]::FromBase64String(($env:IN_CERT -replace '\s', ''))
+            [IO.File]::WriteAllBytes($pfx, $bytes)
+            $password = ConvertTo-SecureString -String "$env:IN_CERT_PW" -Force -AsPlainText
+            $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+            $thumbprint = if ([string]::IsNullOrWhiteSpace($env:IN_THUMBPRINT)) { $cert.Thumbprint } else { $env:IN_THUMBPRINT }
+            $timestamp = if ([string]::IsNullOrWhiteSpace($env:IN_TIMESTAMP)) { "http://timestamp.digicert.com" } else { $env:IN_TIMESTAMP }
+
+            $configPath = "src-tauri/tauri.release.conf.json"
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+            if ($null -eq $config.bundle.windows) {
+              $config.bundle | Add-Member -NotePropertyName windows -NotePropertyValue ([pscustomobject]@{})
+            }
+            $config.bundle.windows | Add-Member -Force -NotePropertyName certificateThumbprint -NotePropertyValue $thumbprint
+            $config.bundle.windows | Add-Member -Force -NotePropertyName digestAlgorithm -NotePropertyValue "sha256"
+            $config.bundle.windows | Add-Member -Force -NotePropertyName timestampUrl -NotePropertyValue $timestamp
+            $config | ConvertTo-Json -Depth 100 | Set-Content $configPath -Encoding utf8
+            "WINDOWS_SIGNING_REQUIRED=true" >> $env:GITHUB_ENV
+            Write-Host "Certificado importado; Tauri firmará con Authenticode SHA-256 y timestamp."
+          } finally {
+            Remove-Item -Force -ErrorAction SilentlyContinue $pfx
+          }
+
       # macOS: un bundle SIN firma válida se descarga con cuarentena y macOS 26
       # lo muestra como "Phoson Desktop está dañado y no se puede abrir" (no hay
       # botón para autorizarlo). Con `APPLE_SIGNING_IDENTITY=-` Tauri firma
@@ -151,7 +197,8 @@ jobs:
           releaseBody: |
             Alpha build of Phoson Desktop. Download the bundle for your platform from this release;
             if you already have a previous alpha installed, the app offers the update automatically.
-            macOS bundles are ad-hoc signed: authorize the app once in System Settings → Privacy & Security.
+            macOS uses Developer ID/notarization when configured, or ad-hoc signing otherwise.
+            Windows uses Authenticode when a certificate is configured; unsigned builds may trigger SmartScreen.
           releaseDraft: true
           # NO marcar como *prerelease*: el updater lee
           # `releases/latest/download/latest.json` y `/releases/latest` excluye
@@ -161,3 +208,18 @@ jobs:
           # que es un alpha. Ver DISTRIBUTION.md §3.
           prerelease: false
           args: "--config src-tauri/tauri.release.conf.json"
+
+      - name: Windows — verificar la firma del instalador
+        if: matrix.platform == 'windows-latest' && env.WINDOWS_SIGNING_REQUIRED == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installers = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe"
+          if ($installers.Count -eq 0) { throw "No se encontró el instalador NSIS" }
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            if ($signature.Status -ne "Valid") {
+              throw "Firma inválida en $($installer.Name): $($signature.Status) — $($signature.StatusMessage)"
+            }
+            Write-Host "Firma Authenticode válida: $($installer.Name)"
+          }
