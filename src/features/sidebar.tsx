@@ -286,7 +286,7 @@ export function Sidebar({
         <div className="flex h-full w-full flex-col border-r border-[var(--dashboard-border)]">
           {rail ? (
             /* ── Rail: solo iconos (estilo ChatGPT colapsado) ───────────── */
-            <div className="flex h-full w-14 flex-col items-center gap-1 py-3">
+            <div data-window-drag className="app-sidebar-rail flex h-full w-14 flex-col items-center gap-1 py-3">
               <button
                 onClick={onToggleCollapse}
                 title={t("sidebar.show")}
@@ -324,7 +324,7 @@ export function Sidebar({
           ) : (
             /* ── Barra completa ─────────────────────────────────────────── */
             <>
-              <div className="flex items-center gap-1 px-3 pb-1 pt-3">
+              <div data-window-drag className="app-sidebar-brand flex items-center gap-1 px-3 pb-1 pt-3">
                 <div className="min-w-0 flex-1 pl-1">{brandBlock}</div>
                 <IconButton
                   icon={Search}
