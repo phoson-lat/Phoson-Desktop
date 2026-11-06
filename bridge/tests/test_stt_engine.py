@@ -21,13 +21,24 @@ except ImportError:  # pragma: no cover - CI sin engine
     print("STT SKIP: phoson_plugin_stt no instalable aquí")
     sys.exit(0)
 
+try:
+    import moonshine_voice  # noqa: F401
+    _HAS_RUNTIME = True
+except ImportError:
+    # El plugin viene en el paquete base del engine, pero el runtime de
+    # dictado solo llega con el extra [stt] (el CI no lo instala).
+    _HAS_RUNTIME = False
+
 manager = SttManager(lambda _m, _p: None)
 status = manager.status()
 print(json.dumps(status, ensure_ascii=False))
-if not status["supported"]:
-    print("STT FAIL:", status.get("reason"))
-    sys.exit(1)
-print("STT OK")
+if _HAS_RUNTIME:
+    if not status["supported"]:
+        print("STT FAIL:", status.get("reason"))
+        sys.exit(1)
+    print("STT OK")
+else:
+    print("STT SKIP: moonshine-voice no instalado; solo se valida el estado sin runtime")
 
 # Sin el runtime, el estado nombra el extra que lo arregla (la UI ofrece
 # instalarlo desde el composer). `None` en `sys.modules` simula que falta.
