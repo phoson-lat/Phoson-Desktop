@@ -2779,7 +2779,7 @@ dependencies = [
 
 [[package]]
 name = "phoson-desktop"
-version = "0.1.0-alpha.27"
+version = "0.1.0-alpha.28"
 dependencies = [
  "mac-usernotifications",
  "notify-rust",
