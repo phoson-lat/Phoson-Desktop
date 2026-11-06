@@ -10,6 +10,12 @@ Checklist operativa para publicar `0.1.0-alpha.1` (multiplataforma).
       tiene password).
 - [ ] Guardar la **clave privada** en un gestor de secretos (si se pierde, no se
       pueden firmar updates).
+- [ ] **Recomendado — macOS**: `APPLE_CERTIFICATE`,
+      `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+      `APPLE_PASSWORD` y `APPLE_TEAM_ID` para Developer ID + notarización.
+- [ ] **Recomendado — Windows**: `WINDOWS_CERTIFICATE` (PFX base64) y
+      `WINDOWS_CERTIFICATE_PASSWORD` para Authenticode. Sin certificados, CI
+      conserva los builds ad-hoc/sin firmar pero los sistemas pueden avisar.
 
 ## 2. Publicar el tag
 
@@ -90,10 +96,11 @@ Swarms (en pausa):
 - **Swarms**: en pausa — el código sigue en `src/features/swarm/`, pero **sin
   punto de entrada en la UI** (las entradas del sidebar y de la paleta se
   retiraron a propósito).
-- **Firma de instaladores**: macOS se firma **ad-hoc** en CI (ya no sale
-  "dañado"; el usuario debe autorizarlo una vez en Ajustes → Privacidad y
-  seguridad). La **notarización con Developer ID** y la firma Authenticode de
-  Windows siguen **pendientes** (ver `DISTRIBUTION.md` §2).
+- **Firma de instaladores**: sin certificados, macOS se firma **ad-hoc** (ya no
+  sale "dañado", pero hay que autorizarlo una vez) y Windows queda sin firmar
+  (SmartScreen/Smart App Control puede avisar o bloquear). El pipeline acepta
+  Developer ID/notarización y Authenticode; configura los secretos de §1 y ver
+  `DISTRIBUTION.md` §2.
 - **Updater**: funciona una vez **publicado** (no draft) el release con
   `latest.json`.
 - **Rendimiento**: el primer `session.list` puede tardar (lectura completa del
