@@ -16,6 +16,7 @@
   },
   "agent": {
     "new": "Nuevo agente",
+    "switch": "Cambiar de agente",
     "hint": "El agente tendrá una sesión y un workspace propios dentro de {{team}}.",
     "name": "Nombre del agente",
     "namePlaceholder": "backend",
@@ -58,6 +59,11 @@
     "hint": "Su primera respuesta incluirá el rol que configuraste. El historial se conserva como una sesión normal."
   },
   "mentionHint": "Menciona @agente para pedirle algo a través de peer_ask.",
+  "split": {
+    "open": "Abrir {{name}} en split view",
+    "close": "Cerrar el panel de {{name}}",
+    "limit": "Puedes abrir un máximo de 4 chats en split view."
+  },
   "welcome": {
     "title": "Coordina el equipo {{team}}",
     "hint": "Crea agentes en el mismo workspace o en proyectos distintos, habla con cada uno y conéctalos entre sí."

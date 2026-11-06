@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agentRolePrompt, mentionsAgent, normalizePeerName, peerMessagePrompt, PEER_NAME_PATTERN } from "./teams";
+import { addAgentToSplit, agentRolePrompt, mentionsAgent, normalizePeerName, peerMessagePrompt, PEER_NAME_PATTERN } from "./teams";
 import type { TeamAgent } from "@/stores/teams";
 
 const agent: TeamAgent = {
@@ -24,6 +24,13 @@ describe("Equipos", () => {
     expect(prompt).toContain("Revisa el engine");
     expect(prompt).toContain("peer_ask");
     expect(prompt.endsWith("Revisa este fallo")).toBe(true);
+  });
+
+  it("abre varios chats sin duplicarlos y limita el split a cuatro", () => {
+    expect(addAgentToSplit([], "one", "two")).toEqual(["one", "two"]);
+    expect(addAgentToSplit(["one", "two"], "two", "two")).toEqual(["one", "two"]);
+    expect(addAgentToSplit(["one", "two", "three"], "three", "four")).toEqual(["one", "two", "three", "four"]);
+    expect(addAgentToSplit(["one", "two", "three", "four"], "four", "five")).toBeNull();
   });
 
   it("detecta menciones literales, incluidos nombres con punto", () => {

@@ -1,10 +1,9 @@
 import {
-  Bot,
+  ChevronDown,
+  Columns2,
   FolderOpen,
   Loader2,
-  MessageSquare,
   Plus,
-  Send,
   Trash2,
   Users,
 } from "lucide-react";
@@ -15,11 +14,7 @@ import { toast } from "sonner";
 
 import { isTauri, phoson } from "@/bridge/client";
 import type { PeerPresence } from "@/bridge/protocol";
-import { PluginBlocks } from "@/features/plugin-blocks";
-import { Composer } from "@/features/composer";
-import { MessageRow } from "@/features/message";
-import { InteractionCard } from "@/features/questions-card";
-import { SubagentPanel } from "@/features/subagent-panel";
+import { TeamChatPane } from "@/features/team-chat-pane";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -31,9 +26,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { loadDrafts, saveDrafts } from "@/lib/drafts";
-import { agentRolePrompt, mentionsAgent, normalizePeerName, peerMessagePrompt, PEER_NAME_PATTERN } from "@/lib/teams";
+import { addAgentToSplit, normalizePeerName, PEER_NAME_PATTERN } from "@/lib/teams";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/stores/session";
 import { useTeams, type TeamAgent } from "@/stores/teams";
@@ -59,16 +55,7 @@ export function TeamsView({ currentWorkspace }: TeamsViewProps) {
     setActiveAgent,
   } = useTeams();
   const sessions = useSession((state) => state.sessions);
-  const ready = useSession((state) => state.ready);
-  const send = useSession((state) => state.send);
-  const cancel = useSession((state) => state.cancel);
-  const regenerate = useSession((state) => state.regenerate);
   const closeSession = useSession((state) => state.closeSession);
-  const respondConfirm = useSession((state) => state.respondConfirm);
-  const respondInteraction = useSession((state) => state.respondInteraction);
-  const addFiles = useSession((state) => state.addFiles);
-  const removeAttachment = useSession((state) => state.removeAttachment);
-  const removeUpload = useSession((state) => state.removeUpload);
 
   const activeTeam = teams.find((team) => team.id === activeTeamId) ?? teams[0];
   const teamAgents = useMemo(
@@ -76,9 +63,6 @@ export function TeamsView({ currentWorkspace }: TeamsViewProps) {
     [agents, activeTeam?.id],
   );
   const activeAgent = teamAgents.find((agent) => agent.id === activeAgentId) ?? null;
-  const activeKey = activeAgent?.sessionKey;
-  const view = activeKey ? sessions[activeKey] : undefined;
-  const messages = useMemo(() => view?.messages ?? [], [view?.messages]);
   const [presence, setPresence] = useState<PeerPresence[]>([]);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [creatingAgent, setCreatingAgent] = useState(false);
@@ -88,18 +72,14 @@ export function TeamsView({ currentWorkspace }: TeamsViewProps) {
   const [agentName, setAgentName] = useState("");
   const [agentRole, setAgentRole] = useState("");
   const [agentWorkspace, setAgentWorkspace] = useState("");
-  const [relayDialog, setRelayDialog] = useState(false);
-  const [relayTarget, setRelayTarget] = useState("");
-  const [relayText, setRelayText] = useState("");
-  const [relaySending, setRelaySending] = useState(false);
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
+  const [splitAgentIds, setSplitAgentIds] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>(loadDrafts);
-  const scrollRef = useRef<HTMLDivElement>(null);
   /** Invalida conexiones antiguas al cambiar rápido de agente o equipo. */
   const connectionSeq = useRef(0);
 
-  const draft = activeKey ? (drafts[activeKey] ?? "") : "";
-  const setDraft = (text: string) => {
-    if (activeKey) setDrafts((current) => ({ ...current, [activeKey]: text }));
+  const setDraftFor = (key: string | undefined, text: string) => {
+    if (key) setDrafts((current) => ({ ...current, [key]: text }));
   };
   useEffect(() => saveDrafts(drafts), [drafts]);
 
@@ -129,10 +109,6 @@ export function TeamsView({ currentWorkspace }: TeamsViewProps) {
       if (engineId && engineId !== agent.engineId) updateAgent(agent.id, { engineId });
     }
   }, [agents, sessions, updateAgent]);
-
-  useEffect(() => {
-    if (messages.length) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages.length, activeKey]);
 
   const ensureAgent = useCallback(
     async (agent: TeamAgent, sequence: number) => {
@@ -198,6 +174,8 @@ export function TeamsView({ currentWorkspace }: TeamsViewProps) {
 
   const selectAgent = (agent: TeamAgent) => {
     const sequence = ++connectionSeq.current;
+    setSplitAgentIds([]);
+    setAgentPickerOpen(false);
     setActiveAgent(agent.id);
     void ensureAgent(agent, sequence);
   };
@@ -253,6 +231,7 @@ export function TeamsView({ currentWorkspace }: TeamsViewProps) {
         workspace,
         sessionKey: key,
       });
+      setSplitAgentIds([]);
       setActiveAgent(id);
       setAgentDialog(false);
       await refreshPresence();
@@ -265,255 +244,217 @@ export function TeamsView({ currentWorkspace }: TeamsViewProps) {
     }
   };
 
-  const removeCurrentAgent = async () => {
-    if (!activeAgent) return;
-    const key = activeAgent.sessionKey;
+  const removeTeamAgent = async (agent: TeamAgent) => {
+    const key = agent.sessionKey;
     if (key && sessions[key]) await closeSession(key).catch(() => {});
-    removeAgent(activeAgent.id);
+    setSplitAgentIds((current) => current.filter((id) => id !== agent.id));
+    removeAgent(agent.id);
     await refreshPresence();
   };
 
-  const openRelay = () => {
-    const first = teamAgents.find((agent) => agent.id !== activeAgent?.id);
-    if (!first) {
-      toast.info(t("relay.empty"));
+  const openInSplit = (agent: TeamAgent) => {
+    const next = addAgentToSplit(splitAgentIds, activeAgent?.id ?? null, agent.id);
+    if (!next) {
+      toast.warning(t("split.limit"));
       return;
     }
-    setRelayTarget(first.id);
-    setRelayText("");
-    setRelayDialog(true);
+    setSplitAgentIds(next);
+    setAgentPickerOpen(false);
+    const sequence = ++connectionSeq.current;
+    setActiveAgent(agent.id);
+    void ensureAgent(agent, sequence);
   };
 
-  const submitRelay = async () => {
-    const target = teamAgents.find((agent) => agent.id === relayTarget);
-    if (!activeTeam || !activeAgent || !target || !relayText.trim()) return;
-    setRelaySending(true);
-    try {
-      const result = await phoson.peersSend(
-        activeTeam.name,
-        activeAgent.name,
-        target.name,
-        relayText.trim(),
-        activeAgent.workspace,
-      );
-      toast.success(t(result.delivered ? "relay.delivered" : "relay.queued", { name: target.name }));
-      setRelayDialog(false);
-      setRelayText("");
-    } catch (error) {
-      toast.error(t("relay.failed"), { description: String(error) });
-    } finally {
-      setRelaySending(false);
+  const closeSplit = (agentId: string) => {
+    const remaining = splitAgentIds.filter((id) => id !== agentId);
+    setSplitAgentIds(remaining);
+    if (activeAgentId === agentId && remaining.length > 0) {
+      setActiveAgent(remaining[remaining.length - 1]);
     }
-  };
-
-  const submit = () => {
-    if (!activeTeam || !activeAgent || !view || !draft.trim() || view.sending) return;
-    const text = draft.trim();
-    const mentioned = teamAgents.find(
-      (agent) => agent.id !== activeAgent.id && mentionsAgent(text, agent.name),
-    );
-    const firstPrompt = view.messages.length === 0 ? agentRolePrompt(activeAgent, activeTeam.name, text) : text;
-    setDraft("");
-    void send(text, undefined, {
-      prompt: mentioned ? peerMessagePrompt(mentioned.name, firstPrompt) : firstPrompt,
-    });
   };
 
   if (!activeTeam) return null;
-  const activePresence = activeAgent
-    ? presence.find((peer) => peer.name === activeAgent.name)
-    : undefined;
+  const onlineAgents = teamAgents.filter(
+    (agent) => agent.id === activeAgent?.id || presence.some((peer) => peer.name === agent.name && peer.live),
+  );
+  const bubbleSource = onlineAgents.length > 0 ? onlineAgents : teamAgents;
+  const bubbleAgents = bubbleSource.slice(0, 4);
+  const hiddenAgents = Math.max(0, bubbleSource.length - bubbleAgents.length);
+  const splitAgents = splitAgentIds
+    .map((id) => teamAgents.find((agent) => agent.id === id))
+    .filter((agent): agent is TeamAgent => Boolean(agent));
+  const visibleAgents = splitAgents.length > 0 ? splitAgents : activeAgent ? [activeAgent] : [];
+  const splitMode = splitAgents.length > 0;
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1">
-      {/* Rail de equipos, equivalente a los workspaces de Slack. */}
-      <nav aria-label={t("teams")} className="flex w-14 shrink-0 flex-col items-center gap-2 border-r border-dashboard-border-soft bg-black/5 py-3">
-        {teams.map((team) => (
-          <button
-            key={team.id}
-            title={team.name}
-            aria-label={t("openTeam", { name: team.name })}
-            onClick={() => setActiveTeam(team.id)}
-            className={cn(
-              "grid size-9 place-items-center rounded-xl text-xs font-semibold uppercase transition-colors",
-              team.id === activeTeam.id
-                ? "bg-violet text-white"
-                : "bg-[var(--phoson-surface-2)] text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {team.name.slice(0, 2)}
-          </button>
-        ))}
-        <button
-          title={t("team.new")}
-          aria-label={t("team.new")}
-          onClick={() => setTeamDialog(true)}
-          className="grid size-9 place-items-center rounded-xl border border-dashed border-dashboard-border-soft text-muted-foreground hover:text-foreground"
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      {/* Header nativo de Equipos: contexto, selector y acciones principales. */}
+      <header className="flex shrink-0 items-center gap-3 border-b border-dashboard-border-soft px-4 py-2.5">
+        <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-violet/10 text-violet">
+          <Users className="size-4" />
+        </div>
+        <div className="hidden shrink-0 xl:block">
+          <div className="text-sm font-medium">{t("teams")}</div>
+          <div className="text-[0.65rem] text-muted-foreground">{t("memberCount", { count: teamAgents.length })}</div>
+        </div>
+        <select
+          aria-label={t("teams")}
+          value={activeTeam.id}
+          onChange={(event) => {
+            setSplitAgentIds([]);
+            setActiveTeam(event.target.value);
+          }}
+          className="border-input bg-background h-8 min-w-0 max-w-48 flex-1 rounded-lg border px-2.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet/40 sm:ml-2 sm:flex-none"
         >
+          {teams.map((team) => (
+            <option key={team.id} value={team.id}>{team.name}</option>
+          ))}
+        </select>
+        <Button variant="ghost" size="icon" className="size-8 shrink-0" title={t("team.new")} onClick={() => setTeamDialog(true)}>
           <Plus className="size-4" />
-        </button>
-      </nav>
+        </Button>
 
-      {/* Agentes del equipo: conversaciones directas con identidad peers. */}
-      <aside className="flex w-60 shrink-0 flex-col border-r border-dashboard-border-soft">
-        <div className="flex items-center gap-2 border-b border-dashboard-border-soft px-3 py-3">
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold"># {activeTeam.name}</div>
-            <div className="text-[0.68rem] text-muted-foreground">{t("memberCount", { count: teamAgents.length })}</div>
-          </div>
-          <Button variant="ghost" size="icon" className="size-7" title={t("agent.new")} onClick={openAgentDialog}>
-            <Plus className="size-4" />
-          </Button>
-        </div>
-        <div className="px-3 pb-1 pt-3 text-[0.68rem] font-medium uppercase tracking-wide text-muted-foreground">
-          {t("agents")}
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {teamAgents.map((agent) => {
-            const peer = presence.find((item) => item.name === agent.name);
-            const running = agent.sessionKey ? sessions[agent.sessionKey]?.sending : false;
-            return (
+        {teamAgents.length > 0 && (
+          <Popover open={agentPickerOpen} onOpenChange={setAgentPickerOpen}>
+            <PopoverTrigger asChild>
               <button
-                key={agent.id}
-                onClick={() => selectAgent(agent)}
-                className={cn(
-                  "mb-1 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
-                  agent.id === activeAgent?.id ? "bg-[var(--phoson-surface-2)]" : "dashboard-hover",
-                )}
+                title={t("agent.switch")}
+                aria-label={t("agent.switch")}
+                className="flex shrink-0 items-center gap-1.5 rounded-full px-1.5 py-1 transition-colors dashboard-hover"
               >
-                <span className="relative grid size-8 shrink-0 place-items-center rounded-lg bg-violet/10 text-violet">
-                  <Bot className="size-4" />
-                  <span
-                    className={cn(
-                      "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[var(--background)]",
-                      peer?.live ? "bg-emerald-500" : "bg-muted-foreground/40",
-                    )}
-                  />
+                <span className="flex -space-x-2">
+                  {bubbleAgents.map((agent) => {
+                    const peer = presence.find((item) => item.name === agent.name);
+                    const running = agent.sessionKey ? sessions[agent.sessionKey]?.sending : false;
+                    return (
+                      <span
+                        key={agent.id}
+                        className={cn(
+                          "relative grid size-8 place-items-center rounded-full border-2 border-[var(--background)] bg-[var(--phoson-surface-2)] text-[0.65rem] font-semibold uppercase text-muted-foreground",
+                          agent.id === activeAgent?.id && "bg-violet/15 text-violet ring-1 ring-violet/50",
+                        )}
+                      >
+                        {agent.name.slice(0, 2)}
+                        <span
+                          className={cn(
+                            "absolute bottom-0 right-0 size-2 rounded-full border border-[var(--background)]",
+                            peer?.live ? "bg-emerald-500" : "bg-muted-foreground/50",
+                          )}
+                        />
+                        {(running || connectingId === agent.id) && (
+                          <Loader2 className="absolute -left-1 -top-1 size-3 animate-spin rounded-full bg-[var(--background)] text-violet" />
+                        )}
+                      </span>
+                    );
+                  })}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5 truncate text-xs font-medium">
-                    {agent.name}
-                    {(running || connectingId === agent.id) && <Loader2 className="size-3 animate-spin text-violet" />}
-                  </span>
-                  <span className="block truncate text-[0.65rem] text-muted-foreground">
-                    {agent.role || basename(agent.workspace)}
-                  </span>
-                </span>
+                {hiddenAgents > 0 && <span className="text-[0.65rem] text-muted-foreground">+{hiddenAgents}</span>}
+                <ChevronDown className="size-3 text-muted-foreground" />
               </button>
-            );
-          })}
-          {teamAgents.length === 0 && (
-            <div className="px-3 py-8 text-center">
-              <Users className="mx-auto mb-2 size-5 text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">{t("noAgents")}</p>
-            </div>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="dashboard-panel-strong w-80 rounded-xl p-2">
+              <div className="flex items-center justify-between px-2 pb-2 pt-1">
+                <span className="text-xs font-medium">{t("agents")}</span>
+                <span className="text-[0.65rem] text-muted-foreground">{activeTeam.name}</span>
+              </div>
+              <div className="max-h-80 space-y-1 overflow-y-auto">
+                {teamAgents.map((agent) => {
+                  const peer = presence.find((item) => item.name === agent.name);
+                  const running = agent.sessionKey ? sessions[agent.sessionKey]?.sending : false;
+                  return (
+                    <div
+                      key={agent.id}
+                      className={cn(
+                        "group flex items-center rounded-lg transition-colors",
+                        agent.id === activeAgent?.id ? "bg-violet/10" : "dashboard-hover",
+                      )}
+                    >
+                      <button
+                        onClick={() => selectAgent(agent)}
+                        className="flex min-w-0 flex-1 items-center gap-3 px-2.5 py-2 text-left"
+                      >
+                        <span className="relative grid size-9 shrink-0 place-items-center rounded-full bg-violet/10 text-[0.68rem] font-semibold uppercase text-violet">
+                          {agent.name.slice(0, 2)}
+                          <span
+                            className={cn(
+                              "absolute bottom-0 right-0 size-2.5 rounded-full border-2 border-[var(--background)]",
+                              peer?.live ? "bg-emerald-500" : "bg-muted-foreground/40",
+                            )}
+                          />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1.5 truncate text-xs font-medium">
+                            {agent.name}
+                            {(running || connectingId === agent.id) && <Loader2 className="size-3 animate-spin text-violet" />}
+                          </span>
+                          <span className="block truncate text-[0.65rem] text-muted-foreground">
+                            {agent.role || basename(agent.workspace)}
+                          </span>
+                        </span>
+                        {agent.id === activeAgent?.id && <span className="size-1.5 rounded-full bg-violet" />}
+                      </button>
+                      <button
+                        title={t("split.open", { name: agent.name })}
+                        aria-label={t("split.open", { name: agent.name })}
+                        onClick={() => openInSplit(agent)}
+                        className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-violet focus-visible:opacity-100 group-hover:opacity-70"
+                      >
+                        <Columns2 className="size-3.5" />
+                      </button>
+                      <button
+                        title={t("agent.remove")}
+                        aria-label={t("agent.remove")}
+                        onClick={() => void removeTeamAgent(agent)}
+                        className="mr-1.5 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-70"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
+        <div className="flex-1" />
+        <Button variant="outline" size="sm" onClick={openAgentDialog}>
+          <Plus className="size-3.5" /> {t("agent.new")}
+        </Button>
+      </header>
+
+      {/* Una conversación o una cuadrícula de hasta cuatro panes independientes. */}
+      {visibleAgents.length > 0 ? (
+        <main
+          className={cn(
+            "grid min-h-0 min-w-0 flex-1",
+            visibleAgents.length > 1 && "grid-cols-2",
+            visibleAgents.length === 2 && "grid-rows-1",
+            visibleAgents.length > 2 && "grid-rows-2",
           )}
-        </div>
-        <div className="border-t border-dashboard-border-soft p-2">
-          <Button variant="outline" size="sm" className="w-full" onClick={openAgentDialog}>
-            <Plus className="size-3.5" /> {t("agent.new")}
-          </Button>
-        </div>
-      </aside>
-
-      {/* Chat del agente elegido. Reutiliza el mismo SessionManager y renderer. */}
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {activeAgent ? (
-          <>
-            <header className="flex items-center gap-3 border-b border-dashboard-border-soft px-4 py-2.5">
-              <div className="grid size-8 place-items-center rounded-lg bg-violet/10 text-violet">
-                <Bot className="size-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <span className="truncate">{activeAgent.name}</span>
-                  <span className={cn("size-2 rounded-full", activePresence?.live ? "bg-emerald-500" : "bg-muted-foreground/40")} />
-                </div>
-                <div className="truncate text-[0.68rem] text-muted-foreground">
-                  {activeAgent.role || basename(activeAgent.workspace)}
-                  {" · "}
-                  {activePresence?.live
-                    ? activePresence.state === "busy"
-                      ? t("presence.busy")
-                      : activePresence.state === "waiting"
-                        ? t("presence.waiting")
-                        : t("presence.idle")
-                    : t("presence.offline")}
-                </div>
-              </div>
-              <Button variant="outline" size="sm" onClick={openRelay} disabled={teamAgents.length < 2}>
-                <Send className="size-3.5" /> {t("relay.action")}
-              </Button>
-              <Button variant="ghost" size="icon" className="size-8" title={t("agent.remove")} onClick={() => void removeCurrentAgent()}>
-                <Trash2 className="size-3.5" />
-              </Button>
-            </header>
-
-            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {messages.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-                  <MessageSquare className="mb-3 size-7 text-violet" />
-                  <h2 className="text-sm font-medium">{t("emptyChat.title", { name: activeAgent.name })}</h2>
-                  <p className="mt-1 max-w-md text-xs text-muted-foreground">{t("emptyChat.hint")}</p>
-                </div>
-              ) : (
-                <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
-                  {messages.map((message, index) => (
-                    <MessageRow
-                      key={message.id}
-                      message={message}
-                      isLast={index === messages.length - 1}
-                      onRegenerate={() => void regenerate()}
-                    />
-                  ))}
-                </div>
+        >
+          {visibleAgents.map((agent) => (
+            <div
+              key={agent.id}
+              className={cn(
+                "h-full min-h-0 min-w-0",
+                splitMode && "border-[0.5px] border-dashboard-border-soft",
               )}
+            >
+              <TeamChatPane
+                agent={agent}
+                teamName={activeTeam.name}
+                teamAgents={teamAgents}
+                draft={agent.sessionKey ? (drafts[agent.sessionKey] ?? "") : ""}
+                onDraftChange={(text) => setDraftFor(agent.sessionKey, text)}
+                connecting={connectingId === agent.id}
+                split={splitMode}
+                onClose={() => closeSplit(agent.id)}
+              />
             </div>
-
-            <SubagentPanel tasks={view?.subagents ?? []} />
-            <PluginBlocks blocks={Object.values(view?.pluginBlocks ?? {})} />
-            {view?.confirmations
-              .filter((confirmation) => (confirmation.kind ?? "bash") !== "bash")
-              .map((confirmation) => (
-                <InteractionCard
-                  key={confirmation.requestId}
-                  request={confirmation}
-                  onAnswer={(requestId, payload) => void respondInteraction(requestId, payload)}
-                  onCancel={(requestId) => void respondInteraction(requestId, { cancelled: true })}
-                />
-              ))}
-            {view?.confirmations.filter((confirmation) => (confirmation.kind ?? "bash") === "bash").map((confirmation) => (
-              <div key={confirmation.requestId} role="alertdialog" className="dashboard-panel-strong mx-auto mb-2 w-full max-w-3xl rounded-xl border p-3">
-                <div className="mb-2 text-xs font-medium">{t("chrome:command.runQuestion")}</div>
-                <pre className="mb-3 overflow-x-auto rounded-md bg-black/20 p-2 text-xs">{confirmation.command ?? ""}</pre>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => void respondConfirm(confirmation.requestId, "yes")}>{t("common:words.yes")}</Button>
-                  <Button size="sm" variant="outline" onClick={() => void respondConfirm(confirmation.requestId, "always")}>{t("chrome:command.always")}</Button>
-                  <Button size="sm" variant="ghost" onClick={() => void respondConfirm(confirmation.requestId, "no")}>{t("common:words.no")}</Button>
-                </div>
-              </div>
-            ))}
-            <Composer
-              value={draft}
-              onChange={setDraft}
-              onSend={submit}
-              onStop={() => void cancel()}
-              sending={Boolean(view?.sending)}
-              disabled={!ready || connectingId === activeAgent.id}
-              sessionId={activeKey ?? null}
-              model={view?.metrics?.model}
-              provider={view?.metrics?.provider}
-              attachments={view?.attachments ?? []}
-              uploads={view?.uploads ?? []}
-              onAddFiles={(files) => void addFiles(files)}
-              onRemoveAttachment={(path) => void removeAttachment(path)}
-              onRemoveUpload={removeUpload}
-            />
-            <div className="-mt-2 px-5 pb-2 text-center text-[0.65rem] text-muted-foreground">
-              {t("mentionHint")}
-            </div>
-          </>
-        ) : (
+          ))}
+        </main>
+      ) : (
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
             <div className="mb-4 grid size-12 place-items-center rounded-2xl bg-violet/10 text-violet">
               <Users className="size-6" />
@@ -524,8 +465,8 @@ export function TeamsView({ currentWorkspace }: TeamsViewProps) {
               <Plus className="size-4" /> {t("agent.new")}
             </Button>
           </div>
-        )}
-      </main>
+        </main>
+      )}
 
       {/* Nuevo equipo */}
       <Dialog open={teamDialog} onOpenChange={setTeamDialog}>
@@ -593,34 +534,6 @@ export function TeamsView({ currentWorkspace }: TeamsViewProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Mensaje directo agente → agente */}
-      <Dialog open={relayDialog} onOpenChange={setRelayDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("relay.title", { name: activeAgent?.name })}</DialogTitle>
-            <DialogDescription>{t("relay.hint")}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="relay-target">{t("relay.recipient")}</Label>
-            <select id="relay-target" value={relayTarget} onChange={(event) => setRelayTarget(event.target.value)} className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm">
-              {teamAgents.filter((agent) => agent.id !== activeAgent?.id).map((agent) => (
-                <option key={agent.id} value={agent.id}>{agent.name} · {basename(agent.workspace)}</option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="relay-message">{t("relay.message")}</Label>
-            <Textarea id="relay-message" value={relayText} onChange={(event) => setRelayText(event.target.value)} placeholder={t("relay.placeholder")} className="min-h-28" />
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setRelayDialog(false)}>{t("common:actions.cancel")}</Button>
-            <Button disabled={relaySending || !relayText.trim()} onClick={() => void submitRelay()}>
-              {relaySending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-              {t("relay.send")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

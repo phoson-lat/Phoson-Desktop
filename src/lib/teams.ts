@@ -21,6 +21,18 @@ export function agentRolePrompt(agent: TeamAgent, teamName: string, userText: st
     .join("\n");
 }
 
+/** Añade un chat al split sin duplicarlo; null cuando ya hay cuatro. */
+export function addAgentToSplit(
+  currentIds: string[],
+  activeId: string | null,
+  nextId: string,
+  max = 4,
+): string[] | null {
+  const base = currentIds.length > 0 ? currentIds : activeId ? [activeId] : [];
+  if (base.includes(nextId)) return base;
+  return base.length >= max ? null : [...base, nextId];
+}
+
 export function mentionsAgent(text: string, name: string): boolean {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`@${escaped}(?:\\s|$)`, "i").test(text);
