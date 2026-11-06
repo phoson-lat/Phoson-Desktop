@@ -27,8 +27,7 @@ const TRAY_PREF = "phoson.closeToTray";
 export async function desktopNotify(title: string, body?: string): Promise<boolean> {
   if (!isTauri()) return false;
   try {
-    await invoke("send_notification", { title, body: body ?? null });
-    return true;
+    return await invoke<boolean>("send_notification", { title, body: body ?? null });
   } catch {
     return false;
   }
