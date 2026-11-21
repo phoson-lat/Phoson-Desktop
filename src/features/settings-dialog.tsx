@@ -30,6 +30,7 @@ import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, phoson } from "@/bridge/client";
+import { chooseConnection, isRemoteMode, remoteUrl, remoteWorkspace } from "@/bridge/connection";
 import type {
   ConfigView,
   McpCatalogEntry,
@@ -84,6 +85,7 @@ import { useSession } from "@/stores/session";
 
 type SectionId =
   | "models"
+  | "connection"
   | "providers"
   | "local"
   | "mcp"
@@ -101,6 +103,7 @@ type SectionId =
  */
 const SECTIONS: { id: SectionId; icon: ComponentType<{ className?: string }> }[] = [
   { id: "models", icon: Cpu },
+  { id: "connection", icon: Server },
   { id: "providers", icon: KeyRound },
   { id: "local", icon: Server },
   { id: "mcp", icon: Plug },
@@ -669,7 +672,19 @@ export function SettingsDialog({
           {/* ── Contenido de la sección ─────────────────────────────── */}
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             <div className="p-5">
-              {loading || !config ? (
+              {section === "connection" ? (
+                <div className="space-y-5">
+                  <SectionTitle title={t("connection.title")} hint={t("connection.hint")} />
+                  <div className="rounded-xl border bg-muted/20 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium"><Server className="size-4 text-muted-foreground" />{isRemoteMode() ? t("connection.remote") : t("connection.local")}</div>
+                    {isRemoteMode() && <div className="mt-2 space-y-1 break-all text-xs text-muted-foreground"><p>{remoteUrl()}</p><p>{remoteWorkspace()}</p></div>}
+                    <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("connection.warning")}</p>
+                    <Button className="mt-4 gap-2" onClick={() => {
+                      if (window.confirm(t("connection.warning"))) chooseConnection();
+                    }}><Plug className="size-4" />{t("connection.connect")}</Button>
+                  </div>
+                </div>
+              ) : loading || !config ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="size-3.5 animate-spin" /> {t("common:state.loading")}
                 </div>
@@ -1744,16 +1759,18 @@ export function SettingsDialog({
                       <Row
                         label={t("about.logs")}
                         hint={t("about.logsHint")}
+                        stacked
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex w-full min-w-0 flex-col gap-2">
                           {logFilePath && (
                             <span
-                              className="max-w-[16rem] truncate font-mono text-[0.68rem] text-muted-foreground"
+                              className="block min-w-0 truncate font-mono text-[0.68rem] text-muted-foreground"
                               title={logFilePath}
                             >
                               {logFilePath}
                             </span>
                           )}
+                          <div className="flex min-w-0 flex-wrap gap-2 [&>button]:h-auto [&>button]:min-h-8 [&>button]:max-w-full [&>button]:whitespace-normal">
                           <Button
                             size="sm"
                             variant="ghost"
@@ -1780,6 +1797,7 @@ export function SettingsDialog({
                             {exportingDiagnostics ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
                             {t("about.exportDiagnostics")}
                           </Button>
+                          </div>
                         </div>
                       </Row>
 
@@ -1894,13 +1912,15 @@ function Row({
   label,
   hint,
   children,
+  stacked = false,
 }: {
   label: string;
   hint: string;
   children: React.ReactNode;
+  stacked?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className={stacked ? "flex min-w-0 flex-col items-stretch gap-2" : "flex items-center justify-between gap-4"}>
       <div className="min-w-0">
         <div className="text-xs">{label}</div>
         <div className="text-[0.65rem] text-muted-foreground">{hint}</div>

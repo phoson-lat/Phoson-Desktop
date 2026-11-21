@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri } from "@/bridge/client";
+import { isRemoteMode } from "@/bridge/connection";
 import { BrandLogo } from "@/components/brand-logo";
 import {
   DropdownMenu,
@@ -70,7 +71,7 @@ export function WorkspaceActions({ workspace }: WorkspaceActionsProps) {
     };
   }, []);
 
-  if (!isTauri() || !workspace) return null;
+  if (isRemoteMode() || !isTauri() || !workspace) return null;
 
   const reveal = () =>
     openFolder(workspace).catch((e) =>

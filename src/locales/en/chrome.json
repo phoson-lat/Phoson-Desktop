@@ -45,6 +45,26 @@
   "teams": {
     "title": "Teams"
   },
+  "projects": {
+    "title": "Projects",
+    "all": "All projects",
+    "add": "Add project",
+    "name": "Project name",
+    "path": "Folder path",
+    "cancel": "Cancel",
+    "remoteHint": "This project uses another remote workspace. Change connection to open it.",
+    "chooseDirectory": "Choose directory",
+    "selectError": "Couldn't open the project workspace",
+    "directoryError": "Couldn't choose the project directory",
+    "createError": "Couldn't create the project",
+    "renameError": "Couldn't rename the project",
+    "rename": "Rename {{name}}",
+    "saveRename": "Save project name",
+    "archive": "Archive {{name}}",
+    "archiveConfirm": "Archive {{name}}?",
+    "archiveNoDelete": "Archiving only hides this project. It will not delete its files or workspace.",
+    "confirmArchive": "Archive project"
+  },
   "sessions": {
     "title": "Sessions",
     "new": "New session",
@@ -97,5 +117,38 @@
     "openInEditorA11y": "Open {{name}} in the editor",
     "openEditorError": "Couldn't open in the editor",
     "truncated": "Showing the first 400 entries."
+  },
+  "remote": {
+    "title": "Choose how to connect",
+    "subtitle": "Use Phoson on this device or connect to a remote server.",
+    "chooseConnection": "Choose a connection",
+    "connected": "Connected to remote server",
+    "disconnect": "Disconnect",
+    "change": "Change connection",
+    "local": "This device",
+    "localHint": "Use the local engine",
+    "remote": "Remote server",
+    "remoteHint": "Connect using pairing",
+    "url": "Server URL",
+    "code": "Pairing code",
+    "rememberedHint": "Leave blank to sign in with a remembered token.",
+    "workspace": "Workspace (optional)",
+    "deviceName": "Name this device",
+    "remember": "Remember this device",
+    "security": "wss:// is required, except for local loopback addresses.",
+    "startup": "On the server, start the service with: phoson-cli serve --pair. The pairing service is available at /v1.",
+    "origin": "The server must allow this app's origin with --allow-origin (for example, tauri://localhost). Platform origins may differ; use the origin shown in the error if connection is blocked.",
+    "warning": "Workspace files and tools execute on the remote server.",
+    "reconnect": "Automatic reconnection is not available yet.",
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "errors": {
+      "pairing": "The pairing code or token is invalid.",
+      "origin": "The server does not allow this app's origin.",
+      "security": "The connection does not meet security requirements.",
+      "workspace": "Couldn't open the requested workspace.",
+      "url": "The server URL is invalid.",
+      "generic": "Couldn't connect to the remote server. Check the address and try again."
+    }
   }
 }

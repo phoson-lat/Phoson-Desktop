@@ -61,6 +61,9 @@
     "copyToClipboard": "Copiar al portapapeles",
     "scrollToBottom": "Ir al final"
   },
+  "remote": {
+    "localUnavailable": "Las funciones del motor local no están disponibles al conectarse a un servidor remoto."
+  },
   "tray": {
     "show": "Mostrar Phoson",
     "hide": "Enviar a la bandeja",

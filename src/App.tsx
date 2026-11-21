@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { isTauri, onTerminated, openExternal, phoson } from "@/bridge/client";
+import { isTauri, isRemoteMode, onTerminated, openExternal, phoson } from "@/bridge/client";
+import { remoteUrl, remoteConnected } from "@/bridge/connection";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
@@ -103,6 +104,12 @@ export default function App() {  const {
     () => typeof localStorage !== "undefined" && localStorage.getItem("phoson.nav") === "collapsed",
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [connectionAlive, setConnectionAlive] = useState(remoteConnected);
+  useEffect(() => {
+    if (!isRemoteMode()) return;
+    const timer = setInterval(() => setConnectionAlive(remoteConnected()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   /** El dialog de ajustes se monta en su primera apertura (chunk perezoso) y a
    * partir de ahí se queda montado: su estado interno (sección, borradores de
    * claves) sobrevive a cerrarlo y volver a abrirlo. */
@@ -507,7 +514,7 @@ export default function App() {  const {
           }}
           onNew={() => {
             setSection("chat");
-            void newSession();
+            void newSession(cwd || null);
             setNavOpen(false);
           }}
           onSelect={(k) => {
@@ -525,7 +532,11 @@ export default function App() {  const {
           onOpenSettings={() => setSettingsOpen(true)}
         />
 
-        <div className="relative min-h-0 min-w-0 flex-1">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="z-10 flex shrink-0 items-center justify-between gap-3 border-b bg-background px-4 py-1 text-xs">
+            <span className="truncate">{isRemoteMode() ? `${t("remote.remote")} · ${remoteUrl()} · ${workspacePath}${connectionAlive ? "" : ` · ${t("remote.reconnect")}`}` : t("remote.local")}</span>
+          </div>
+          <div className="relative min-h-0 flex-1">
           <div className="absolute inset-0 flex min-h-0 min-w-0">
           {section === "teams" ? (
             <Suspense fallback={null}>
@@ -719,6 +730,7 @@ export default function App() {  const {
               />
             </Suspense>
           )}
+          </div>
           </div>
         </div>
       </div>

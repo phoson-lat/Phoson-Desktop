@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { isTauri, openExternal } from "@/bridge/client";
+import { isRemoteMode } from "@/bridge/connection";
 import { DiffView } from "@/components/diff-view";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -80,7 +81,7 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
   }, [workspace]);
 
   useEffect(() => {
-    if (!isTauri() || !workspace) return;
+    if (isRemoteMode() || !isTauri() || !workspace) return;
     let cancelled = false;
     const probe = () =>
       void gitStamp(workspace).then((stamp) => {
@@ -103,7 +104,7 @@ export function GitStatus({ workspace, running }: GitStatusProps) {
     wasRunning.current = running ?? false;
   }, [running, reload]);
 
-  if (!status) return null;
+  if (isRemoteMode() || !status) return null;
 
   const dirty = status.staged + status.modified + status.untracked + status.conflicted;
   const counts: Array<[string, number, string?]> = [

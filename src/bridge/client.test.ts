@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { bridge, normalizeAttachment } from "./client";
+import { bridge, installBridge, isRemoteMode, normalizeAttachment, openPath, resetBridge } from "./client";
 
 describe("mock bridge RPC contract", () => {
   it("devuelve candidatos vacíos para una sesión sin historial", async () => {
@@ -19,6 +19,28 @@ describe("mock bridge RPC contract", () => {
   it("permite cerrar una sesión", async () => {
     await expect(bridge.rpc("session.close", { sessionId: "demo" }))
       .resolves.toMatchObject({ ok: true });
+  });
+});
+
+describe("aislamiento remoto", () => {
+  it("bloquea operaciones nativas y administrativas sin enviarlas al servidor", async () => {
+    const rpc = vi.fn().mockResolvedValue({ ok: true });
+    installBridge({ rpc, onNotify: async () => () => {} }, "/servidor");
+    try {
+      expect(isRemoteMode()).toBe(true);
+      for (const method of ["stt.start", "auth.login", "auth.logout", "config.set", "plugins.install", "plugins.set", "mcp.save", "mcp.remove", "fs.setCwd"]) {
+        await expect(bridge.rpc(method)).rejects.toThrow();
+      }
+      await expect(openPath("/servidor/archivo.txt")).rejects.toThrow();
+      expect(rpc).not.toHaveBeenCalled();
+      await expect(bridge.rpc("fs.read", { path: "/servidor/archivo.txt" }, "/servidor")).resolves.toEqual({ ok: true });
+      expect(rpc).toHaveBeenCalledOnce();
+    } finally {
+      resetBridge();
+    }
+    expect(isRemoteMode()).toBe(false);
+    await expect(bridge.rpc("session.close", { sessionId: "demo" })).resolves.toMatchObject({ ok: true });
+    expect(rpc).toHaveBeenCalledOnce();
   });
 });
 

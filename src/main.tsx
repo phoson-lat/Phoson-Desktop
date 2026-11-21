@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { ThemeProvider } from "next-themes";
 
 import App from "./App";
+import { ConnectionGate } from "@/features/connection-gate";
 import { initI18n } from "@/lib/i18n";
 import { installNativeLabels } from "@/lib/native-labels";
 import { installNativeWindow } from "@/lib/native-window";
@@ -36,7 +37,7 @@ async function bootstrap(): Promise<void> {
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
       <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-        <App />
+        <ConnectionGate><App /></ConnectionGate>
       </ThemeProvider>
     </React.StrictMode>,
   );

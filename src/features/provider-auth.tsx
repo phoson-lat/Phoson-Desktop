@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { openExternal, phoson } from "@/bridge/client";
+import { isRemoteMode } from "@/bridge/connection";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -59,7 +60,7 @@ export function ProviderSignIn({
   );
 
   const start = useCallback(async () => {
-    if (running) return;
+    if (isRemoteMode() || running) return;
     setRunning(true);
     setError(null);
     setPrompt(null);
@@ -97,6 +98,8 @@ export function ProviderSignIn({
       /* portapapeles no disponible: el código se ve igualmente */
     }
   };
+
+  if (isRemoteMode()) return null;
 
   if (!running && !error) {
     return (
@@ -175,6 +178,8 @@ export function ProviderAccount({
 }: ProviderAccountProps) {
   const { t } = useTranslation("settings");
   const [busy, setBusy] = useState(false);
+
+  if (isRemoteMode()) return null;
 
   const signOut = async () => {
     setBusy(true);

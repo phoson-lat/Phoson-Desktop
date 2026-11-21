@@ -3,7 +3,16 @@
     "title": "Settings",
     "subtitle": "Engine settings, shared with the <cli>phoson-cli</cli>."
   },
+  "connection": {
+    "title": "Server connection",
+    "hint": "Use the engine on this computer or connect to a remote server.",
+    "local": "Local engine",
+    "remote": "Remote server",
+    "connect": "Configure connection",
+    "warning": "Changing the connection reloads the interface. It does not cancel server work or delete saved conversations, but you will need to reopen them."
+  },
   "sections": {
+    "connection": "Connection",
     "models": "Models",
     "providers": "Providers",
     "local": "Local servers",
