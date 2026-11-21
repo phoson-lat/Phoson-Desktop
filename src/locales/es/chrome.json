@@ -49,8 +49,14 @@
     "title": "Proyectos",
     "all": "Todos los proyectos",
     "add": "Añadir proyecto",
+    "createTitle": "Crear proyecto",
+    "createDescription": "Elige la carpeta de este proyecto. Por defecto, el nombre será el de la carpeta.",
     "name": "Nombre del proyecto",
+    "namePlaceholder": "Nombre del proyecto",
+    "nameHelp": "Edita este nombre para darle al proyecto un rótulo amigable.",
     "path": "Ruta de carpeta",
+    "pathPlaceholder": "/ruta/al/proyecto",
+    "remotePathHelp": "En modo remoto, el proyecto usa el espacio de trabajo reportado por el engine conectado.",
     "cancel": "Cancelar",
     "remoteHint": "Este proyecto usa otro espacio de trabajo remoto. Cambia la conexión para abrirlo.",
     "chooseDirectory": "Elegir carpeta",
@@ -63,7 +69,8 @@
     "archive": "Archivar {{name}}",
     "archiveConfirm": "¿Archivar {{name}}?",
     "archiveNoDelete": "Archivar solo oculta este proyecto. No eliminará sus archivos ni su espacio de trabajo.",
-    "confirmArchive": "Archivar proyecto"
+    "confirmArchive": "Archivar proyecto",
+    "create": "Crear proyecto"
   },
   "sessions": {
     "title": "Sesiones",

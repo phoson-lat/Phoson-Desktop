@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
 import { FolderKanban, FolderOpen, Pencil, Plus, Archive, X, Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
@@ -7,6 +6,7 @@ import { isRemoteMode, remoteUrl, remoteWorkspace } from "@/bridge/connection";
 import { useSession } from "@/stores/session";
 import { normalizeEndpoint, normalizeWorkspace, useProjects } from "@/stores/projects";
 import { toast } from "sonner";
+import { ProjectCreateDialog } from "@/features/project-create-dialog";
 
 export function ProjectPicker({ workspace }: { workspace?: string }) {
   const { t } = useTranslation("chrome");
@@ -22,8 +22,6 @@ export function ProjectPicker({ workspace }: { workspace?: string }) {
   const selectedId = selectedProjectIds[endpoint] ?? null;
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  const [path, setPath] = useState(workspace ?? "");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [archiveId, setArchiveId] = useState<string | null>(null);
@@ -31,49 +29,46 @@ export function ProjectPicker({ workspace }: { workspace?: string }) {
   const mismatched = (project: (typeof projects)[number]) =>
     isRemoteMode() && normalizeWorkspace(project.workspace) !== normalizeWorkspace(remoteWorkspace() ?? "");
 
-  const select = async (id: string) => {
-    if (busy) return;
+  const select = async (id: string): Promise<boolean> => {
+    if (busy) return false;
     if (!id) {
       selectProject(null, endpoint);
-      return;
+      return true;
     }
     const project = useProjects.getState().projects.find((item) => item.id === id && !item.archived && normalizeEndpoint(item.endpoint) === endpoint);
-    if (!project || mismatched(project)) return;
+    if (!project || mismatched(project)) return false;
     setBusy(true);
     try {
       const actual = await setWorkspace(project.workspace);
       if (normalizeWorkspace(actual) !== normalizeWorkspace(project.workspace)) throw new Error(t("projects.selectError"));
       selectProject(project.id, endpoint);
+      return true;
     } catch (error) {
       toast.error(t("projects.selectError"), { description: String(error) });
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const chooseDirectory = async () => {
-    if (isRemoteMode() || busy) return;
+  const create = async (name: string, path: string): Promise<boolean> => {
+    let project;
     try {
-      const result = await open({ directory: true, multiple: false, defaultPath: path || workspace });
-      if (typeof result === "string") setPath(result);
-    } catch (error) {
-      toast.error(t("projects.directoryError"), { description: String(error) });
-    }
-  };
-
-  const create = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (busy || !name.trim() || !path.trim()) return;
-    try {
-      const project = addProject(name, path, endpoint);
-      setName("");
-      setAdding(false);
-      // Consulta el catálogo actual para no depender de la lista del render anterior.
-      const freshProject = useProjects.getState().projects.find((item) => item.id === project.id && !item.archived);
-      if (freshProject) void select(freshProject.id);
+      project = addProject(name, path, endpoint);
     } catch (error) {
       toast.error(t("projects.createError"), { description: String(error) });
+      return false;
     }
+    // Consulta el catálogo actual para no depender de la lista del render anterior.
+    const freshProject = useProjects.getState().projects.find((item) => item.id === project.id && !item.archived);
+    if (!freshProject) {
+      toast.error(t("projects.createError"), { description: t("projects.selectError") });
+      return false;
+    }
+    // La selección es best-effort: si falla se avisa pero el modal ya no debe
+    // impedir cerrar el modal y repetir el alta (crearía duplicados).
+    void select(freshProject.id);
+    return true;
   };
 
   const saveRename = (event: React.FormEvent<HTMLFormElement>) => {
@@ -94,7 +89,7 @@ export function ProjectPicker({ workspace }: { workspace?: string }) {
     <section className="px-2.5 pt-3" aria-label={t("projects.title")}>
       <div className="mb-1 flex h-8 items-center justify-between px-2">
         <span className="text-[0.7rem] font-semibold uppercase tracking-wide text-muted-foreground">{t("projects.title")}</span>
-        <button type="button" disabled={busy} className="grid size-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50" aria-label={t("projects.add")} title={t("projects.add")} onClick={() => { setPath(workspace ?? (isRemoteMode() ? remoteWorkspace() ?? "" : "")); setAdding(true); }}><Plus className="size-4" aria-hidden="true" /></button>
+        <button type="button" disabled={busy} className="grid size-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50" aria-label={t("projects.add")} title={t("projects.add")} onClick={() => setAdding(true)}><Plus className="size-4" aria-hidden="true" /></button>
       </div>
       <button type="button" disabled={busy} aria-current={!selectedId ? "page" : undefined} className={`${rowClass} ${!selectedId ? activeClass : "text-muted-foreground"} disabled:opacity-50`} onClick={() => void select("")}>
         <FolderOpen className="size-4 shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1 truncate">{t("projects.all")}</span>
@@ -118,11 +113,7 @@ export function ProjectPicker({ workspace }: { workspace?: string }) {
           </div>;
         })}
       </div>
-      {adding && <form className="mt-2 grid gap-2 px-1" onSubmit={create}>
-        <Input autoFocus aria-label={t("projects.name")} value={name} onChange={(event) => setName(event.target.value)} placeholder={t("projects.name")} required />
-        <div className="flex gap-1"><Input aria-label={t("projects.path")} value={path} onChange={(event) => setPath(event.target.value)} placeholder={t("projects.path")} required /><button type="button" disabled={isRemoteMode() || busy} className="rounded-md p-2 hover:bg-muted disabled:opacity-40" aria-label={t("projects.chooseDirectory")} title={t("projects.chooseDirectory")} onClick={() => void chooseDirectory()}><FolderOpen className="size-4" aria-hidden="true" /></button></div>
-        <div className="flex justify-end gap-2"><button type="button" onClick={() => setAdding(false)}>{t("projects.cancel")}</button><button type="submit" disabled={busy} className="font-medium disabled:opacity-50">{t("projects.add")}</button></div>
-      </form>}
+      <ProjectCreateDialog open={adding} workspace={workspace ?? (isRemoteMode() ? remoteWorkspace() ?? "" : "")} busy={busy} onOpenChange={setAdding} onCreate={create} />
       {!activeProjects.length && <div className="sr-only">{t("projects.all")}</div>}
     </section>
   );

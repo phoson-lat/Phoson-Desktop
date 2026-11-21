@@ -49,8 +49,14 @@
     "title": "Projects",
     "all": "All projects",
     "add": "Add project",
+    "createTitle": "Create project",
+    "createDescription": "Choose the folder for this project. Its default name is the folder name.",
     "name": "Project name",
+    "namePlaceholder": "Project name",
+    "nameHelp": "Edit this name to give the project a friendly label.",
     "path": "Folder path",
+    "pathPlaceholder": "/path/to/project",
+    "remotePathHelp": "Remote projects keep the workspace reported by the connected engine.",
     "cancel": "Cancel",
     "remoteHint": "This project uses another remote workspace. Change connection to open it.",
     "chooseDirectory": "Choose directory",
@@ -63,7 +69,8 @@
     "archive": "Archive {{name}}",
     "archiveConfirm": "Archive {{name}}?",
     "archiveNoDelete": "Archiving only hides this project. It will not delete its files or workspace.",
-    "confirmArchive": "Archive project"
+    "confirmArchive": "Archive project",
+    "create": "Create project"
   },
   "sessions": {
     "title": "Sessions",
