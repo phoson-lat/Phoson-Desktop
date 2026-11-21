@@ -161,8 +161,8 @@ except Exception:  # noqa: BLE001
 
 # ── Análisis / build ────────────────────────────────────────────────────────
 a = Analysis(
-    [str(ROOT / "phoson_bridge" / "__main__.py")],
-    pathex=[str(ROOT), str(ENGINE)],
+    [str(ENGINE / "phoson_bridge" / "__main__.py")],
+    pathex=[str(ENGINE)],
     binaries=BINARIES,
     datas=DATAS,
     hiddenimports=HIDDEN_IMPORTS,

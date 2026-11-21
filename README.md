@@ -110,7 +110,9 @@ core has no UI dependency, so the desktop app is a new *sink*, not a fork.
 - **Node.js** ≥ 20 and **pnpm**
 - **Rust** toolchain + the usual [Tauri v2 prerequisites](https://tauri.app/start/prerequisites/)
   (WebView2 on Windows, WebKitGTK on Linux, WKWebView on macOS)
-- **Python 3.12** with `phoson-engine-minimal` installed in a virtualenv
+- **Python 3.12** con `phoson-engine-minimal>=0.64.0` instalado en un virtualenv.
+  Desktop usa el `phoson_bridge` incluido en el engine tanto en desarrollo como
+  en el bundle; la copia histórica de `bridge/phoson_bridge/` no se ejecuta.
 
 The sidecar looks for the engine next to this repo by default; override it with
 `PHOSON_ENGINE_DIR`:

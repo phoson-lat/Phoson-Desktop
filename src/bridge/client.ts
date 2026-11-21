@@ -187,6 +187,15 @@ class MockBridge implements Bridge {
           metrics: this.metrics(id),
         } as unknown as T;
       }
+      case "session.close":
+        return { ok: true, sessionId: String(p.sessionId ?? "demo") } as unknown as T;
+      case "session.jumpCandidates":
+        return { candidates: [] } as unknown as T;
+      case "session.planCompact":
+        return {
+          type: "CompactPlan", ok: false, reason: "", total_messages: 0,
+          summarize_messages: 0, keep_messages: 0, estimated_tokens: 0, profile: "balanced",
+        } as unknown as T;
       case "session.list":
         return { sessions: MOCK_SESSIONS } as unknown as T;
       case "session.delete": {

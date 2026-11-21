@@ -11,9 +11,9 @@ Requirements: **Node ≥ 20 + pnpm**, **Rust (Tauri v2 prerequisites)**,
 ```bash
 # 1. engine venv (editable) — la app lo usa en desarrollo
 git clone https://github.com/phoson-lat/phoson-engine-minimal ../phoson-engine-minimal
-cd ../phoson-engine-minimal && python -m venv .venv && .venv/bin/pip install -e ".[bundle]"
+cd ../phoson-engine-minimal && python -m venv .venv && .venv/bin/pip install -e ".[mcp,stt,checkpoint]"
 # Windows: la misma línea con .venv\Scripts\pip.exe, o con uv:
-#   uv venv && uv pip install -e ".[bundle]"
+#   uv venv && uv pip install -e ".[mcp,stt,checkpoint]"
 
 # 2. app
 cd ../Phoson-Desktop
@@ -22,7 +22,11 @@ export PHOSON_ENGINE_DIR=../phoson-engine-minimal   # si no está al lado
 pnpm tauri dev
 ```
 
-El extra `bundle` **no es opcional si quieres dictar por voz**: trae
+El engine debe ser **≥ 0.64.0**. Desktop ejecuta y empaqueta el
+`phoson_bridge` oficial del engine; `bridge/phoson_bridge/` conserva la copia
+histórica y no es la fuente del sidecar actual.
+
+El extra `stt` **no es opcional si quieres dictar por voz**: trae
 `moonshine-voice` + `sounddevice`. Un venv creado con `uv sync` a secas (sin
 `--extra stt`) arranca la app sin errores, pero `stt.status` devuelve
 `supported: false` y el botón del micrófono queda deshabilitado con el aviso
@@ -110,8 +114,11 @@ pnpm test:unit                # Vitest (store, bridge client y utilidades)
 pnpm build                    # tsc + vite build
 pnpm check:i18n               # locale parity + untranslated UI strings
 cd src-tauri && cargo check && cargo test && cd ..
-python -m py_compile bridge/phoson_bridge/*.py
-python bridge/tests/smoke.py            # y el resto de bridge/tests/*.py
+# Con el Python del venv del engine:
+../phoson-engine-minimal/.venv/bin/python -m pytest -q bridge/tests/test_installed_engine.py
+cd ../phoson-engine-minimal
+.venv/bin/python -m pytest -q tests/phoson_bridge
+cd ../Phoson-Desktop
 ```
 
 CI (`.github/workflows/ci.yml`) runs these on every push/PR.
