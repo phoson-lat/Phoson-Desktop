@@ -2805,7 +2805,7 @@ dependencies = [
 
 [[package]]
 name = "phoson-desktop"
-version = "0.1.0-alpha.29"
+version = "0.1.0-alpha.30"
 dependencies = [
  "keyring",
  "mac-usernotifications",
