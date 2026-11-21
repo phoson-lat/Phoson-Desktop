@@ -73,6 +73,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e "./bridge[test]"
 
+      - name: contrato del bridge oficial incluido en el engine
+        run: python -m pytest -q bridge/tests/test_installed_engine.py
+
       - name: compilar el sidecar (sintaxis)
         run: python -m py_compile bridge/phoson_bridge/*.py
 

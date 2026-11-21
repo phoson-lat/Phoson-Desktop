@@ -74,11 +74,6 @@ fn touch(state: &BridgeState, key: &str) {
         .insert(key.to_string(), Instant::now());
 }
 
-/// Directorio del sidecar Python en el repo (`<repo>/bridge`).
-fn dev_bridge_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../bridge")
-}
-
 /// Directorio del engine (venv con `phoson_engine_minimal` instalado).
 ///
 /// Configurable con `PHOSON_ENGINE_DIR`; por defecto, el repo hermano.
@@ -183,7 +178,8 @@ pub fn spawn_bridge(
 
     // 2) Fallback de desarrollo: venv del engine.
     let engine = dev_engine_dir();
-    let bridge = dev_bridge_dir();
+    // El bridge oficial vive en el engine; no cargar la copia histórica de Desktop.
+    let bridge = engine.canonicalize().unwrap_or_else(|_| engine.clone());
     let python = dev_python(&engine);
     eprintln!(
         "[bridge] usando {} (engine: {}, workspace: {})",
