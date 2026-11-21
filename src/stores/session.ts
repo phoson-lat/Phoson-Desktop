@@ -8,6 +8,8 @@
  */
 
 import { create } from "zustand";
+import { isRemoteMode, remoteWorkspace, remoteUrl } from "../bridge/connection";
+import { useProjects, normalizeEndpoint, normalizeWorkspace } from "./projects";
 
 import { phoson, bindSessionWorkspace, unbindSessionWorkspace, setCurrentWorkspace, getCurrentWorkspace } from "../bridge/client";
 import { logAction, logError, logEvent } from "../lib/log";
@@ -197,7 +199,7 @@ interface SessionState {
   cwd: string;
   /** Refresca el workspace del sidecar activo. */
   loadCwd: () => Promise<void>;
-  /** Fija el workspace activo y abre una sesión nueva en él. */
+  /** Activa una conversación del workspace o crea una si no hay ninguna abierta. */
   setWorkspace: (path: string) => Promise<string>;
   finishOnboarding: () => void;
 }
@@ -209,7 +211,14 @@ const dedupeTools = (visible: string[]) => Array.from(new Set(visible));
 
 /** Recuerda el último workspace para reabrirlo al arrancar. */
 const rememberWorkspace = (path: string) => {
-  if (!path) return;
+  // Abrir una conversación ajena al proyecto vuelve a «todas» sin reasignarla.
+  const endpoint = normalizeEndpoint(isRemoteMode() ? remoteUrl() ?? "remote" : "local");
+  const catalog = useProjects.getState();
+  const selected = catalog.projects.find(p => p.id === catalog.selectedProjectIds[endpoint]);
+  if (selected && normalizeWorkspace(selected.workspace) !== normalizeWorkspace(path)) {
+    catalog.selectProject(null, endpoint);
+  }
+  if (!path || isRemoteMode()) return;
   try {
     localStorage.setItem("phoson.workspace", path);
   } catch {
@@ -829,7 +838,10 @@ export const useSession = create<SessionState>((set, get) => {
           // Reabre el último workspace usado (su propio sidecar). Si ya no existe,
           // el sidecar cae al cwd por defecto y `info.cwd` corrige el estado.
           try {
-            const saved = localStorage.getItem("phoson.workspace");
+            const endpoint = normalizeEndpoint(isRemoteMode() ? remoteUrl() ?? "remote" : "local");
+            const catalog = useProjects.getState();
+            const project = catalog.projects.find(p => p.id === catalog.selectedProjectIds[endpoint] && !p.archived);
+            const saved = isRemoteMode() ? remoteWorkspace() : project?.workspace ?? localStorage.getItem("phoson.workspace");
             if (saved) setCurrentWorkspace(saved);
           } catch {
             /* almacenamiento no disponible */
@@ -875,7 +887,7 @@ export const useSession = create<SessionState>((set, get) => {
             cwd: workspace || s.cwd,
             availableTools: dedupeTools(info.tools?.visible ?? s.availableTools),
             maskedTools: info.tools?.maskedCount ?? s.maskedTools,
-            onboardingNeeded: Boolean(info.onboarding?.needed) && (!dismissed || forceOnboarding),
+            onboardingNeeded: !isRemoteMode() && Boolean(info.onboarding?.needed) && (!dismissed || forceOnboarding),
             sessions: {
               ...s.sessions,
               [key]: { ...emptyView(key), metrics: info.metrics, workspace },
@@ -886,7 +898,7 @@ export const useSession = create<SessionState>((set, get) => {
             {
               sessionId: key,
               workspace,
-              onboardingNeeded: Boolean(info.onboarding?.needed) && (!dismissed || forceOnboarding),
+              onboardingNeeded: !isRemoteMode() && Boolean(info.onboarding?.needed) && (!dismissed || forceOnboarding),
               tools: info.tools?.visible?.length ?? 0,
             },
             "info",
@@ -1319,6 +1331,12 @@ export const useSession = create<SessionState>((set, get) => {
     },
 
     setActive: (key) => {
+      const workspace = get().sessions[key]?.workspace;
+      if (!get().sessions[key]) return;
+      if (workspace) {
+        setCurrentWorkspace(workspace);
+        rememberWorkspace(workspace);
+      }
       logAction("session.activate", { sessionId: key });
       set((s) => ({
         activeKey: key,
@@ -1432,14 +1450,19 @@ export const useSession = create<SessionState>((set, get) => {
     },
 
     setWorkspace: async (path) => {
-      // Un workspace nuevo = su propio sidecar (su propio cwd de proceso).
-      // Abrimos una sesión ahí para dejarlo activo sin pisar las demás.
+      // Reutiliza una conversación viva del proyecto sin cancelar las demás.
+      // No cambia el enrutado hasta que el workspace se haya abierto con éxito.
       logAction("workspace.set", { path });
-      setCurrentWorkspace(path);
-      rememberWorkspace(path);
-      set({ cwd: path });
+      const existing = [...get().order].reverse().find((key) => {
+        const view = get().sessions[key];
+        return view && normalizeWorkspace(view.workspace) === normalizeWorkspace(path) && !view.peer;
+      });
+      if (existing) {
+        get().setActive(existing);
+        return get().sessions[existing].workspace;
+      }
       await get().newSession(path);
-      return path;
+      return get().cwd;
     },
 
     startOnboarding: () => {

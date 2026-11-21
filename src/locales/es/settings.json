@@ -3,7 +3,16 @@
     "title": "Configuración",
     "subtitle": "Ajustes del engine, compartidos con el <cli>phoson-cli</cli>."
   },
+  "connection": {
+    "title": "Conexión al servidor",
+    "hint": "Usa el motor de este equipo o conéctate a un servidor remoto.",
+    "local": "Motor local",
+    "remote": "Servidor remoto",
+    "connect": "Configurar conexión",
+    "warning": "Cambiar la conexión recarga la interfaz. No cancela el trabajo del servidor ni borra las conversaciones guardadas, pero tendrás que volver a abrirlas."
+  },
   "sections": {
+    "connection": "Conexión",
     "models": "Modelos",
     "providers": "Proveedores",
     "local": "Servidores locales",

@@ -61,6 +61,9 @@
     "copyToClipboard": "Copy to clipboard",
     "scrollToBottom": "Scroll to bottom"
   },
+  "remote": {
+    "localUnavailable": "Local engine features are unavailable while connected to a remote server."
+  },
   "tray": {
     "show": "Show Phoson",
     "hide": "Send to tray",

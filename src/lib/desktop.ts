@@ -10,13 +10,14 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import { isTauri } from "@/bridge/client";
+import { isRemoteMode, isTauri } from "@/bridge/client";
 import i18n from "@/lib/i18n";
 
 /** Cómo avisar al terminar un turno (misma semántica que `notify_on_completion`). */
 export type NotifyMode = "off" | "bell" | "desktop";
 
 const TRAY_PREF = "phoson.closeToTray";
+const remoteUnavailable = () => new Error(i18n.t("common:remote.localUnavailable"));
 
 /**
  * Notificación nativa del sistema. `true` si la shell la aceptó.
@@ -109,24 +110,28 @@ export function setCloseToTrayPref(enabled: boolean): void {
   } catch {
     /* almacenamiento no disponible */
   }
+  if (isRemoteMode()) throw remoteUnavailable();
   if (!isTauri()) return;
   void invoke("set_close_to_tray", { enabled }).catch(() => {});
 }
 
 /** Sincroniza la preferencia guardada con la shell nativa (al arrancar). */
 export function syncCloseToTray(): void {
+  if (isRemoteMode()) throw remoteUnavailable();
   if (!isTauri()) return;
   void invoke("set_close_to_tray", { enabled: isCloseToTrayEnabled() }).catch(() => {});
 }
 
 /** Oculta la ventana a la bandeja (el agente sigue ejecutándose). */
 export async function hideToTray(): Promise<void> {
+  if (isRemoteMode()) throw remoteUnavailable();
   if (!isTauri()) return;
   await invoke("hide_to_tray").catch(() => {});
 }
 
 /** Muestra y enfoca la ventana principal. */
 export async function showMainWindow(): Promise<void> {
+  if (isRemoteMode()) throw remoteUnavailable();
   if (!isTauri()) return;
   await invoke("show_window").catch(() => {});
 }
@@ -146,6 +151,7 @@ export interface NativeLabels {
 
 /** Aplica las etiquetas nativas traducidas (menú de bandeja y tooltip). */
 export async function setNativeLabels(labels: NativeLabels): Promise<void> {
+  if (isRemoteMode()) throw remoteUnavailable();
   if (!isTauri()) return;
   await invoke("set_native_labels", { labels }).catch(() => {});
 }
@@ -160,6 +166,7 @@ export interface EditorInfo {
 
 /** Abre una carpeta en el explorador de archivos del sistema. */
 export async function openFolder(path: string): Promise<void> {
+  if (isRemoteMode()) throw remoteUnavailable();
   if (!isTauri()) return;
   await invoke("open_folder", { path });
 }
@@ -172,12 +179,14 @@ export interface FileManagerInfo {
 
 /** Gestor de archivos por defecto del SO (Explorer, Finder, Dolphin…). */
 export async function fileManager(): Promise<FileManagerInfo | null> {
+  if (isRemoteMode()) return null;
   if (!isTauri()) return null;
   return invoke<FileManagerInfo>("file_manager").catch(() => null);
 }
 
 /** Editores de código instalados (VS Code, Cursor, Windsurf, Zed…). */
 export async function listEditors(): Promise<EditorInfo[]> {
+  if (isRemoteMode()) return [];
   if (!isTauri()) return [];
   return invoke<EditorInfo[]>("list_editors");
 }
@@ -187,6 +196,7 @@ export async function listEditors(): Promise<EditorInfo[]> {
  * Con `line` abre el archivo en esa línea (`-g ruta:línea`).
  */
 export async function openInEditor(editorId: string, path: string, line?: number): Promise<void> {
+  if (isRemoteMode()) throw remoteUnavailable();
   if (!isTauri()) return;
   await invoke("open_in_editor", { editor: editorId, path, line: line ?? null });
 }
@@ -250,6 +260,7 @@ export interface GitStatusInfo {
 
 /** `null` si la carpeta no es un repo git (o git no está instalado). */
 export async function gitStatus(path: string): Promise<GitStatusInfo | null> {
+  if (isRemoteMode()) return null;
   if (!isTauri()) return null;
   return invoke<GitStatusInfo | null>("git_status", { path }).catch(() => null);
 }
@@ -259,12 +270,14 @@ export async function gitStatus(path: string): Promise<GitStatusInfo | null> {
  * lo sondea cada poco y solo recarga el estado completo cuando cambia.
  */
 export async function gitStamp(path: string): Promise<number | null> {
+  if (isRemoteMode()) return null;
   if (!isTauri()) return null;
   return invoke<number | null>("git_stamp", { path }).catch(() => null);
 }
 
 /** Abre una terminal en la carpeta (Windows Terminal, PowerShell, cmd…). */
 export async function openTerminal(path: string): Promise<void> {
+  if (isRemoteMode()) throw remoteUnavailable();
   if (!isTauri()) return;
   await invoke("open_terminal", { path });
 }
@@ -277,20 +290,24 @@ export interface GitDiffResult {
 }
 
 export async function gitDiff(path: string): Promise<GitDiffResult> {
+  if (isRemoteMode()) throw remoteUnavailable();
   return invoke<GitDiffResult>("git_diff", { path });
 }
 
 /** Acción de red sobre el repo. Devuelve la salida de git; lanza si falla. */
 export async function gitAction(path: string, action: "fetch" | "pull" | "push"): Promise<string> {
+  if (isRemoteMode()) throw remoteUnavailable();
   return invoke<string>("git_action", { path, action });
 }
 
 /** Ramas locales del repo. */
 export async function gitBranches(path: string): Promise<string[]> {
+  if (isRemoteMode()) throw remoteUnavailable();
   return invoke<string[]>("git_branches", { path });
 }
 
 /** Cambia de rama o la crea (`create`). Lanza con el mensaje de git si falla. */
 export async function gitCheckout(path: string, branch: string, create = false): Promise<void> {
+  if (isRemoteMode()) throw remoteUnavailable();
   await invoke("git_checkout", { path, branch, create });
 }

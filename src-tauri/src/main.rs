@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod bridge;
+mod credentials;
 mod logging;
 mod native;
 mod notify;
@@ -25,6 +26,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             bridge::rpc,
             bridge::kill_sidecar,
+            credentials::remote_token_get,
+            credentials::remote_token_set,
+            credentials::remote_token_delete,
             logging::log_append,
             logging::log_path,
             logging::log_open_dir,
@@ -70,24 +74,6 @@ fn main() {
                     }
                 });
             }
-
-            let handle = app.handle().clone();
-            // Sidecar por defecto. Los demás se arrancan bajo demanda, uno por
-            // proyecto, en `bridge::rpc`. La clave es la MISMA que usaría `rpc`
-            // para ese workspace: si no, el front que pida esa carpeta por su
-            // ruta levantaría un segundo sidecar para el mismo proyecto.
-            let key = bridge::workspace_key(None);
-            let (rx, child) = bridge::spawn_bridge(&handle, None).expect(
-                "no se pudo lanzar el bridge (ni sidecar ni python). \
-                 Define PHOSON_ENGINE_DIR si tu engine no está en ../phoson-engine-minimal",
-            );
-            {
-                let state = handle.state::<BridgeState>();
-                state.children.lock().unwrap().insert(key.clone(), child);
-            }
-            tauri::async_runtime::spawn(async move {
-                bridge::pump(handle, rx, key).await;
-            });
 
             // Recolector de sidecars inactivos: cierra los de workspaces que
             // nadie usa (la app puede vivir en la bandeja durante horas).

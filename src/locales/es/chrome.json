@@ -45,6 +45,26 @@
   "teams": {
     "title": "Equipos"
   },
+  "projects": {
+    "title": "Proyectos",
+    "all": "Todos los proyectos",
+    "add": "Añadir proyecto",
+    "name": "Nombre del proyecto",
+    "path": "Ruta de carpeta",
+    "cancel": "Cancelar",
+    "remoteHint": "Este proyecto usa otro espacio de trabajo remoto. Cambia la conexión para abrirlo.",
+    "chooseDirectory": "Elegir carpeta",
+    "selectError": "No se pudo abrir el espacio de trabajo del proyecto",
+    "directoryError": "No se pudo elegir la carpeta del proyecto",
+    "createError": "No se pudo crear el proyecto",
+    "renameError": "No se pudo cambiar el nombre del proyecto",
+    "rename": "Cambiar nombre de {{name}}",
+    "saveRename": "Guardar nombre del proyecto",
+    "archive": "Archivar {{name}}",
+    "archiveConfirm": "¿Archivar {{name}}?",
+    "archiveNoDelete": "Archivar solo oculta este proyecto. No eliminará sus archivos ni su espacio de trabajo.",
+    "confirmArchive": "Archivar proyecto"
+  },
   "sessions": {
     "title": "Sesiones",
     "new": "Nueva sesión",
@@ -97,5 +117,38 @@
     "openInEditorA11y": "Abrir {{name}} en el editor",
     "openEditorError": "No se pudo abrir en el editor",
     "truncated": "Mostrando las primeras 400 entradas."
+  },
+  "remote": {
+    "title": "Elige cómo conectar",
+    "subtitle": "Usa Phoson en este equipo o conecta a un servidor remoto.",
+    "chooseConnection": "Elegir conexión",
+    "connected": "Conectado al servidor remoto",
+    "disconnect": "Desconectar",
+    "change": "Cambiar conexión",
+    "local": "Este equipo",
+    "localHint": "Usar el motor local",
+    "remote": "Servidor remoto",
+    "remoteHint": "Conectar mediante emparejamiento",
+    "url": "URL del servidor",
+    "code": "Código de emparejamiento",
+    "rememberedHint": "Puedes dejarlo vacío para iniciar sesión con un token guardado.",
+    "workspace": "Espacio de trabajo (opcional)",
+    "deviceName": "Nombre de este dispositivo",
+    "remember": "Recordar este dispositivo",
+    "security": "Se requiere wss://, excepto para direcciones de loopback locales.",
+    "startup": "En el servidor, inicia el servicio con: phoson-cli serve --pair. El servicio de emparejamiento está disponible en /v1.",
+    "origin": "El servidor debe permitir el origen de esta aplicación con --allow-origin (por ejemplo, tauri://localhost). El origen puede variar según la plataforma; si se bloquea la conexión, usa el origen que aparece en el error.",
+    "warning": "Los archivos del espacio de trabajo y las herramientas se ejecutan en el servidor remoto.",
+    "reconnect": "La reconexión automática aún no está disponible.",
+    "connect": "Conectar",
+    "connecting": "Conectando…",
+    "errors": {
+      "pairing": "Código o token de emparejamiento no válido.",
+      "origin": "El servidor no permite el origen de esta aplicación.",
+      "security": "La conexión no cumple los requisitos de seguridad.",
+      "workspace": "No se pudo abrir el espacio de trabajo solicitado.",
+      "url": "La URL del servidor no es válida.",
+      "generic": "No se pudo conectar al servidor remoto. Comprueba la dirección y vuelve a intentarlo."
+    }
   }
 }

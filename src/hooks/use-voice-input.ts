@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { isTauri, phoson } from "@/bridge/client";
+import { isRemoteMode, isTauri, phoson } from "@/bridge/client";
 import type { SttStatus } from "@/bridge/protocol";
 import i18n, { useLocale } from "@/lib/i18n";
 import { speechLocale } from "@/lib/locale";
@@ -90,7 +90,7 @@ interface VoiceInputOptions {
  * inicial del modelo, con porcentaje: «Descargando… 42%»).
  */
 export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
-  const webCtor = useRef<(new () => SpeechRecognitionLike) | null>(getCtor());
+  const webCtor = useRef<(new () => SpeechRecognitionLike) | null>(isRemoteMode() ? null : getCtor());
   /** null = sin sonda (o sondeando) el motor del sidecar. */
   const [engineSupported, setEngineSupported] = useState<boolean | null>(null);
   /** Motor/idioma elegidos por el sidecar (para el título del botón). */
@@ -125,7 +125,7 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   };
 
   /** El sidecar solo existe dentro de la app de escritorio. */
-  const hasSidecar = isTauri() && Boolean(sessionId);
+  const hasSidecar = !isRemoteMode() && isTauri() && Boolean(sessionId);
   /** Sondeando el motor del sidecar (un instante: `stt.status` está cacheado). */
   const checking = hasSidecar && engineSupported === null;
   const supported =
@@ -317,6 +317,10 @@ export function useVoiceInput({ onText, sessionId }: VoiceInputOptions) {
   }, [stopWeb, stopEngine]);
 
   const start = useCallback(() => {
+    if (isRemoteMode()) {
+      setError(i18n.t("common:remote.localUnavailable"));
+      return;
+    }
     // El motor del sidecar manda cuando está disponible: en WebView2 el ctor de
     // Web Speech existe pero la captura no funciona.
     if (engineSupported === true) {

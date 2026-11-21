@@ -13,6 +13,9 @@ import { shortcutLabel } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import type { SessionView } from "@/stores/session";
 import { cleanSessionTitle, truncateTitle } from "@/lib/session-title";
+import { ProjectPicker } from "@/features/project-picker";
+import { useProjects, normalizeEndpoint, normalizeWorkspace } from "@/stores/projects";
+import { isRemoteMode, remoteUrl } from "@/bridge/connection";
 
 interface SidebarProps {
   activeKey: string | null;
@@ -158,6 +161,10 @@ export function Sidebar({
   // `common` entra en el array para poder reutilizar sus claves (`common:…`).
   const { t } = useTranslation(["chrome", "common"]);
   const [saved, setSaved] = useState<SessionMeta[]>([]);
+  const endpoint = normalizeEndpoint(isRemoteMode() ? remoteUrl() ?? "remote" : "local");
+  const project = useProjects(s => s.projects.find(p =>
+    p.id === s.selectedProjectIds[endpoint] && p.endpoint === endpoint && !p.archived));
+  const projectWorkspace = project ? normalizeWorkspace(project.workspace) : null;
   /** Sesión pendiente de confirmar borrado (confirmación en dos pasos). */
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -209,15 +216,18 @@ export function Sidebar({
 
   const openRows = useMemo(
     () =>
-      order.filter((k) => (q ? titleOf(sessions[k]).toLowerCase().includes(q) : true)),
-    [order, sessions, q],
+      order.filter((k) => sessions[k] &&
+        (projectWorkspace === null || normalizeWorkspace(sessions[k].workspace ?? "") === projectWorkspace) &&
+        (!q || titleOf(sessions[k]).toLowerCase().includes(q))),
+    [order, sessions, q, projectWorkspace],
   );
   const savedRows = useMemo(
     () =>
       saved.filter((s) =>
-        q ? `${s.title} ${s.id}`.toLowerCase().includes(q) : true,
+        (projectWorkspace === null || normalizeWorkspace(s.cwd ?? "") === projectWorkspace) &&
+        (!q || `${s.title} ${s.id}`.toLowerCase().includes(q)),
       ),
-    [saved, q],
+    [saved, q, projectWorkspace],
   );
 
   // Título "vivo" de las sesiones abiertas (por id de engine) para que la lista
@@ -372,6 +382,7 @@ export function Sidebar({
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto pb-3">
+                <ProjectPicker workspace={workspace} />
                 {openRows.length > 0 && (
                   <>
                     <SectionLabel>{t("sessions.open")}</SectionLabel>

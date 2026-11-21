@@ -70,6 +70,7 @@ export async function openExternal(url: string): Promise<void> {
 
 /** Abre una ruta local en el visor/aplicación por defecto del sistema. */
 export async function openPath(path: string): Promise<void> {
+  if (isRemoteMode()) throw new Error(i18n.t("common:remote.localUnavailable"));
   if (!isTauri()) return;
   await invoke("open_path", { path });
 }
@@ -906,7 +907,37 @@ const MOCK_SESSIONS: SessionMeta[] = [  { id: "a1b2c3", title: "Arquitectura del
   { id: "g7h8i9", title: "Port design system", updated_at: "2026-09-18T11:45:00", message_count: 21, total_cost: 0.077, last_model: "claude-sonnet", cwd: "~/Phoson", status: "completed" },
 ];
 
-export const bridge: Bridge = isTauri() ? new TauriBridge() : new MockBridge();
+const localBridge: Bridge = isTauri() ? new TauriBridge() : new MockBridge();
+let remoteBridge: Bridge | null = null;
+export const isRemoteMode = (): boolean => remoteBridge !== null;
+
+/** Limpia el transporte antes de abandonar la conexión (la UI se recarga). */
+export function resetBridge(): void {
+  remoteBridge = null;
+  sessionWorkspace.clear();
+  currentWorkspace = null;
+}
+
+/** Se instala antes de montar App: nunca se mezclan sesiones locales y remotas. */
+export function installBridge(next: Bridge, workspace: string): void {
+  remoteBridge = next;
+  sessionWorkspace.clear();
+  currentWorkspace = workspace;
+}
+
+export const bridge: Bridge = {
+  rpc: <T = Json,>(method: string, params?: Json, workspace?: string | null) => {
+    if (remoteBridge) {
+      // Operaciones dependientes del hardware/OAuth o de administración del servidor.
+      if (/^(stt\.|auth\.(login|logout)$|config\.set$|plugins\.(install|uninstall|set|installExtra)|mcp\.(save|remove)$|fs\.setCwd$)/.test(method)) {
+        return Promise.reject(new Error(i18n.t("common:remote.localUnavailable")));
+      }
+      return remoteBridge.rpc<T>(method, params, workspace);
+    }
+    return localBridge.rpc<T>(method, params, workspace);
+  },
+  onNotify: (handler) => (remoteBridge ?? localBridge).onNotify(handler),
+};
 
 // ── Enrutado por workspace ────────────────────────────────────────────────
 // Cada proyecto (workspace) tiene su propio sidecar, con su propio `cwd` de
@@ -941,7 +972,7 @@ export const getCurrentWorkspace = () => currentWorkspace;
 
 /** Cierra (mata) el sidecar de un workspace: se respawnea al volver a usarlo. */
 export const killSidecar = async (workspace?: string | null): Promise<boolean> => {
-  if (!isTauri()) return false;
+  if (!isTauri() || isRemoteMode()) return false;
   return invoke<boolean>("kill_sidecar", { workspace: workspace ?? null });
 };
 
@@ -957,7 +988,7 @@ export const onTerminated = (
   if (!isTauri()) return Promise.resolve(() => {});
   return listen<{ workspace: string; code: number | null; idle?: boolean }>(
     "phoson://terminated",
-    (e) => handler(e.payload),
+    (e) => { if (!isRemoteMode()) handler(e.payload); },
   );
 };
 

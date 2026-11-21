@@ -84,6 +84,7 @@
     "@lobehub/icons-static-svg": "^1.95.0",
     "@tailwindcss/vite": "^4.2.0",
     "@tauri-apps/cli": "^2.0.0",
+    "@types/node": "^26.6.6",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
