@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, Loader2, Search, PanelLeft, MessageSquare, Settings, Trash2, Users, X, SquarePen } from "lucide-react";
+import { AlertTriangle, Bot, Loader2, Search, PanelLeft, MessageSquare, Settings, Trash2, Users, X, SquarePen, FolderOpen } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -28,6 +28,8 @@ interface SidebarProps {
   onSelect: (key: string) => void;
   onNew: () => void;
   teamsActive?: boolean;
+  projectActive?: boolean;
+  onOpenProject: () => void;
   onOpenTeams: () => void;
   onOpen: (engineId: string, workspace?: string) => void;
   onClose: (key: string) => void;
@@ -148,6 +150,8 @@ export function Sidebar({
   onSelect,
   onNew,
   teamsActive = false,
+  projectActive = false,
+  onOpenProject,
   onOpenTeams,
   onOpen,
   onClose,
@@ -378,6 +382,7 @@ export function Sidebar({
 
               <div className="space-y-0.5 px-2 pb-1 pt-1">
                 <Row icon={SquarePen} label={t("sessions.new")} primary onClick={onNew} />
+                <Row icon={FolderOpen} label={t("title", { ns: "projectAdmin" })} active={projectActive} onClick={onOpenProject} />
                 <Row icon={Users} label={t("teams.title")} active={teamsActive} onClick={onOpenTeams} />
               </div>
 
