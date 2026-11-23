@@ -5,6 +5,7 @@ import chat from "./chat.json";
 import chrome from "./chrome.json";
 import common from "./common.json";
 import onboarding from "./onboarding.json";
+import projectAdmin from "./projectAdmin.json";
 import palette from "./palette.json";
 import settings from "./settings.json";
 import system from "./system.json";
@@ -12,6 +13,6 @@ import teams from "./teams.json";
 import tools from "./tools.json";
 import welcome from "./welcome.json";
 
-const es = { chat, chrome, common, onboarding, palette, settings, system, teams, tools, welcome };
+const es = { chat, chrome, common, onboarding, palette, projectAdmin, settings, system, teams, tools, welcome };
 
 export default es;

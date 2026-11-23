@@ -1029,6 +1029,10 @@ export function normalizeAttachment(raw: RawAttachment): Attachment {
 }
 
 // ── Atajos tipados (lo que consume el store) ──────────────────────────────
+export type MemoryScope = "global" | "project";
+export interface MemoryRecord { key: string; id?: string; content: string; value?: string; }
+export interface MemoryListResult { items?: MemoryRecord[]; records?: MemoryRecord[]; }
+
 export const phoson = {
   rpc: call,
   onNotify: (handler: (envelope: Envelope) => void) => bridge.onNotify(handler),
@@ -1063,6 +1067,14 @@ export const phoson = {
       content,
     }),
   closeSession: (sessionId: string) => call("session.close", { sessionId }),
+  /** Local Markdown memory RPC; global scope does not depend on a workspace. */
+  memoryList: (workspace: string, scope: MemoryScope = "project") => callIn<MemoryListResult>(workspace, "memory.list", { workspace, scope }),
+  memoryRead: (workspace: string, key: string, scope: MemoryScope = "project") => callIn<MemoryRecord>(workspace, "memory.read", { workspace, key, scope }),
+  memoryWrite: (workspace: string, key: string, content: string, scope: MemoryScope = "project") => callIn<Json>(workspace, "memory.write", { workspace, key, content, scope }),
+  memoryDelete: (workspace: string, key: string, scope: MemoryScope = "project") => callIn<Json>(workspace, "memory.delete", { workspace, key, scope }),
+  projectMcps: (workspace: string) => callIn<{ mcps: Array<{ name: string; approved: boolean; hash: string; transport: string; command: string; args: string[]; url: string; enabled: boolean; envKeys: string[]; headerKeys: string[] }> }>(workspace, "mcp.project.get", { workspace }),
+  mcpApprove: (workspace: string, name: string, hash: string) => callIn<Json>(workspace, "mcp.project.approve", { workspace, name, hash }),
+  mcpRevoke: (workspace: string, name: string, hash: string) => callIn<Json>(workspace, "mcp.project.revoke", { workspace, name, hash }),
   /** Deshace el último turno de usuario (el engine mueve el cursor atrás). */
   sessionUndo: (sessionId: string) =>
     call<{ ok: boolean; message: string; history?: unknown[] | null }>("session.undo", { sessionId }),

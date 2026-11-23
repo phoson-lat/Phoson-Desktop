@@ -1,6 +1,7 @@
 import { ArrowDown, Folder, Menu, Sparkles } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ProjectAdmin } from "@/features/project-admin";
 import { toast } from "sonner";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -99,7 +100,7 @@ export default function App() {  const {
   const setDraft = (v: string) =>
     setDrafts((d) => (activeKey ? { ...d, [activeKey]: v } : d));
   const [navOpen, setNavOpen] = useState(false);
-  const [section, setSection] = useState<"chat" | "teams">("chat");
+  const [section, setSection] = useState<"chat" | "teams" | "project">("chat");
   const [collapsed, setCollapsed] = useState(
     () => typeof localStorage !== "undefined" && localStorage.getItem("phoson.nav") === "collapsed",
   );
@@ -508,6 +509,11 @@ export default function App() {  const {
           collapsed={collapsed}
           onDismiss={() => setNavOpen(false)}
           teamsActive={section === "teams"}
+          projectActive={section === "project"}
+          onOpenProject={() => {
+            setSection("project");
+            setNavOpen(false);
+          }}
           onOpenTeams={() => {
             setSection("teams");
             setNavOpen(false);
@@ -538,7 +544,7 @@ export default function App() {  const {
           </div>
           <div className="relative min-h-0 flex-1">
           <div className="absolute inset-0 flex min-h-0 min-w-0">
-          {section === "teams" ? (
+          {section === "project" ? <ProjectAdmin workspace={cwd} /> : section === "teams" ? (
             <Suspense fallback={null}>
               <TeamsView currentWorkspace={cwd} />
             </Suspense>
